@@ -19,7 +19,11 @@ return new class extends Migration
             ->whereNotNull('participant_id')
             ->whereNull('revoked_at')
             ->whereNotNull('issued_at')
-            ->groupBy(['webinar_id', 'participant_id'])
+            // Select only the grouped columns. A bare ->get() selects *, which
+            // PostgreSQL (and MySQL in ONLY_FULL_GROUP_BY mode) reject alongside
+            // a GROUP BY; SQLite tolerates it, so this only surfaces in prod.
+            ->select('webinar_id', 'participant_id')
+            ->groupBy('webinar_id', 'participant_id')
             ->havingRaw('COUNT(*) > 1')
             ->get()
             ->count();
