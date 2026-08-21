@@ -105,12 +105,16 @@ class PublicFormController extends Controller
 
         try {
             $submission = DB::transaction(function () use ($form, $request, $sessionParticipantId): ?Submission {
-                // Lock the event and form before checking lifecycle and attempts.
-                // Administrative definition edits take these locks in the same
-                // order, so the accepted answer schema cannot change mid-submit.
-                $webinar = Webinar::query()->lockForUpdate()->findOrFail($form->webinar_id);
-                $lockedForm = Form::query()->lockForUpdate()->findOrFail($form->id);
-                $lockedForm->setRelation('webinar', $webinar);
+                // Hold a SHARED lock on the form for the duration of the submit so
+                // the answer schema cannot change underneath it: administrative
+                // definition edits take an EXCLUSIVE lock on the same row and so
+                // block until in-flight submissions finish (and vice versa).
+                // Crucially, concurrent submitters share this lock and do not
+                // serialize against one another — the webinar row is deliberately
+                // NOT locked, so hundreds of people answering the four forms of one
+                // event run in parallel instead of queuing behind a single row.
+                $lockedForm = Form::query()->sharedLock()->findOrFail($form->id);
+                $lockedForm->setRelation('webinar', Webinar::query()->findOrFail($form->webinar_id));
 
                 abort_unless($lockedForm->acceptsResponses(), 403, $lockedForm->closedReason());
 

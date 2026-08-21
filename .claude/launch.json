@@ -1,11 +1,11 @@
 {
-  "version": "0.0.1",
-  "configurations": [
-    {
-      "name": "webinar-platform",
-      "runtimeExecutable": "php",
-      "runtimeArgs": ["artisan", "serve", "--host=localhost", "--port=8000"],
-      "port": 8000
-    }
-  ]
+    "version": "0.0.1",
+    "configurations": [
+        {
+            "name": "webinar-serve",
+            "runtimeExecutable": "php",
+            "runtimeArgs": ["artisan", "serve", "--port=8000"],
+            "port": 8000
+        }
+    ]
 }

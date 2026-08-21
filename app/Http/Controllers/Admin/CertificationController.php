@@ -173,6 +173,9 @@ class CertificationController extends Controller
         return response($disk->get($template->background_path), 200, [
             'Content-Type' => $disk->mimeType($template->background_path) ?: 'image/png',
             'Cache-Control' => 'private, no-store, max-age=0',
+            // The stored file passed image validation, but never let a browser
+            // re-sniff it into an active type.
+            'X-Content-Type-Options' => 'nosniff',
         ]);
     }
 
