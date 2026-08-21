@@ -7,7 +7,7 @@
 @endphp
 
 <x-page-header title="Certificate selection & preview"
-               subtitle="Choose eligible participants, review each generated certificate, then issue and send.">
+               subtitle="Choose eligible participants, review each certificate, then issue and send.">
     <x-slot:meta>
         <div class="mt-3 flex flex-wrap items-center gap-2.5 text-[13px] text-slate-500 tabular-nums">
             <span><strong class="font-semibold text-slate-900">{{ $participants->count() }}</strong> eligible</span>
@@ -20,10 +20,12 @@
     </x-slot:actions>
 </x-page-header>
 
-@if(! $template)
+@if(! $template || ! $hasBackground)
     <div class="panel p-8 text-center">
-        <p class="text-sm text-slate-600">No active certificate template yet.</p>
-        <a class="button-primary mt-4" href="{{ route('admin.certification.edit', $webinar) }}">Set up the template</a>
+        <x-icon name="image" class="mx-auto size-8 text-slate-300" />
+        <p class="mt-3 text-sm font-medium text-slate-900">No certificate design uploaded yet</p>
+        <p class="mt-1 text-[13px] text-slate-500">Upload your finished certificate image first. Names are placed on top of it when you issue.</p>
+        <a class="button-primary mt-4" href="{{ route('admin.certification.edit', $webinar) }}">Upload the certificate</a>
     </div>
 @elseif($participants->isEmpty())
     <div class="panel p-8 text-center">
@@ -83,24 +85,26 @@
                 <div class="flex h-full flex-col items-center justify-center text-center" data-preview-empty>
                     <x-icon name="image" class="size-9 text-slate-300" />
                     <p class="mt-3 text-sm font-medium text-slate-600">Select participants to preview their certificates</p>
-                    <p class="mt-1 max-w-xs text-[12px] text-slate-400">Each generated certificate appears here so you can check the name placement and formatting before sending.</p>
+                    <p class="mt-1 max-w-xs text-[12px] text-slate-400">Each certificate appears here so you can check and correct the name before sending.</p>
                 </div>
 
                 @foreach($participants as $participant)
                     <figure class="hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ring-1 ring-black/[0.02]"
                             data-preview="{{ $participant->public_id }}">
                         <x-certificate-preview
-                            :webinar="$webinar"
                             :name="$participant->full_name"
-                            :has-background="$hasBackground"
                             :layout="$layout"
                             :background-url="$backgroundUrl" />
-                        <figcaption class="flex items-center justify-between gap-3 border-t border-slate-100 px-4 py-2.5">
-                            <span class="min-w-0">
-                                <span class="block truncate text-[13px] font-medium text-slate-900">{{ $participant->full_name ?: 'Unnamed participant' }}</span>
-                                <span class="block truncate text-[12px] text-slate-500">{{ $participant->email ?: 'No email on file' }}</span>
-                            </span>
-                            <span class="inline-flex shrink-0 items-center gap-1.5 text-[12px] font-medium text-emerald-700"><x-icon name="check-circle" class="size-4" />Ready</span>
+                        <figcaption class="border-t border-slate-100 px-4 py-3">
+                            <label class="field-label text-[12px]">Name on this certificate
+                                <input type="text" maxlength="120"
+                                       class="field mt-1"
+                                       name="names[{{ $participant->public_id }}]"
+                                       value="{{ $participant->full_name }}"
+                                       data-name-input="{{ $participant->public_id }}"
+                                       placeholder="Type the name to print">
+                            </label>
+                            <p class="mt-1.5 truncate text-[12px] text-slate-500">{{ $participant->email ?: 'No email on file' }}</p>
                         </figcaption>
                     </figure>
                 @endforeach
@@ -137,9 +141,9 @@
             <div class="panel p-5">
                 <h3 class="text-[13px] font-semibold text-slate-900">Template in use</h3>
                 <p class="mt-1.5 text-[13px] text-slate-600">{{ $template->name }}</p>
-                <p class="mt-1 inline-flex items-center gap-1.5 text-[12px] {{ $hasBackground ? 'text-emerald-700' : 'text-slate-500' }}">
-                    <x-icon name="{{ $hasBackground ? 'image' : 'file-text' }}" class="size-4" />
-                    {{ $hasBackground ? 'Uploaded design + auto-placed name' : 'Generated design' }}
+                <p class="mt-1 inline-flex items-center gap-1.5 text-[12px] text-emerald-700">
+                    <x-icon name="image" class="size-4" />
+                    Uploaded design + placed name
                 </p>
                 <a class="mt-3 inline-flex items-center gap-1.5 text-[13px] font-medium text-accent-600 hover:underline" href="{{ route('admin.certification.edit', $webinar) }}">
                     <x-icon name="edit" class="size-4" />Edit template
@@ -177,6 +181,17 @@
 
         form.addEventListener('change', function (event) {
             if (event.target.name === 'participants[]') sync();
+        });
+
+        // Typing a corrected name updates that card's live preview immediately,
+        // and the same value is what gets printed and issued.
+        form.addEventListener('input', function (event) {
+            var id = event.target.getAttribute('data-name-input');
+            if (!id) return;
+            var card = previews[id];
+            if (!card) return;
+            var nameEl = card.querySelector('[data-cert-name]');
+            if (nameEl) nameEl.textContent = event.target.value.trim() || 'Participant';
         });
 
         if (selectAll) {

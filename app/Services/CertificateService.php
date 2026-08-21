@@ -2,10 +2,10 @@
 
 namespace App\Services;
 
+use App\Models\AuditLog;
 use App\Models\Certificate;
 use App\Models\CertificateBatch;
 use App\Models\CertificateTemplate;
-use App\Models\AuditLog;
 use App\Models\Participant;
 use App\Models\Webinar;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -21,10 +21,15 @@ class CertificateService
     public function __construct(
         private EligibilityService $eligibility,
         private NotificationService $notifications,
-        private QrCodeService $qrCodes,
     ) {}
 
-    public function issue(Participant $participant, ?CertificateBatch $batch = null): Certificate
+    /**
+     * Issue a certificate to a participant.
+     *
+     * $recipientName lets the organizer correct a typo or a wrong name at the
+     * moment of issuing; when blank the participant's own recorded name is used.
+     */
+    public function issue(Participant $participant, ?CertificateBatch $batch = null, ?string $recipientName = null): Certificate
     {
         $participant->loadMissing('webinar');
         $diskName = (string) config('webinar.certificate_disk');
@@ -32,7 +37,7 @@ class CertificateService
         $certificateId = null;
 
         try {
-            return DB::transaction(function () use ($participant, $batch, $diskName, &$attemptedPath, &$certificateId): Certificate {
+            return DB::transaction(function () use ($participant, $batch, $recipientName, $diskName, &$attemptedPath, &$certificateId): Certificate {
                 // The global lifecycle lock order is webinar -> participant ->
                 // child records. A deletion tombstone is committed under the
                 // webinar lock before file cleanup begins.
@@ -87,6 +92,15 @@ class CertificateService
                     throw new RuntimeException('This webinar has no active certificate template.');
                 }
 
+                // Certificates are the uploaded design with the recipient's name
+                // placed on top. Without an uploaded design there is nothing to
+                // issue, so issuance is refused rather than inventing a layout.
+                if (blank($template->background_path)) {
+                    throw new RuntimeException('Upload a certificate design before issuing.');
+                }
+
+                $name = filled($recipientName) ? trim($recipientName) : $lockedParticipant->full_name;
+
                 // The database-level key is defence in depth for databases or
                 // code paths where row locks are accidentally weakened.
                 $certificate = Certificate::query()->create([
@@ -95,7 +109,7 @@ class CertificateService
                     'participant_id' => $lockedParticipant->id,
                     'certificate_template_id' => $template->id,
                     'certificate_batch_id' => $batch?->id,
-                    'recipient_name' => $lockedParticipant->full_name,
+                    'recipient_name' => $name,
                     'storage_disk' => $diskName,
                     'issuance_key' => $lockedParticipant->webinar_id.':'.$lockedParticipant->id,
                     'status' => 'processing',
@@ -265,27 +279,22 @@ class CertificateService
         return $batch->refresh();
     }
 
-    /** Render the certificate PDF and return its raw bytes. */
+    /**
+     * Render the certificate PDF and return its raw bytes: the uploaded design
+     * with the recipient's name placed on top of it, and nothing else.
+     */
     public function render(Certificate $certificate): string
     {
         $certificate->loadMissing(['webinar', 'template']);
         $template = $certificate->template;
 
-        // An uploaded background replaces the generated design entirely: just
-        // that image with the recipient's name placed on top of it.
-        if ($template?->background_path) {
-            return Pdf::loadView('certificates.pdf-custom', [
-                'certificate' => $certificate,
-                'backgroundDataUri' => $this->backgroundDataUri($template),
-            ])->setPaper('a4', 'landscape')->output();
+        if (blank($template?->background_path)) {
+            throw new RuntimeException('This certificate template has no uploaded design to render.');
         }
 
-        $verificationUrl = route('certificates.verify', $certificate->verification_code);
-
-        return Pdf::loadView('certificates.pdf', [
+        return Pdf::loadView('certificates.pdf-custom', [
             'certificate' => $certificate,
-            'verificationUrl' => $verificationUrl,
-            'qrCode' => $this->qrCodes->dataUri($verificationUrl),
+            'backgroundDataUri' => $this->backgroundDataUri($template),
         ])->setPaper('a4', 'landscape')->output();
     }
 

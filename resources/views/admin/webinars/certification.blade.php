@@ -69,11 +69,7 @@
     <form class="panel p-5" method="POST" action="{{ route('admin.certification.template', $webinar) }}" enctype="multipart/form-data">@csrf @method('PUT')
         <h2 class="section-title">Certificate design</h2>
         <p class="mt-1 text-[13px] text-slate-500">
-            @if($template->background_path)
-                Using your uploaded design below. Only the participant's name is added to it.
-            @else
-                Upload your own finished certificate image, or use the plain design generated from the fields below.
-            @endif
+            Upload the finished certificate exactly as you want it to look. The system only places the participant's name on top &mdash; nothing else is added or changed.
         </p>
 
         <div class="mt-4 grid gap-4">
@@ -83,55 +79,33 @@
             </label>
 
             <div class="border-y border-slate-100 py-4">
-                <p class="field-label">Certificate background <span class="font-normal text-slate-400">optional &mdash; PNG or JPG</span></p>
+                <p class="field-label">Certificate image <span class="font-normal text-slate-400">PNG or JPG &mdash; up to 8&nbsp;MB</span></p>
                 @if($template->background_path)
                     <div class="mt-2 flex items-center gap-3">
-                        <img src="{{ route('admin.certification.background', $webinar) }}" alt="Current certificate background" class="h-16 w-auto rounded-md border border-slate-200 object-cover">
-                        <label class="flex items-center gap-2 text-[13px] text-slate-700">
-                            <input type="checkbox" class="survey-check size-5" name="remove_background" value="1">
-                            Remove it and go back to the plain generated design
-                        </label>
+                        <img src="{{ route('admin.certification.background', $webinar) }}" alt="Current certificate" class="h-16 w-auto rounded-md border border-slate-200 object-cover">
+                        <span class="inline-flex items-center gap-1.5 text-[12px] font-medium text-emerald-700"><x-icon name="check-circle" class="size-4" />Uploaded. Choose a new file to replace it.</span>
                     </div>
                 @endif
-                <input class="field mt-2 {{ $errors->has('background') ? 'field-invalid' : '' }}" type="file" name="background" accept="image/png,image/jpeg">
+                <input class="field mt-2 {{ $errors->has('background') ? 'field-invalid' : '' }}" type="file" name="background" accept="image/png,image/jpeg" @required(! $template->background_path)>
                 <x-field-error :error="$errors->first('background')" />
-                <p class="mt-1.5 text-[12px] text-slate-500">Upload the certificate exactly as you want it to look. The participant's name is placed on top &mdash; nothing else changes.</p>
+                <p class="mt-1.5 text-[12px] text-slate-500">Design it in Canva (or anywhere), export as PNG, and upload it here. Leave a blank space where the name should go.</p>
             </div>
 
-            @if($template->background_path)
-                <div class="grid gap-4 sm:grid-cols-2">
-                    <label class="field-label">Name position <span class="font-normal text-slate-400">% from the top</span>
-                        <input class="field {{ $errors->has('name_top') ? 'field-invalid' : '' }}" type="number" min="0" max="100" step="1" name="name_top" value="{{ old('name_top', $layout['name_top'] ?? 62) }}">
-                        <x-field-error :error="$errors->first('name_top')" />
-                    </label>
-                    <label class="field-label">Name size <span class="font-normal text-slate-400">px</span>
-                        <input class="field {{ $errors->has('name_font_size') ? 'field-invalid' : '' }}" type="number" min="12" max="160" step="1" name="name_font_size" value="{{ old('name_font_size', $layout['name_font_size'] ?? 42) }}">
-                        <x-field-error :error="$errors->first('name_font_size')" />
-                    </label>
-                </div>
-                <label class="field-label">Name colour
-                    <input class="field h-10 cursor-pointer p-1 {{ $errors->has('accent') ? 'field-invalid' : '' }}" type="color" name="accent" value="{{ old('accent', $layout['accent'] ?? '#1d4ed8') }}" required>
-                    <x-field-error :error="$errors->first('accent')" />
+            <div class="grid gap-4 sm:grid-cols-2">
+                <label class="field-label">Name position <span class="font-normal text-slate-400">% from the top</span>
+                    <input class="field {{ $errors->has('name_top') ? 'field-invalid' : '' }}" type="number" min="0" max="100" step="1" name="name_top" value="{{ old('name_top', $layout['name_top'] ?? 62) }}">
+                    <x-field-error :error="$errors->first('name_top')" />
                 </label>
-                <p class="text-[12px] text-slate-500">Save, then use <a class="font-medium text-accent-600 hover:underline" target="_blank" rel="noopener" href="{{ route('admin.certification.preview', $webinar) }}">Preview PDF</a> above to check the name lines up &mdash; nudge the position and re-save until it fits.</p>
-            @else
-                <label class="field-label">Heading
-                    <input class="field {{ $errors->has('heading') ? 'field-invalid' : '' }}" name="heading" value="{{ old('heading', $layout['heading'] ?? 'Certificate of Completion') }}" required>
-                    <x-field-error :error="$errors->first('heading')" />
+                <label class="field-label">Name size <span class="font-normal text-slate-400">px</span>
+                    <input class="field {{ $errors->has('name_font_size') ? 'field-invalid' : '' }}" type="number" min="12" max="160" step="1" name="name_font_size" value="{{ old('name_font_size', $layout['name_font_size'] ?? 42) }}">
+                    <x-field-error :error="$errors->first('name_font_size')" />
                 </label>
-                <label class="field-label">Body line
-                    <input class="field {{ $errors->has('body') ? 'field-invalid' : '' }}" name="body" value="{{ old('body', $layout['body'] ?? 'has successfully completed all requirements of') }}" required>
-                    <x-field-error :error="$errors->first('body')" />
-                </label>
-                <label class="field-label">Accent colour
-                    <input class="field h-10 cursor-pointer p-1 {{ $errors->has('accent') ? 'field-invalid' : '' }}" type="color" name="accent" value="{{ old('accent', $layout['accent'] ?? '#1d4ed8') }}" required>
-                    <x-field-error :error="$errors->first('accent')" />
-                </label>
-                <div class="grid gap-4 sm:grid-cols-2">
-                    <label class="field-label">Signatory name<input class="field" name="signatory_name" value="{{ old('signatory_name', $layout['signatory_name'] ?? '') }}"></label>
-                    <label class="field-label">Signatory title<input class="field" name="signatory_title" value="{{ old('signatory_title', $layout['signatory_title'] ?? '') }}"></label>
-                </div>
-            @endif
+            </div>
+            <label class="field-label">Name colour
+                <input class="field h-10 cursor-pointer p-1 {{ $errors->has('accent') ? 'field-invalid' : '' }}" type="color" name="accent" value="{{ old('accent', $layout['accent'] ?? '#1d4ed8') }}" required>
+                <x-field-error :error="$errors->first('accent')" />
+            </label>
+            <p class="text-[12px] text-slate-500">Save, then open <a class="font-medium text-accent-600 hover:underline" target="_blank" rel="noopener" href="{{ route('admin.certification.preview', $webinar) }}">Preview PDF</a> above to check the name lines up &mdash; nudge the position and re-save until it fits. You can also fine-tune each name when issuing on <a class="font-medium text-accent-600 hover:underline" href="{{ route('admin.certificates.studio', $webinar) }}">Selection &amp; preview</a>.</p>
         </div>
 
         <button class="button-primary mt-5">Save design</button>

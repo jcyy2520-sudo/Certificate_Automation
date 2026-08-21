@@ -58,6 +58,10 @@ class CertificateController extends Controller
         $data = $request->validate([
             'participants' => ['required', 'array', 'min:1', 'max:100'],
             'participants.*' => ['string', 'max:64'],
+            // Optional per-participant name corrections, keyed by public id, so
+            // a typo or a wrong name can be fixed at the moment of issuing.
+            'names' => ['array'],
+            'names.*' => ['nullable', 'string', 'max:120'],
         ], [
             'participants.required' => 'Select at least one participant to issue certificates to.',
             'participants.max' => 'Issue to at most 100 at a time here; use bulk issuance on the template page for larger runs.',
@@ -68,12 +72,13 @@ class CertificateController extends Controller
             ->whereNull('privacy_erased_at')
             ->get();
 
+        $names = $data['names'] ?? [];
         $issued = 0;
         $skipped = 0;
 
         foreach ($participants as $participant) {
             try {
-                $service->issue($participant);
+                $service->issue($participant, null, $names[$participant->public_id] ?? null);
                 $issued++;
             } catch (RuntimeException) {
                 $skipped++;
@@ -99,8 +104,12 @@ class CertificateController extends Controller
     {
         abort_unless($participant->webinar_id === $webinar->id, 404);
 
+        $data = $request->validate([
+            'recipient_name' => ['nullable', 'string', 'max:120'],
+        ]);
+
         try {
-            $certificate = $service->issue($participant);
+            $certificate = $service->issue($participant, null, $data['recipient_name'] ?? null);
         } catch (RuntimeException $exception) {
             return back()->with('error', $exception->getMessage());
         }
@@ -115,8 +124,8 @@ class CertificateController extends Controller
     {
         $template = $webinar->certificateTemplates()->where('is_active', true)->first();
 
-        if (! $template) {
-            return back()->with('error', 'Save a certificate design before issuing in bulk.');
+        if (! $template || blank($template->background_path)) {
+            return back()->with('error', 'Upload a certificate design before issuing in bulk.');
         }
 
         $batch = CertificateBatch::query()->create([

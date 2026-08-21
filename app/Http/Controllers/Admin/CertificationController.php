@@ -14,6 +14,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 class CertificationController extends Controller
@@ -85,20 +86,20 @@ class CertificationController extends Controller
 
     public function updateTemplate(Request $request, Webinar $webinar, AuditService $audit): RedirectResponse
     {
+        $template = $this->activeTemplate($webinar);
+
         $data = $request->validate([
             'name' => ['required', 'string', 'max:120'],
             'accent' => ['required', 'string', 'regex:/^#[0-9a-fA-F]{6}$/'],
-            'heading' => ['required', 'string', 'max:120'],
-            'body' => ['required', 'string', 'max:300'],
-            'signatory_name' => ['nullable', 'string', 'max:120'],
-            'signatory_title' => ['nullable', 'string', 'max:120'],
-            'background' => ['nullable', 'image', 'mimes:png,jpg,jpeg', 'max:8192'],
-            'remove_background' => ['nullable', 'boolean'],
+            // The finished certificate is uploaded whole; the system only places
+            // the name on it. An upload is required unless one is already stored.
+            'background' => [$template->background_path ? 'nullable' : 'required', 'image', 'mimes:png,jpg,jpeg', 'max:8192'],
             'name_top' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'name_font_size' => ['nullable', 'numeric', 'min:12', 'max:160'],
+        ], [
+            'background.required' => 'Upload the finished certificate image (PNG or JPG).',
         ]);
 
-        $template = $this->activeTemplate($webinar);
         $disk = Storage::disk($template->storage_disk);
         $backgroundPath = $template->background_path;
 
@@ -111,9 +112,6 @@ class CertificationController extends Controller
                 $template->id.'-'.now()->timestamp.'.'.$request->file('background')->extension(),
                 ['disk' => $template->storage_disk],
             );
-        } elseif ($request->boolean('remove_background') && $backgroundPath) {
-            $disk->delete($backgroundPath);
-            $backgroundPath = null;
         }
 
         $template->update([
@@ -121,10 +119,6 @@ class CertificationController extends Controller
             'background_path' => $backgroundPath,
             'layout' => [
                 'accent' => $data['accent'],
-                'heading' => $data['heading'],
-                'body' => $data['body'],
-                'signatory_name' => $data['signatory_name'] ?? null,
-                'signatory_title' => $data['signatory_title'] ?? null,
                 'name_top' => $data['name_top'] ?? ($template->layout['name_top'] ?? 62),
                 'name_font_size' => $data['name_font_size'] ?? ($template->layout['name_font_size'] ?? 42),
             ],
@@ -135,16 +129,30 @@ class CertificationController extends Controller
         return back()->with('success', 'Certificate design saved. New certificates use it immediately.');
     }
 
-    /** Render the active design with sample data so the wording can be checked before issuing. */
-    public function preview(Webinar $webinar, CertificateService $service): Response
+    /**
+     * Render the uploaded design with a sample (or typed) name so the placement
+     * can be checked before issuing. A `name` query lets the organizer preview
+     * the exact spelling they intend to print.
+     */
+    public function preview(Request $request, Webinar $webinar, CertificateService $service): Response|RedirectResponse
     {
+        $template = $this->activeTemplate($webinar);
+
+        if (blank($template->background_path)) {
+            return redirect()
+                ->route('admin.certification.edit', $webinar)
+                ->with('error', 'Upload a certificate design first, then preview it.');
+        }
+
+        $name = trim((string) $request->query('name', ''));
+
         $certificate = new Certificate([
             'verification_code' => 'CERT-PREVIEW0000000000',
-            'recipient_name' => 'Sample Participant',
+            'recipient_name' => $name !== '' ? Str::limit($name, 120, '') : 'Sample Participant',
             'issued_at' => now(),
         ]);
         $certificate->setRelation('webinar', $webinar);
-        $certificate->setRelation('template', $this->activeTemplate($webinar));
+        $certificate->setRelation('template', $template);
 
         return response($service->render($certificate), 200, [
             'Content-Type' => 'application/pdf',
@@ -173,10 +181,10 @@ class CertificationController extends Controller
     {
         return $webinar->certificateTemplates()->where('is_active', true)->first()
             ?? $webinar->certificateTemplates()->create([
-                'name' => 'Classic certificate',
+                'name' => 'Certificate',
                 'storage_disk' => config('webinar.certificate_disk'),
-                'template_path' => 'generated/classic',
-                'layout' => ['accent' => '#1d4ed8'],
+                'template_path' => 'uploaded',
+                'layout' => ['accent' => '#1d4ed8', 'name_top' => 62, 'name_font_size' => 42],
                 'is_active' => true,
             ]);
     }
