@@ -146,6 +146,39 @@ class ParticipantMagicLinkSecurityTest extends TestCase
             ->assertSee('Verified for this secure session.');
     }
 
+    public function test_a_verified_mailbox_cannot_open_a_later_form_until_registration_is_complete(): void
+    {
+        $posttest = $this->webinar->forms()->create([
+            'type' => 'posttest',
+            'title' => 'Post-assessment',
+            'status' => 'published',
+        ]);
+        $this->form = $posttest;
+        [$rawToken, $participant] = $this->requestToken('owner@example.com');
+
+        $this->post(route('forms.public.access.consume', $posttest->public_token), [
+            'access_token' => $rawToken,
+        ]);
+        $this->assertNotNull($participant->fresh()->email_verified_at);
+        $this->assertNull($participant->fresh()->verified_at);
+        $this->get($posttest->shareUrl())
+            ->assertOk()
+            ->assertSee('Registration required')
+            ->assertSee('This email address is not registered for this webinar. Please use the same email address you used during registration.')
+            ->assertDontSee('About you');
+
+        $registration = $this->webinar->forms()->where('type', 'registration')->firstOrFail();
+        $this->post($registration->shareUrl(), [
+            'full_name' => 'Mailbox Owner',
+            'email' => 'owner@example.com',
+            'privacy_acknowledged' => '1',
+        ])->assertRedirect();
+
+        $this->get($posttest->shareUrl())
+            ->assertOk()
+            ->assertSee('About you');
+    }
+
     public function test_the_pass_expires_and_is_revoked_when_the_participant_is_erased(): void
     {
         config(['webinar.participant_pass_hours' => 1]);

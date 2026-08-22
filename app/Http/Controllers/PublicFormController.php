@@ -31,6 +31,8 @@ class PublicFormController extends Controller
 {
     public const PRIVACY_NOTICE_VERSION = '2026-08-20';
 
+    public const REGISTRATION_REQUIRED_MESSAGE = 'This email address is not registered for this webinar. Please use the same email address you used during registration.';
+
     public function show(
         Request $request,
         string $token,
@@ -49,6 +51,13 @@ class PublicFormController extends Controller
 
             if (! $participant) {
                 return view('public.access', ['form' => $form]);
+            }
+
+            if ($form->type !== 'registration' && ! $participant->verified_at) {
+                return view('public.registration-required', [
+                    'form' => $form,
+                    'message' => self::REGISTRATION_REQUIRED_MESSAGE,
+                ]);
             }
         }
 
@@ -75,6 +84,10 @@ class PublicFormController extends Controller
                 return redirect()
                     ->route('forms.public', $form->public_token)
                     ->with('participant_access_error', true);
+            }
+
+            if ($form->type !== 'registration' && ! $sessionParticipant->verified_at) {
+                return redirect()->route('forms.public', $form->public_token);
             }
         }
 
@@ -150,6 +163,12 @@ class PublicFormController extends Controller
                 if ($sessionParticipantId && $participant
                     && ! hash_equals(Str::lower(trim((string) $participant->email)), $email)) {
                     $participant = null;
+                }
+
+                if ($lockedForm->type !== 'registration' && $participant && ! $participant->verified_at) {
+                    throw ValidationException::withMessages([
+                        'email' => self::REGISTRATION_REQUIRED_MESSAGE,
+                    ]);
                 }
 
                 // Erased/deleted records and exhausted attempts deliberately receive
