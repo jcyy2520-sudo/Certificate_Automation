@@ -30,6 +30,13 @@ class Webinar extends Model
         return max(1, min(3650, (int) config('webinar.default_retention_days', 7)));
     }
 
+    /** Whether public submissions must prove ownership of their email address. */
+    public function requiresVerification(): bool
+    {
+        // Missing/null values fail closed for partially hydrated or legacy rows.
+        return $this->requires_verification !== false;
+    }
+
     /**
      * Every IANA zone the timezone field will accept, each with its current
      * UTC offset so the picker can be searched and read without memorizing
@@ -74,7 +81,7 @@ class Webinar extends Model
             'starts_at' => 'datetime', 'ends_at' => 'datetime',
             'registration_opens_at' => 'datetime', 'registration_closes_at' => 'datetime',
             'retention_due_at' => 'datetime', 'deletion_started_at' => 'datetime',
-            'archived_at' => 'datetime', 'settings' => 'array',
+            'archived_at' => 'datetime', 'requires_verification' => 'boolean', 'settings' => 'array',
         ];
     }
 

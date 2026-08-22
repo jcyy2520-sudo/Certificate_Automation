@@ -293,6 +293,7 @@ class WebinarController extends Controller
             'registration_closes_at' => ['nullable', 'date', 'after_or_equal:registration_opens_at'],
             'timezone' => ['required', 'timezone'],
             'data_retention_days' => ['required', 'integer', 'min:1', 'max:3650'],
+            'requires_verification' => ['sometimes', 'boolean'],
         ]);
 
         foreach (['starts_at', 'ends_at', 'registration_opens_at', 'registration_closes_at'] as $field) {

@@ -24,6 +24,7 @@
         'status' => $isNew || $errors->has('status'),
         'timezone' => $isNew || $errors->has('timezone'),
         'retention' => $isNew || $errors->has('data_retention_days'),
+        'verification' => $isNew || $errors->has('requires_verification'),
         'schedule' => $isNew || $errors->hasAny(['starts_at', 'ends_at', 'registration_opens_at', 'registration_closes_at']),
     ];
 
@@ -110,6 +111,35 @@
                     @endforeach
                 </select>
                 <x-field-error :error="$errors->first('status')" />
+            </div>
+        </details>
+
+        <details class="group" @if($open['verification']) open @endif>
+            <summary class="flex cursor-pointer list-none items-start justify-between gap-4 px-5 py-4 hover:bg-slate-50">
+                <div class="min-w-0">
+                    <p class="text-[13px] font-medium text-slate-900">Participant verification</p>
+                    <p class="mt-0.5 text-[13px] text-slate-500 group-open:hidden">Require participants to prove ownership of their email address.</p>
+                </div>
+                <div class="flex shrink-0 items-center gap-3">
+                    <span class="badge group-open:hidden {{ $webinar->requiresVerification() ? 'badge-green' : 'badge-amber' }}">{{ $webinar->requiresVerification() ? 'Secure mode on' : 'Secure mode off' }}</span>
+                    <span class="text-[13px] font-medium text-accent-600">
+                        <span class="group-open:hidden">Edit</span><span class="hidden group-open:inline">Close</span>
+                    </span>
+                </div>
+            </summary>
+            <div class="px-5 pb-5">
+                <input type="hidden" name="requires_verification" value="0">
+                <label class="flex items-start gap-3">
+                    <input class="mt-1 size-4 rounded border-slate-300 text-accent-600 focus:ring-accent-500" type="checkbox" name="requires_verification" value="1" @checked(old('requires_verification', $webinar->exists ? $webinar->requiresVerification() : true))>
+                    <span>
+                        <span class="block text-[13px] font-medium text-slate-900">Require email verification (recommended)</span>
+                        <span class="mt-1 block text-[12px] leading-5 text-slate-500">Participants verify once with a secure email link, then can use every form for this webinar.</span>
+                    </span>
+                </label>
+                <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] leading-5 text-amber-900">
+                    If turned off, no ownership link is sent. Anyone who knows a registered participant's email address can submit as that person, so impersonation is possible.
+                </div>
+                <x-field-error :error="$errors->first('requires_verification')" />
             </div>
         </details>
 
