@@ -8,6 +8,7 @@ use App\Models\ParticipantAccessToken;
 use App\Models\Webinar;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -127,7 +128,7 @@ final class ParticipantMagicLinkService
             return false;
         }
 
-        $participant = DB::transaction(function () use ($form, $rawToken): ?Participant {
+        $result = DB::transaction(function () use ($form, $rawToken): ?array {
             $lockedWebinar = Webinar::query()
                 ->whereKey($form->webinar_id)
                 ->whereNull('deletion_started_at')
@@ -198,12 +199,18 @@ final class ParticipantMagicLinkService
                 'last_access_at' => now(),
             ])->save();
 
-            return $participant;
+            return [
+                'participant' => $participant,
+                'pass_expires_at' => $this->passExpiryTimestamp($lockedWebinar),
+            ];
         }, attempts: 3);
 
-        if (! $participant) {
+        if (! $result) {
             return false;
         }
+
+        /** @var Participant $participant */
+        $participant = $result['participant'];
 
         // Rotate the session identifier at the trust boundary. The grant is
         // scoped to one event and one participant and has an absolute expiry.
@@ -214,6 +221,7 @@ final class ParticipantMagicLinkService
             'email_fingerprint' => $this->emailFingerprint((string) $participant->email),
             'expires_at' => now()->addMinutes($this->sessionLifetimeMinutes())->getTimestamp(),
         ]);
+        $this->queuePass($form->webinar_id, $participant, (int) $result['pass_expires_at']);
 
         return true;
     }
@@ -224,16 +232,13 @@ final class ParticipantMagicLinkService
         $key = $this->sessionKey($form->webinar_id);
         $grant = $request->session()->get($key);
 
-        if (! is_array($grant)
-            || ! is_numeric($grant['webinar_id'] ?? null)
-            || ! is_numeric($grant['participant_id'] ?? null)
-            || ! is_numeric($grant['expires_at'] ?? null)
-            || ! is_string($grant['email_fingerprint'] ?? null)
-            || (int) $grant['webinar_id'] !== $form->webinar_id
-            || (int) $grant['expires_at'] <= now()->getTimestamp()) {
+        if (! $this->validGrant($grant, $form->webinar_id)) {
             $request->session()->forget($key);
+            $grant = $this->passGrant($request, $form->webinar_id);
 
-            return null;
+            if (! $grant) {
+                return null;
+            }
         }
 
         $participant = Participant::query()
@@ -250,7 +255,7 @@ final class ParticipantMagicLinkService
                 ->whereNull('retention_due_at')
                 ->orWhere('retention_due_at', '>', now()))
             ->exists()) {
-            $request->session()->forget($key);
+            $this->forget($request, $form->webinar_id);
 
             return null;
         }
@@ -258,7 +263,7 @@ final class ParticipantMagicLinkService
         if (! $participant
             || ! $participant->email_verified_at
             || ! hash_equals($grant['email_fingerprint'], $this->emailFingerprint((string) $participant->email))) {
-            $request->session()->forget($key);
+            $this->forget($request, $form->webinar_id);
 
             return null;
         }
@@ -270,6 +275,12 @@ final class ParticipantMagicLinkService
     public function forget(Request $request, int $webinarId): void
     {
         $request->session()->forget($this->sessionKey($webinarId));
+        Cookie::expire($this->passCookieName($webinarId));
+    }
+
+    public function passCookieName(int $webinarId): string
+    {
+        return 'participant_pass_'.$webinarId;
     }
 
     private function findOrCreateParticipant(Form $form, string $email): ?Participant
@@ -363,5 +374,90 @@ final class ParticipantMagicLinkService
     private function maximumLiveTokens(): int
     {
         return max(2, min(20, (int) config('webinar.maximum_live_verification_tokens', 12)));
+    }
+
+    private function passLifetimeHours(): int
+    {
+        return max(1, min(168, (int) config('webinar.participant_pass_hours', 24)));
+    }
+
+    private function passExpiryTimestamp(Webinar $webinar): int
+    {
+        $configuredExpiry = now()->addHours($this->passLifetimeHours());
+
+        if ($webinar->retention_due_at && $webinar->retention_due_at->lessThan($configuredExpiry)) {
+            return $webinar->retention_due_at->getTimestamp();
+        }
+
+        return $configuredExpiry->getTimestamp();
+    }
+
+    private function queuePass(int $webinarId, Participant $participant, int $expiresAt): void
+    {
+        // Laravel's EncryptCookies middleware authenticates and encrypts this
+        // payload on the response. It remains only a durable identity pointer;
+        // participant() rechecks all authoritative state on every use.
+        $payload = json_encode([
+            'version' => 1,
+            'webinar_id' => $webinarId,
+            'participant_id' => $participant->id,
+            'email_fingerprint' => $this->emailFingerprint((string) $participant->email),
+            'expires_at' => $expiresAt,
+        ], JSON_THROW_ON_ERROR);
+        $minutes = (int) floor(($expiresAt - now()->getTimestamp()) / 60);
+
+        if ($minutes < 1) {
+            return;
+        }
+
+        Cookie::queue(
+            $this->passCookieName($webinarId),
+            $payload,
+            $minutes,
+            '/',
+            null,
+            null,
+            true,
+            false,
+            'lax',
+        );
+    }
+
+    /** @return array<string, mixed>|null */
+    private function passGrant(Request $request, int $webinarId): ?array
+    {
+        $name = $this->passCookieName($webinarId);
+        $payload = $request->cookie($name);
+
+        if (! is_string($payload)) {
+            return null;
+        }
+
+        try {
+            $grant = json_decode($payload, true, flags: JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            Cookie::expire($name);
+
+            return null;
+        }
+
+        if (($grant['version'] ?? null) !== 1 || ! $this->validGrant($grant, $webinarId)) {
+            Cookie::expire($name);
+
+            return null;
+        }
+
+        return $grant;
+    }
+
+    private function validGrant(mixed $grant, int $webinarId): bool
+    {
+        return is_array($grant)
+            && is_numeric($grant['webinar_id'] ?? null)
+            && is_numeric($grant['participant_id'] ?? null)
+            && is_numeric($grant['expires_at'] ?? null)
+            && is_string($grant['email_fingerprint'] ?? null)
+            && (int) $grant['webinar_id'] === $webinarId
+            && (int) $grant['expires_at'] > now()->getTimestamp();
     }
 }

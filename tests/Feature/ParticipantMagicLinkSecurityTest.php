@@ -87,9 +87,19 @@ class ParticipantMagicLinkSecurityTest extends TestCase
 
         Session::start();
         $oldSessionId = Session::getId();
-        $this->post(route('forms.public.access.consume', $this->form->public_token), [
+        $response = $this->post(route('forms.public.access.consume', $this->form->public_token), [
             'access_token' => $rawToken,
         ])->assertRedirect($this->form->shareUrl());
+
+        $cookieName = app(ParticipantMagicLinkService::class)->passCookieName($this->webinar->id);
+        $response->assertCookie($cookieName)->assertCookieNotExpired($cookieName);
+        $this->assertTrue($response->getCookie($cookieName, false)->isHttpOnly());
+        $this->assertSame('lax', $response->getCookie($cookieName, false)->getSameSite());
+        $this->assertNotSame(
+            $response->getCookie($cookieName)->getValue(),
+            $response->getCookie($cookieName, false)->getValue(),
+            'The durable pass must be encrypted by the web cookie middleware.',
+        );
 
         $this->assertNotSame($oldSessionId, Session::getId());
         $this->assertNotNull($participant->fresh()->email_verified_at);
@@ -104,6 +114,88 @@ class ParticipantMagicLinkSecurityTest extends TestCase
             'access_token' => $rawToken,
         ])->assertRedirect($this->form->shareUrl())
             ->assertSessionHas('participant_access_error');
+    }
+
+    public function test_the_encrypted_pass_survives_a_new_session_and_works_across_forms(): void
+    {
+        [$rawToken] = $this->requestToken('owner@example.com');
+        $response = $this->post(route('forms.public.access.consume', $this->form->public_token), [
+            'access_token' => $rawToken,
+        ]);
+        $cookieName = app(ParticipantMagicLinkService::class)->passCookieName($this->webinar->id);
+        $pass = $response->getCookie($cookieName)->getValue();
+
+        // Registration completion is required before later stages, independent
+        // of proving ownership of the mailbox.
+        $this->post($this->form->shareUrl(), [
+            'full_name' => 'Mailbox Owner',
+            'email' => 'owner@example.com',
+            'privacy_acknowledged' => '1',
+        ])->assertRedirect();
+        $posttest = $this->webinar->forms()->create([
+            'type' => 'posttest',
+            'title' => 'Post-assessment',
+            'status' => 'published',
+        ]);
+
+        $this->flushSession();
+        $this->withCookie($cookieName, $pass)
+            ->get($posttest->shareUrl())
+            ->assertOk()
+            ->assertSee('About you')
+            ->assertSee('Verified for this secure session.');
+    }
+
+    public function test_the_pass_expires_and_is_revoked_when_the_participant_is_erased(): void
+    {
+        config(['webinar.participant_pass_hours' => 1]);
+        [$rawToken, $participant] = $this->requestToken('owner@example.com');
+        $response = $this->post(route('forms.public.access.consume', $this->form->public_token), [
+            'access_token' => $rawToken,
+        ]);
+        $cookieName = app(ParticipantMagicLinkService::class)->passCookieName($this->webinar->id);
+        $pass = $response->getCookie($cookieName)->getValue();
+
+        $this->travel(61)->minutes();
+        $this->flushSession();
+        $this->withCookie($cookieName, $pass)
+            ->get($this->form->shareUrl())
+            ->assertOk()
+            ->assertSee('Verify your email to continue')
+            ->assertCookieExpired($cookieName);
+
+        $this->travelBack();
+        $participant->update(['privacy_erased_at' => now()]);
+        $this->flushSession();
+        $this->withCookie($cookieName, $pass)
+            ->get($this->form->shareUrl())
+            ->assertOk()
+            ->assertSee('Verify your email to continue')
+            ->assertCookieExpired($cookieName);
+    }
+
+    public function test_the_pass_lifetime_is_capped_by_retention_and_archival_blocks_reuse(): void
+    {
+        config(['webinar.participant_pass_hours' => 24]);
+        $retentionDeadline = now()->addMinutes(90)->startOfMinute();
+        Webinar::query()->whereKey($this->webinar->id)->update(['retention_due_at' => $retentionDeadline]);
+
+        [$rawToken] = $this->requestToken('owner@example.com');
+        $response = $this->post(route('forms.public.access.consume', $this->form->public_token), [
+            'access_token' => $rawToken,
+        ]);
+        $cookieName = app(ParticipantMagicLinkService::class)->passCookieName($this->webinar->id);
+        $cookie = $response->getCookie($cookieName, false);
+
+        $this->assertLessThanOrEqual($retentionDeadline->getTimestamp(), $cookie->getExpiresTime());
+        $this->assertGreaterThan(now()->addMinutes(85)->getTimestamp(), $cookie->getExpiresTime());
+
+        $pass = $response->getCookie($cookieName)->getValue();
+        $this->flushSession();
+        $this->webinar->update(['archived_at' => now()]);
+        $this->withCookie($cookieName, $pass)
+            ->get($this->form->shareUrl())
+            ->assertNotFound();
     }
 
     public function test_a_token_is_bound_to_the_form_and_event_that_issued_it(): void

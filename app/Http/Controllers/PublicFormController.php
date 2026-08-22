@@ -44,7 +44,7 @@ class PublicFormController extends Controller
         }
 
         $participant = null;
-        if (config('webinar.participant_email_verification', true)) {
+        if ($form->webinar->requiresVerification()) {
             $participant = $magicLinks->participant($request, $form);
 
             if (! $participant) {
@@ -68,7 +68,7 @@ class PublicFormController extends Controller
         abort_unless($form->acceptsResponses(), 403, $form->closedReason());
 
         $sessionParticipant = null;
-        if (config('webinar.participant_email_verification', true)) {
+        if ($form->webinar->requiresVerification()) {
             $sessionParticipant = $magicLinks->participant($request, $form);
 
             if (! $sessionParticipant) {

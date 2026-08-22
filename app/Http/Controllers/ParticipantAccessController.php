@@ -18,6 +18,7 @@ final class ParticipantAccessController extends Controller
         ParticipantMagicLinkService $magicLinks,
     ): RedirectResponse {
         $form = $forms->resolve($token);
+        abort_unless($form->webinar->requiresVerification(), 404);
         abort_unless($form->acceptsResponses(), 403, $form->closedReason());
 
         $data = $request->validate([
@@ -38,6 +39,7 @@ final class ParticipantAccessController extends Controller
     public function confirm(string $token, PublicFormResolver $forms): View
     {
         $form = $forms->resolve($token);
+        abort_unless($form->webinar->requiresVerification(), 404);
         abort_unless($form->acceptsResponses(), 403, $form->closedReason());
 
         return view('public.access-confirm', ['form' => $form]);
@@ -50,6 +52,7 @@ final class ParticipantAccessController extends Controller
         ParticipantMagicLinkService $magicLinks,
     ): RedirectResponse {
         $form = $forms->resolve($token);
+        abort_unless($form->webinar->requiresVerification(), 404);
         abort_unless($form->acceptsResponses(), 403, $form->closedReason());
 
         // Do not use the validator for the secret: validation redirects can flash
