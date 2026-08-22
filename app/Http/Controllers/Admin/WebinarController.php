@@ -7,6 +7,7 @@ use App\Models\CertificateBatch;
 use App\Models\CertificateTemplate;
 use App\Models\EligibilityRule;
 use App\Models\EmailDelivery;
+use App\Models\Form;
 use App\Models\Submission;
 use App\Models\Webinar;
 use App\Services\AuditService;
@@ -169,10 +170,34 @@ class WebinarController extends Controller
         $this->assertRetentionDeadlineNotExtended($webinar, $data);
         $previousDeadline = $webinar->retention_due_at?->copy();
 
-        $webinar->update($data);
+        $verificationChanges = array_key_exists('requires_verification', $data)
+            && (bool) $data['requires_verification'] !== $webinar->requiresVerification();
+
+        if ($verificationChanges) {
+            DB::transaction(function () use (&$webinar, $data): void {
+                $lockedWebinar = Webinar::query()->whereKey($webinar->id)->lockForUpdate()->firstOrFail();
+
+                // Public submissions hold a compatible shared lock on their
+                // form. Locking every form makes this mode switch atomic with
+                // all in-flight submissions without serializing submitters.
+                Form::query()
+                    ->where('webinar_id', $lockedWebinar->id)
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->get(['id']);
+
+                $lockedWebinar->update($data);
+                $webinar = $lockedWebinar;
+            }, attempts: 3);
+        } else {
+            $webinar->update($data);
+        }
+
         $audit->record($request, 'webinar.updated', $webinar, [
             'retention_deadline_shortened' => $previousDeadline !== null
                 && $webinar->retention_due_at?->lessThan($previousDeadline),
+            'verification_mode_changed' => $verificationChanges,
+            'requires_verification' => $webinar->requiresVerification(),
         ]);
 
         return redirect()->route('admin.webinars.show', $webinar)->with('success', 'Webinar settings updated.');

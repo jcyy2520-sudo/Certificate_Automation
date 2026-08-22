@@ -8,6 +8,7 @@ Passing the automated checks is not a certification, penetration test, or guaran
 
 - Administrators have access to participant identity, responses, scores, exports, and certificates. Give each administrator a separate account; never share accounts.
 - A form share link identifies one form, not a participant. By default, the participant must prove control of the submitted email inbox through a short-lived, one-time magic link before the form is unlocked.
+- An administrator can disable ownership verification for a specific trusted, low-stakes webinar. That mode still requires a registered email for later forms, but cannot stop someone who knows that address from impersonating its owner. Do not use it where identity assurance or consequential scoring matters.
 - Email verification proves current control of an inbox. It does not prove a legal identity, attendance, age, or that the mailbox has not been compromised.
 - The transactional-email provider and recipient mailbox are part of the authentication trust boundary: they necessarily receive the destination address and raw magic link. Provider and mailbox compromise can therefore expose participant access.
 - Certificate verification is deliberately public to anyone holding a verification code. It returns only the event, issue date, and validity state—not participant contact details, scores, or answers.
@@ -31,7 +32,9 @@ Passing the automated checks is not a certification, penetration test, or guaran
 - Form share tokens and certificate verification codes are encrypted at rest and have separate hashes for lookup.
 - Participant magic-link credentials use high-entropy random values. Only a keyed digest is stored; the raw credential is placed in the URL fragment so it is not sent in the initial HTTP request or ordinary server access logs.
 - Opening a magic link is non-mutating. A CSRF-protected POST consumes it, regenerates the session, binds access to the participant and webinar, and invalidates sibling links. Expired, used, malformed, or mismatched links fail closed.
-- Magic-link request and confirmation endpoints are rate limited. Token lifetime, participant-session lifetime, abandoned-record lifetime, and the bounded number of live links are configurable.
+- Consuming a link also issues an encrypted, HTTP-only webinar pass. Its lifetime defaults to 24 hours and is capped by the webinar retention deadline. Every use revalidates the participant, email fingerprint, webinar state, and retention deadline against the database; erasure, email correction, expiry, or archival therefore revokes access.
+- Completing registration is separate from verifying a mailbox. Pre-test, post-test, and evaluation access requires the same participant to have completed registration first.
+- Magic-link request and confirmation endpoints are rate limited. Token lifetime, participant-session lifetime, participant-pass lifetime, abandoned-record lifetime, and the bounded number of live links are configurable.
 - Submission processing rechecks participant ownership and attempt limits while holding database locks, including when erasure or an administrative change races a submission.
 
 ### Browser, transport, and storage
@@ -95,7 +98,7 @@ At minimum:
 - Set `APP_ENV=production`, `APP_DEBUG=false`, a canonical HTTPS `APP_URL`, and only required exact host aliases in `APP_TRUSTED_HOSTS`.
 - Terminate TLS with a valid certificate, redirect HTTP to HTTPS at the edge, pass the correct scheme only from trusted proxies, and set `SESSION_SECURE_COOKIE=true`.
 - Keep `SESSION_ENCRYPT=true`, `SESSION_HTTP_ONLY=true`, `SESSION_SAME_SITE=strict`, `SESSION_LIFETIME` at 30 minutes or less, and `SESSION_EXPIRE_ON_CLOSE=true`.
-- Keep CSP enforcement, mandatory administrator MFA, disabled remember-me login, recent-password export confirmation, and participant email verification enabled. Report-only CSP is a rollout aid, not the production end state.
+- Keep CSP enforcement, mandatory administrator MFA, disabled remember-me login, and recent-password export confirmation enabled. Keep the per-webinar verification switch on unless the event has an explicitly accepted low-stakes impersonation risk; `security:check` warns when any webinar has it disabled. Report-only CSP is a rollout aid, not the production end state.
 - Enable HSTS only after HTTPS works for every intended hostname. Enable `includeSubDomains` or preload only after reviewing all subdomains and the long-lived consequences.
 - Expose only the application's `public` directory as the web root. Deny `.env`, source, storage, backup, database, vendor, and VCS files at the web server and hosting layer.
 

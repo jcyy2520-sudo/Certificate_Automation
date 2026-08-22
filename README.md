@@ -10,7 +10,7 @@ The only thing a person outside the system can open is:
 
 | They hold | They see |
 | --- | --- |
-| A form's share link | An email-verification screen for that one form. A short-lived, one-time link sent to the supplied address unlocks the form; nothing else is exposed. |
+| A form's share link | In the default secure mode, an email-verification screen for that one form. A short-lived, one-time link unlocks every form for that webinar through a retention-capped pass. Trusted-mode forms open directly. |
 | A certificate's verification code | That certificate's event, issue date, and validity. Never a name, email, or score. |
 | Anything else | A sign-in page or a 404. |
 
@@ -29,7 +29,7 @@ The only thing a person outside the system can open is:
 - Record audited eligibility overrides, issue certificates individually or in bulk, and revoke with a reason
 
 ### Participants
-- Open a share link, verify control of an email address, fill one form, submit, done — no account, no password, no portal
+- Open a share link, verify control of an email address once per webinar, fill the forms, submit, done — no account, no password, no portal
 - Responses from the same email address are linked to one participant record across an event's forms
 - Scores are shown on the thank-you page only when that form is set to reveal them
 
@@ -218,8 +218,9 @@ Participant forms follow a survey layout — centred title with the final word h
 
 Open a webinar, click a form, and use the **Share link** panel. Set the form's status to `published` so the link accepts responses, then copy the URL and post it wherever you like.
 
-- The link opens that form's email-verification screen and nothing else. Participant pages have no navigation or directory links.
-- Anyone holding the share link can request access, but the form is unlocked only through a short-lived, one-time link sent to the supplied email address. This proves inbox control, not legal identity or attendance, so treat scores accordingly.
+- With **Require email verification (recommended)** enabled in webinar settings, the link opens an email-verification screen and nothing else. A short-lived, one-time link proves inbox control and issues an encrypted webinar pass (24 hours by default, never beyond retention), so the participant does not re-verify for pre-test, post-test, or evaluation. Every pass use is rechecked against current participant and webinar records.
+- Later forms require a completed registration for the same webinar in both modes. The Facebook/social post can therefore carry the registration link, with the pre-test, post-test, and evaluation links shared separately when needed.
+- Turning verification off is intended only for trusted, low-stakes audiences. Registration submits immediately and later forms accept a matching registered email without sending an ownership link. Anyone who knows another participant's email can impersonate them in this mode; the settings screen and `security:check` warn about this explicitly.
 - **Generate a new link** retires the current URL immediately; anyone still holding it gets a 404.
 - Set `closes_at`, or move the status off `published`, to stop accepting responses. Visitors then see a closed notice instead of the form.
 - Responses are limited by the form's *maximum attempts* setting, counted per email address.

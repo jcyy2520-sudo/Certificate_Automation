@@ -118,18 +118,21 @@ class PublicFormController extends Controller
 
         try {
             $submission = DB::transaction(function () use ($form, $request, $sessionParticipantId): ?Submission {
-                // Hold a SHARED lock on the form for the duration of the submit so
-                // the answer schema cannot change underneath it: administrative
-                // definition edits take an EXCLUSIVE lock on the same row and so
-                // block until in-flight submissions finish (and vice versa).
-                // Crucially, concurrent submitters share this lock and do not
-                // serialize against one another — the webinar row is deliberately
-                // NOT locked, so hundreds of people answering the four forms of one
-                // event run in parallel instead of queuing behind a single row.
+                // Hold a SHARED lock on the form definition. Admin definition
+                // and security-mode edits lock the same form rows exclusively;
+                // public submitters remain compatible and continue in parallel.
                 $lockedForm = Form::query()->sharedLock()->findOrFail($form->id);
-                $lockedForm->setRelation('webinar', Webinar::query()->findOrFail($form->webinar_id));
+                $lockedWebinar = Webinar::query()->findOrFail($form->webinar_id);
+                $lockedForm->setRelation('webinar', $lockedWebinar);
 
                 abort_unless($lockedForm->acceptsResponses(), 403, $lockedForm->closedReason());
+
+                // Recheck the security mode at the same transaction boundary as
+                // the write. Turning verification on while an OFF-mode page is
+                // open must never let that stale page submit without ownership.
+                if ($lockedWebinar->requiresVerification() && ! $sessionParticipantId) {
+                    return null;
+                }
 
                 // The page may have been open while an administrator changed a
                 // required field, answer choice, or scoring rule. Reload and

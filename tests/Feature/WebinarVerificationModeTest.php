@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Http\Controllers\PublicFormController;
+use App\Models\AuditLog;
 use App\Models\Participant;
 use App\Models\ParticipantAccessToken;
 use App\Models\Submission;
@@ -31,6 +32,7 @@ class WebinarVerificationModeTest extends TestCase
     {
         $administrator = User::factory()->create(['is_active' => true]);
         $webinar = Webinar::factory()->create(['created_by' => $administrator->id]);
+        $otherWebinar = Webinar::factory()->create(['created_by' => $administrator->id]);
 
         $this->actingAs($administrator)
             ->put(route('admin.webinars.update', $webinar), [
@@ -45,6 +47,10 @@ class WebinarVerificationModeTest extends TestCase
             ->assertRedirect(route('admin.webinars.show', $webinar));
 
         $this->assertFalse($webinar->fresh()->requiresVerification());
+        $this->assertTrue($otherWebinar->fresh()->requiresVerification());
+        $audit = AuditLog::query()->where('action', 'webinar.updated')->latest('id')->firstOrFail();
+        $this->assertTrue($audit->metadata['verification_mode_changed']);
+        $this->assertFalse($audit->metadata['requires_verification']);
         $this->actingAs($administrator)
             ->get(route('admin.webinars.edit', $webinar))
             ->assertOk()

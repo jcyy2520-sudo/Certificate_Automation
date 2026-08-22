@@ -94,6 +94,8 @@ class ParticipantMagicLinkSecurityTest extends TestCase
         $response->assertCookie($cookieName)->assertCookieNotExpired($cookieName);
         $this->assertTrue($response->getCookie($cookieName, false)->isHttpOnly());
         $this->assertSame('lax', $response->getCookie($cookieName, false)->getSameSite());
+        $this->assertGreaterThan(now()->addHours(23)->getTimestamp(), $response->getCookie($cookieName, false)->getExpiresTime());
+        $this->assertLessThanOrEqual(now()->addHours(24)->getTimestamp(), $response->getCookie($cookieName, false)->getExpiresTime());
         $this->assertNotSame(
             $response->getCookie($cookieName)->getValue(),
             $response->getCookie($cookieName, false)->getValue(),
@@ -143,6 +145,25 @@ class ParticipantMagicLinkSecurityTest extends TestCase
             ->assertOk()
             ->assertSee('About you')
             ->assertSee('Verified for this secure session.');
+    }
+
+    public function test_a_pass_is_revoked_if_the_verified_email_fingerprint_changes(): void
+    {
+        [$rawToken, $participant] = $this->requestToken('owner@example.com');
+        $response = $this->post(route('forms.public.access.consume', $this->form->public_token), [
+            'access_token' => $rawToken,
+        ]);
+        $cookieName = app(ParticipantMagicLinkService::class)->passCookieName($this->webinar->id);
+        $pass = $response->getCookie($cookieName)->getValue();
+
+        $participant->update(['email' => 'corrected@example.com']);
+        $this->flushSession();
+
+        $this->withCookie($cookieName, $pass)
+            ->get($this->form->shareUrl())
+            ->assertOk()
+            ->assertSee('Verify your email to continue')
+            ->assertCookieExpired($cookieName);
     }
 
     public function test_a_verified_mailbox_cannot_open_a_later_form_until_registration_is_complete(): void
@@ -248,6 +269,39 @@ class ParticipantMagicLinkSecurityTest extends TestCase
         $this->post(route('forms.public.access.consume', $this->form->public_token), [
             'access_token' => $rawToken,
         ])->assertRedirect($this->form->shareUrl());
+    }
+
+    public function test_an_unverified_browser_cannot_submit_as_an_already_registered_participant(): void
+    {
+        $victim = Participant::query()->create([
+            'webinar_id' => $this->webinar->id,
+            'full_name' => 'Mailbox Owner',
+            'email' => 'victim@example.com',
+            'email_verified_at' => now(),
+            'verified_at' => now(),
+        ]);
+        Submission::query()->create([
+            'form_id' => $this->form->id,
+            'participant_id' => $victim->id,
+            'status' => 'submitted',
+            'submitted_at' => now(),
+        ]);
+        $posttest = $this->webinar->forms()->create([
+            'type' => 'posttest',
+            'title' => 'Post-assessment',
+            'status' => 'published',
+        ]);
+
+        $this->post($posttest->shareUrl(), [
+            'full_name' => 'Impersonator',
+            'email' => 'victim@example.com',
+            'privacy_acknowledged' => '1',
+        ])->assertRedirect($posttest->shareUrl());
+
+        $this->assertDatabaseMissing('submissions', [
+            'form_id' => $posttest->id,
+            'participant_id' => $victim->id,
+        ]);
     }
 
     public function test_expired_and_malformed_tokens_fail_identically_without_being_flashed(): void
