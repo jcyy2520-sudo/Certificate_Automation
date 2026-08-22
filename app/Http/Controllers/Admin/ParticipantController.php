@@ -83,7 +83,11 @@ class ParticipantController extends Controller
         $audit->record($request, 'participants.exported', $webinar);
 
         $webinar->load('eligibilityRules');
-        $forms = $webinar->forms()->orderBy('id')->get();
+        $forms = $webinar->forms()->get()->sortBy(function ($form): int {
+            $position = array_search($form->type, CertificationController::REQUIREMENTS, true);
+
+            return $position === false ? 99 : $position;
+        })->values();
         $scored = $forms->filter(fn ($form) => $form->type !== 'registration');
         $filename = 'participants-'.$webinar->slug.'-'.now()->format('Y-m-d').'.csv';
 
@@ -100,7 +104,7 @@ class ParticipantController extends Controller
             $webinar->participants()
                 ->with([
                     'submissions' => fn ($query) => $query->select([
-                        'id', 'form_id', 'participant_id', 'attempt_number', 'status', 'score', 'maximum_score',
+                        'id', 'form_id', 'participant_id', 'attempt_number', 'status', 'score', 'maximum_score', 'submitted_at',
                     ]),
                     'submissions.form:id,type',
                     'eligibilityOverrides' => fn ($query) => $query
@@ -116,16 +120,24 @@ class ParticipantController extends Controller
 
                     foreach ($participants as $participant) {
                         $certificate = $participant->certificates->first(fn ($item) => $item->isPubliclyValid());
+                        $registration = $participant->submissions
+                            ->whereIn('form_id', $forms->where('type', 'registration')->pluck('id'))
+                            ->sortByDesc('submitted_at')
+                            ->first();
+                        $registeredAt = $registration?->submitted_at ?? $participant->verified_at;
 
                         $row = [
                             $participant->full_name ?: '(erased)',
                             $participant->email ?: '(erased)',
                             $participant->organization,
-                            $participant->created_at->toDateString(),
+                            $registeredAt?->toDateString() ?? '',
                         ];
 
                         foreach ($forms as $form) {
-                            $row[] = $participant->submissions->firstWhere('form_id', $form->id) ? 'Yes' : 'No';
+                            $completed = $form->type === 'registration'
+                                ? $participant->verified_at !== null
+                                : $participant->submissions->firstWhere('form_id', $form->id) !== null;
+                            $row[] = $completed ? 'Yes' : 'No';
                         }
 
                         foreach ($scored as $form) {
@@ -198,8 +210,7 @@ class ParticipantController extends Controller
         Participant $participant,
         AuditService $audit,
         ParticipantPrivacyService $privacy,
-    ): RedirectResponse
-    {
+    ): RedirectResponse {
         $this->assertBelongsTo($webinar, $participant);
 
         $privacy->erase($participant, forceDelete: true);

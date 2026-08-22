@@ -1,16 +1,11 @@
 @extends('layouts.webinar')
 @section('title', 'Participants — '.$webinar->title)
 @section('content')
-@php
-    // Attendance is inferred from any submission to a non-registration stage.
-    $nonRegFormIds = $forms->where('type', '!=', 'registration')->pluck('id')->all();
-@endphp
-
-<x-page-header title="Registered participants"
-               subtitle="Everyone who registered for this webinar, with their attendance and completion status.">
+<x-page-header title="Participants"
+               subtitle="Registration and form completion for every participant record in this webinar.">
     <x-slot:meta>
         <div class="mt-3 flex flex-wrap items-center gap-2.5 text-[13px] text-slate-500 tabular-nums">
-            <span><strong class="font-semibold text-slate-900">{{ $participants->total() }}</strong> registered</span>
+            <span><strong class="font-semibold text-slate-900">{{ $participants->total() }}</strong> participant records</span>
             <span class="text-slate-300">·</span>
             <span><strong class="font-semibold text-emerald-700">{{ $completedCount }}</strong> met every requirement</span>
         </div>
@@ -41,7 +36,7 @@
 </form>
 
 @if(filled($participantFilters['filter'] ?? null))
-    <p class="mb-4 text-[12px] text-slate-500">Filtering applies to every matching registration before pagination.</p>
+    <p class="mb-4 text-[12px] text-slate-500">Filtering applies to every matching participant record before pagination.</p>
 @endif
 
 <div class="panel overflow-hidden">
@@ -52,33 +47,33 @@
                     <th class="px-5 py-3 font-semibold">Full name</th>
                     <th class="px-5 py-3 font-semibold">Email</th>
                     <th class="px-5 py-3 font-semibold">Organization</th>
-                    <th class="px-5 py-3 font-semibold">Registered</th>
-                    <th class="px-5 py-3 font-semibold">Attendance</th>
-                    <th class="px-5 py-3 font-semibold">Completion</th>
+                    @foreach($forms as $form)
+                        <th class="px-5 py-3 font-semibold">{{ $form->title }}</th>
+                    @endforeach
+                    <th class="px-5 py-3 font-semibold">Meets all requirements</th>
                     <th class="px-5 py-3"></th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-slate-100">
                 @forelse($participants as $participant)
-                    @php
-                        $attended = $participant->submissions->contains(fn ($s) => in_array($s->form_id, $nonRegFormIds, true));
-                    @endphp
                     <tr class="transition hover:bg-slate-50">
                         <td class="px-5 py-3.5">
                             <a href="{{ route('admin.participants.show', [$webinar, $participant]) }}" class="font-medium text-slate-900 hover:text-accent-700">{{ $participant->full_name ?: 'Erased participant' }}</a>
                         </td>
                         <td class="px-5 py-3.5 text-slate-600">{{ $participant->email ?: '—' }}</td>
                         <td class="px-5 py-3.5 text-slate-600">{{ $participant->organization ?: '—' }}</td>
-                        <td class="px-5 py-3.5 tabular-nums text-slate-600">{{ $participant->created_at->format('M j, Y') }}</td>
-                        <td class="px-5 py-3.5">
-                            @if($attended)
-                                <span class="badge badge-accent">attended</span>
-                            @elseif($participant->verified_at)
-                                <span class="badge badge-green">registered</span>
-                            @else
-                                <span class="badge badge-slate">pending</span>
-                            @endif
-                        </td>
+                        @foreach($forms as $form)
+                            @php
+                                $submission = $participant->submissions->where('form_id', $form->id)->sortByDesc('attempt_number')->first();
+                                $completed = $form->type === 'registration' ? $participant->verified_at !== null : $submission !== null;
+                            @endphp
+                            <td class="px-5 py-3.5">
+                                <span class="badge {{ $completed ? 'badge-green' : 'badge-slate' }}">{{ $completed ? 'Yes' : 'No' }}</span>
+                                @if($submission?->score !== null)
+                                    <span class="mt-1 block whitespace-nowrap text-[11px] tabular-nums text-slate-500">{{ number_format((float) $submission->score, 1) }} / {{ number_format((float) $submission->maximum_score, 1) }}</span>
+                                @endif
+                            </td>
+                        @endforeach
                         <td class="px-5 py-3.5">
                             <span class="badge {{ $participant->eligibility['eligible'] ? 'badge-green' : 'badge-slate' }}">{{ $participant->eligibility['eligible'] ? 'complete' : 'incomplete' }}</span>
                             @if($participant->eligibility['overridden'])<span class="badge badge-amber ml-1">override</span>@endif
@@ -88,7 +83,7 @@
                         </td>
                     </tr>
                 @empty
-                    <tr><td class="px-5 py-16 text-center text-sm text-slate-500" colspan="7">No registrations match this view yet.</td></tr>
+                    <tr><td class="px-5 py-16 text-center text-sm text-slate-500" colspan="{{ $forms->count() + 5 }}">No participant records match this view yet.</td></tr>
                 @endforelse
             </tbody>
         </table>

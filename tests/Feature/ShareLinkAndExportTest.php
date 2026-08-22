@@ -93,6 +93,11 @@ class ShareLinkAndExportTest extends TestCase
             ->assertOk()
             ->assertSee('Done Dana')
             ->assertSee('Missing Marco')
+            ->assertSee('Registration')
+            ->assertSee('Pre-assessment')
+            ->assertSee('Post-assessment')
+            ->assertSee('Event evaluation')
+            ->assertSee('Meets all requirements')
             ->assertSee('met every requirement', false);
 
         $this->actingAs($this->administrator)
