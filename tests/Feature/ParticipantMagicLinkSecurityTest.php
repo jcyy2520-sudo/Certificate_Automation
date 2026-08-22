@@ -30,7 +30,6 @@ class ParticipantMagicLinkSecurityTest extends TestCase
         parent::setUp();
 
         config([
-            'webinar.participant_email_verification' => true,
             'webinar.verification_token_minutes' => 15,
             'webinar.participant_session_minutes' => 120,
         ]);

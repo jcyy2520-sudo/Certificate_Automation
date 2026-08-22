@@ -5,8 +5,10 @@ namespace App\Console\Commands;
 use App\Jobs\IssueCertificateBatch;
 use App\Jobs\SendTransactionalEmail;
 use App\Models\User;
+use App\Models\Webinar;
 use App\Services\Email\BrevoTransactionalMailer;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -58,7 +60,11 @@ class SecurityCheck extends Command
         $this->check(config('security.require_admin_two_factor'), 'Administrator MFA is mandatory', 'Set SECURITY_REQUIRE_ADMIN_TWO_FACTOR=true.');
         $this->check(! config('security.allow_admin_remember_me'), 'Persistent administrator login is disabled', 'Set SECURITY_ALLOW_ADMIN_REMEMBER_ME=false.');
         $this->check(config('security.require_sensitive_action_password_confirmation'), 'Sensitive administrator actions require recent password confirmation', 'Set SECURITY_REQUIRE_SENSITIVE_ACTION_PASSWORD_CONFIRMATION=true.');
-        $this->check(config('webinar.participant_email_verification'), 'Participant email ownership is verified', 'Set PARTICIPANT_EMAIL_VERIFICATION=true.');
+        $this->check(
+            Schema::hasColumn('webinars', 'requires_verification'),
+            'Per-webinar participant verification control is installed',
+            'Run the database migrations before serving participant forms.',
+        );
 
         if ($production) {
             $host = parse_url($url, PHP_URL_HOST);
@@ -119,6 +125,14 @@ class SecurityCheck extends Command
 
         if (config('webinar.public_verification_after_privacy_erasure')) {
             $this->addWarning('Post-erasure certificate verification remains linkable; document the lawful-retention decision and privacy notice explicitly.');
+        }
+
+        if (Schema::hasColumn('webinars', 'requires_verification')) {
+            $unverifiedWebinars = Webinar::query()->where('requires_verification', false)->count();
+
+            if ($unverifiedWebinars > 0) {
+                $this->addWarning("{$unverifiedWebinars} webinar(s) have email verification disabled; participants can be impersonated by anyone who knows a registered email address.");
+            }
         }
 
         $this->newLine();

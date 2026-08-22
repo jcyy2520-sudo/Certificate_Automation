@@ -26,6 +26,7 @@ class ShareLinkAndExportTest extends TestCase
         $this->actingAs($this->administrator)->post(route('admin.webinars.store'), [
             'title' => 'Cyber Hygiene Clinic', 'status' => 'published',
             'timezone' => 'UTC', 'data_retention_days' => 7, 'ends_at' => now()->addDay()->format('Y-m-d H:i:s'),
+            'requires_verification' => '0',
         ]);
         $this->webinar = Webinar::query()->where('slug', 'cyber-hygiene-clinic')->firstOrFail();
     }

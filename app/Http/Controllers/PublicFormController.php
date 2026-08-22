@@ -302,24 +302,26 @@ class PublicFormController extends Controller
         ]);
     }
 
-    /**
-     * Find the participant behind this email within the form's webinar, or create one.
-     *
-     * A response to a later form from someone who never registered still lands
-     * against a participant record, so the completion list stays accurate.
-     */
+    /** Find the registered participant, creating one only during registration. */
     private function participantFor(Form $form, string $email, array $data): ?Participant
     {
         $participant = Participant::withTrashed()
             ->where('webinar_id', $form->webinar_id)
-            ->where('email', $email)
+            ->where('email_normalized', $email)
             ->lockForUpdate()
             ->first();
 
         if (! $participant) {
+            if ($form->type !== 'registration') {
+                throw ValidationException::withMessages([
+                    'email' => self::REGISTRATION_REQUIRED_MESSAGE,
+                ]);
+            }
+
             $participant = Participant::withTrashed()->firstOrCreate(
-                ['webinar_id' => $form->webinar_id, 'email' => $email],
+                ['webinar_id' => $form->webinar_id, 'email_normalized' => $email],
                 [
+                    'email' => $email,
                     'full_name' => $data['full_name'],
                     'organization' => $data['organization'] ?? null,
                 ],
@@ -332,6 +334,12 @@ class PublicFormController extends Controller
 
         if ($participant->privacy_erased_at || $participant->trashed()) {
             return null;
+        }
+
+        if ($form->type !== 'registration' && ! $participant->verified_at) {
+            throw ValidationException::withMessages([
+                'email' => self::REGISTRATION_REQUIRED_MESSAGE,
+            ]);
         }
 
         return $participant;

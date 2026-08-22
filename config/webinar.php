@@ -1,12 +1,6 @@
 <?php
 
 return [
-    // Participant identity verification is fail-closed and default-on. It may
-    // be disabled only for narrowly scoped legacy tests or a controlled migration.
-    'participant_email_verification' => filter_var(
-        env('PARTICIPANT_EMAIL_VERIFICATION', true),
-        FILTER_VALIDATE_BOOL,
-    ),
     'participant_session_minutes' => (int) env('PARTICIPANT_SESSION_MINUTES', 120),
     'participant_pass_hours' => (int) env('PARTICIPANT_PASS_HOURS', 24),
     'verification_token_minutes' => (int) env('VERIFICATION_TOKEN_MINUTES', 15),

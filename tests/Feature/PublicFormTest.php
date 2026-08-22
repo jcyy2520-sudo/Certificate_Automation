@@ -28,6 +28,7 @@ class PublicFormTest extends TestCase
         $this->webinar = Webinar::factory()->create([
             'title' => 'Cyber Hygiene Clinic', 'slug' => 'cyber-hygiene-clinic',
             'created_by' => $administrator->id,
+            'requires_verification' => false,
         ]);
         $this->registration = $this->webinar->forms()->create([
             'type' => 'registration', 'title' => 'Registration', 'status' => 'published',
@@ -80,6 +81,9 @@ class PublicFormTest extends TestCase
 
     public function test_the_thank_you_page_shows_a_score_only_when_the_form_reveals_it(): void
     {
+        $this->post($this->registration->shareUrl(), [
+            'full_name' => 'Maria Santos', 'email' => 'maria@example.com', 'privacy_acknowledged' => '1',
+        ]);
         $posttest = $this->publishedPosttest(showScore: true);
         $question = $posttest->questions->first();
         $correct = $question->choices->firstWhere('is_correct', true);
@@ -102,6 +106,9 @@ class PublicFormTest extends TestCase
 
     public function test_a_hidden_score_is_never_shown_to_the_participant(): void
     {
+        $this->post($this->registration->shareUrl(), [
+            'full_name' => 'Maria Santos', 'email' => 'maria@example.com', 'privacy_acknowledged' => '1',
+        ]);
         $posttest = $this->publishedPosttest(showScore: false);
         $question = $posttest->questions->first();
 
@@ -114,7 +121,7 @@ class PublicFormTest extends TestCase
             ->assertDontSee('Your score');
 
         // The score is still recorded for the organizer.
-        $this->assertEquals(10.0, (float) Submission::query()->firstOrFail()->score);
+        $this->assertEquals(10.0, (float) Submission::query()->where('form_id', $posttest->id)->firstOrFail()->score);
     }
 
     public function test_responses_from_the_same_email_link_to_one_participant(): void
