@@ -92,6 +92,7 @@ class PublicFormTest extends TestCase
                 ->assertSee('Your response has been recorded')
                 ->assertSee('Thank you for completing this form.')
                 ->assertSee('You can close this page now.')
+                ->assertSee(route('forms.public.status', $form->public_token), false)
                 ->assertSee('aria-valuenow="100"', false)
                 ->assertDontSee('stepper-dot')
                 ->assertDontSee('Submit')

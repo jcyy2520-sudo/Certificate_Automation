@@ -207,6 +207,7 @@ class CertificateService
 
             if (filled($participant->email)) {
                 $verificationUrl = route('certificates.verify', $lockedCertificate->verification_code);
+                $statusForm = $webinar->forms()->where('type', 'registration')->first(['public_token']);
                 $this->notifications->queue(
                     $webinar,
                     $participant,
@@ -217,6 +218,9 @@ class CertificateService
                         'participant' => $participant,
                         'certificate' => $lockedCertificate,
                         'verificationUrl' => $verificationUrl,
+                        'statusUrl' => $statusForm
+                            ? route('forms.public.status', $statusForm->public_token)
+                            : null,
                     ])->render(),
                     $lockedCertificate,
                     [['name' => 'certificate.pdf', 'content' => base64_encode($contents)]],

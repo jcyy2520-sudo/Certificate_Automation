@@ -36,6 +36,8 @@
         </div>
     @endif
 
+    <a class="button-primary mx-auto mt-8 w-full sm:w-auto" href="{{ route('forms.public.status', $form->public_token) }}">Check your progress and certificate</a>
+
     <p class="mx-auto mt-10 max-w-sm border-t border-slate-200 pt-6 text-[13px] leading-5 text-slate-500">You can close this page now. If the organizer needs anything further from you, they will be in touch by email.</p>
 </div>
 @endsection

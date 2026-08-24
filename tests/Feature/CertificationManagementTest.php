@@ -188,6 +188,9 @@ class CertificationManagementTest extends TestCase
         Storage::fake('local');
 
         EligibilityRule::query()->create(['webinar_id' => $this->webinar->id, 'requirement' => 'registration', 'is_required' => true]);
+        $registration = $this->webinar->forms()->create([
+            'type' => 'registration', 'title' => 'Registration', 'status' => 'published',
+        ]);
         $this->uploadedTemplate();
         $eligible = Participant::query()->create([
             'webinar_id' => $this->webinar->id, 'full_name' => 'Wrong Spelling', 'email' => 'wei@example.com', 'verified_at' => now(),
@@ -218,6 +221,10 @@ class CertificationManagementTest extends TestCase
         $this->assertSame('Wei Chen', $eligible->fresh()->full_name);
         $this->assertSame('Wei Chen', $certificate->recipient_name);
         $this->assertSame('issued', $certificate->status);
+        $this->assertStringContainsString(
+            route('forms.public.status', $registration->public_token),
+            (string) EmailDelivery::query()->where('certificate_id', $certificate->id)->sole()->payload['html'],
+        );
         // The ineligible participant is skipped, not certified.
         $this->assertSame(0, Certificate::query()->where('participant_id', $notEligible->id)->count());
     }

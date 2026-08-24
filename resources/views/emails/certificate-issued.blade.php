@@ -24,6 +24,16 @@
         </tr>
     </table>
 
+    @if($statusUrl)
+        <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
+            <tr>
+                <td style="border:1px solid #1d4ed8;border-radius:12px;">
+                    <a href="{{ $statusUrl }}" style="display:inline-block;padding:13px 27px;color:#1d4ed8;font-size:15px;font-weight:600;text-decoration:none;">View your progress and certificate</a>
+                </td>
+            </tr>
+        </table>
+    @endif
+
     <p style="margin:0;font-size:13px;line-height:20px;color:#64748b;">
         Anyone can confirm this certificate is genuine at the address above. The public page shows only the event, issue date, and validity — never your contact details or assessment results.
     </p>
