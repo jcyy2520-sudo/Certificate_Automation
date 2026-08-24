@@ -64,7 +64,12 @@ class ParticipantController extends Controller
             $certificate = $certificateByParticipant[$participant->id] ?? null;
             $delivery = $certificate ? ($deliveryByCertificate[$certificate->id] ?? null) : null;
             $participant->certificate_record = $certificate;
-            $participant->certificate_delivery_state = CertificateDeliveryState::from($certificate, $delivery);
+            $participant->certificate_delivery_state = CertificateDeliveryState::from(
+                $certificate,
+                $delivery,
+                filled($participant->email),
+                $participant->eligibility['eligible'],
+            );
         }
 
         return view('admin.participants.index', [

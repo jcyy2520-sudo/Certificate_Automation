@@ -56,6 +56,27 @@ class AdminParticipantManagementTest extends TestCase
             ->assertDontSee('Maria Santos');
     }
 
+    public function test_the_participant_list_distinguishes_not_sent_and_missing_email_states(): void
+    {
+        EligibilityRule::query()->create([
+            'webinar_id' => $this->webinar->id,
+            'requirement' => 'registration',
+            'is_required' => true,
+        ]);
+        Participant::query()->create([
+            'webinar_id' => $this->webinar->id,
+            'full_name' => 'No Email Participant',
+        ]);
+
+        $this->actingAs($this->administrator)
+            ->get(route('admin.participants.index', $this->webinar))
+            ->assertOk()
+            ->assertSee('Not sent')
+            ->assertSee('Email needed')
+            ->assertDontSee('Ready to send')
+            ->assertDontSee('Ready to generate and email');
+    }
+
     public function test_the_participant_record_renders_with_its_eligibility_state(): void
     {
         EligibilityRule::query()->create(['webinar_id' => $this->webinar->id, 'requirement' => 'registration', 'is_required' => true]);

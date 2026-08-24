@@ -65,9 +65,11 @@ class CertificateController extends Controller
         foreach ($participants as $participant) {
             $certificate = $held($participant);
             $delivery = $certificate ? $deliveryByCertificate->get($certificate->id) : null;
-            $state = $certificate === null && blank($participant->email)
-                ? CertificateDeliveryState::MissingEmail
-                : CertificateDeliveryState::from($certificate, $delivery);
+            $state = CertificateDeliveryState::from(
+                $certificate,
+                $delivery,
+                filled($participant->email),
+            );
             $participant->certificate_delivery_state = $state;
             $participant->cert_status = $state->slug();
             $participant->certificate_record = $certificate;

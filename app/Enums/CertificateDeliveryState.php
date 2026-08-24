@@ -8,6 +8,7 @@ use App\Models\EmailDelivery;
 enum CertificateDeliveryState
 {
     case Ready;
+    case NotSent;
     case MissingEmail;
     case CertificateQueued;
     case EmailQueued;
@@ -16,16 +17,23 @@ enum CertificateDeliveryState
     case CertificateFailed;
     case EmailFailed;
 
-    public static function from(?Certificate $certificate, ?EmailDelivery $delivery): self
+    public static function from(
+        ?Certificate $c,
+        ?EmailDelivery $d,
+        bool $hasEmail = true,
+        bool $eligible = true,
+    ): self
     {
         return match (true) {
-            $certificate === null => self::Ready,
-            $certificate->status === 'processing' => self::CertificateQueued,
-            $certificate->status === 'failed' => self::CertificateFailed,
-            $delivery?->status === 'processing' => self::Sending,
-            in_array($delivery?->status, ['failed', 'cancelled'], true) => self::EmailFailed,
-            $delivery?->status === 'sent' || $certificate->sent_at !== null => self::Sent,
-            $certificate->status === 'issued' => self::EmailQueued,
+            $c === null && ! $hasEmail => self::MissingEmail,
+            $c === null && ! $eligible => self::NotSent,
+            $c === null => self::Ready,
+            $c->status === 'processing' => self::CertificateQueued,
+            $c->status === 'failed' => self::CertificateFailed,
+            $d?->status === 'processing' => self::Sending,
+            in_array($d?->status, ['failed', 'cancelled'], true) => self::EmailFailed,
+            $d?->status === 'sent' || $c->sent_at !== null => self::Sent,
+            $c->status === 'issued' => self::EmailQueued,
             default => self::Ready,
         };
     }
@@ -34,6 +42,7 @@ enum CertificateDeliveryState
     {
         return match ($this) {
             self::Ready => 'ready',
+            self::NotSent => 'not_sent',
             self::MissingEmail => 'missing_email',
             self::CertificateQueued, self::EmailQueued => 'queued',
             self::Sending => 'sending',
@@ -46,6 +55,7 @@ enum CertificateDeliveryState
     {
         return match ($this) {
             self::Ready => 'Ready to send',
+            self::NotSent => 'Not sent',
             self::MissingEmail => 'Email needed',
             self::CertificateQueued => 'Queued for generation',
             self::EmailQueued => 'Queued for email',
@@ -60,6 +70,7 @@ enum CertificateDeliveryState
     {
         return match ($this) {
             self::Ready => 'Ready to generate and email',
+            self::NotSent => '',
             self::MissingEmail => 'Add an email address before sending',
             self::CertificateQueued => 'Waiting for the certificate worker',
             self::EmailQueued => "Certificate ready \u{00B7} waiting for the email worker",

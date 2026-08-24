@@ -138,7 +138,9 @@
                         </td>
                         <td class="px-5 py-3.5">
                             <span class="badge {{ $certificateBadge }}">{{ $certificateState->label() }}</span>
-                            <span class="mt-1 block whitespace-nowrap text-[10px] text-slate-500">{{ $certificateState->detail() }}</span>
+                            @if($certificateState->detail() !== '')
+                                <span class="mt-1 block whitespace-nowrap text-[10px] text-slate-500">{{ $certificateState->detail() }}</span>
+                            @endif
                         </td>
                         <td class="px-5 py-3.5 text-right">
                             <a class="text-[13px] font-medium text-accent-600 hover:underline" href="{{ route('admin.participants.show', [$webinar, $participant]) }}">Open</a>
