@@ -3,8 +3,8 @@
 namespace Tests\Feature;
 
 use App\Models\Certificate;
-use App\Models\EmailDelivery;
 use App\Models\EligibilityOverride;
+use App\Models\EmailDelivery;
 use App\Models\Participant;
 use App\Models\Submission;
 use App\Models\SubmissionAnswer;

@@ -68,13 +68,18 @@ class Form extends Model
         }
 
         if ($this->type === 'registration'
-            && (($this->webinar->registration_opens_at && $this->webinar->registration_opens_at->isFuture())
-                || ($this->webinar->registration_closes_at && $this->webinar->registration_closes_at->isPast()))) {
+            && (($this->webinar->registration_closes_at && $this->webinar->registration_closes_at->isPast())
+                || $this->registrationIsFull())) {
             return false;
         }
 
-        return ! ($this->opens_at && $this->opens_at->isFuture())
-            && ! ($this->closes_at && $this->closes_at->isPast());
+        return ! ($this->closes_at && $this->closes_at->isPast());
+    }
+
+    /** Whether the organizer has manually switched this form on. */
+    public function isOpen(): bool
+    {
+        return $this->status === 'published';
     }
 
     /** Why the form is not accepting responses, for the closed-form notice. */
@@ -83,12 +88,20 @@ class Form extends Model
         return match (true) {
             $this->webinar && $this->webinar->retention_due_at === null => 'This event has no committed privacy retention deadline.',
             $this->webinar?->retention_due_at?->isPast() => 'This event has reached the end of its privacy retention period.',
-            $this->type === 'registration' && $this->webinar?->registration_opens_at?->isFuture() => 'Registration is not open yet.',
             $this->type === 'registration' && $this->webinar?->registration_closes_at?->isPast() => 'Registration is closed.',
-            $this->opens_at && $this->opens_at->isFuture() => 'This form is not open yet.',
+            $this->type === 'registration' && $this->registrationIsFull() => 'Registration is full.',
             $this->closes_at && $this->closes_at->isPast() => 'This form is no longer accepting responses.',
             default => 'This form is not accepting responses.',
         };
+    }
+
+    private function registrationIsFull(): bool
+    {
+        return $this->webinar?->registration_capacity !== null
+            && $this->webinar->participants()
+                ->whereNotNull('verified_at')
+                ->whereNull('privacy_erased_at')
+                ->count() >= $this->webinar->registration_capacity;
     }
 
     public function webinar()

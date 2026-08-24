@@ -1,0 +1,25 @@
+[Unit]
+Description=Webinar Platform default queue worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/webinar-platform/current
+EnvironmentFile=/etc/webinar-platform/runtime.env
+ExecStart=/usr/bin/php artisan queue:work redis --queue=default --sleep=1 --tries=3 --timeout=1800 --max-time=3600 --memory=256
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=1810
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/var/www/webinar-platform/current/storage /var/www/webinar-platform/current/bootstrap/cache
+
+[Install]
+WantedBy=webinar-platform-services.target

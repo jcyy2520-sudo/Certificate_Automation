@@ -10,16 +10,16 @@
         'Segoe UI Symbol', 'Noto Color Emoji';
 
     /* The single accent used across the product. Change these to re-theme. */
-    --color-accent-50: #eff4ff;
-    --color-accent-100: #dbe6fe;
-    --color-accent-200: #bfd3fe;
-    --color-accent-300: #93b4fd;
-    --color-accent-400: #608cfa;
-    --color-accent-500: #3b66f6;
-    --color-accent-600: #1d4ed8;
-    --color-accent-700: #1a43be;
-    --color-accent-800: #1b3a9b;
-    --color-accent-900: #1c357b;
+    --color-accent-50: #fff8e8;
+    --color-accent-100: #ffedc6;
+    --color-accent-200: #fbd693;
+    --color-accent-300: #f4b95d;
+    --color-accent-400: #e9912d;
+    --color-accent-500: #c96a14;
+    --color-accent-600: #a34e0b;
+    --color-accent-700: #843a0c;
+    --color-accent-800: #6b300f;
+    --color-accent-900: #582910;
 
     /* The navigation rail. Near-black, slightly warm. */
     --color-rail-900: #141416;
@@ -30,11 +30,51 @@
     --rail-width-open: 248px;
 }
 
+/* The exact fonts dompdf uses to render the certificate PDF, self-hosted so the
+   on-screen preview matches the issued file on any machine. Browsers download a
+   file only when the certificate name actually uses that family + weight, so
+   these never affect other pages. */
+@font-face {
+    font-family: 'DejaVu Sans';
+    src: url('/fonts/DejaVuSans.ttf') format('truetype');
+    font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+    font-family: 'DejaVu Sans';
+    src: url('/fonts/DejaVuSans-Bold.ttf') format('truetype');
+    font-weight: 700; font-style: normal; font-display: swap;
+}
+@font-face {
+    font-family: 'DejaVu Serif';
+    src: url('/fonts/DejaVuSerif.ttf') format('truetype');
+    font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+    font-family: 'DejaVu Serif';
+    src: url('/fonts/DejaVuSerif-Bold.ttf') format('truetype');
+    font-weight: 700; font-style: normal; font-display: swap;
+}
+@font-face {
+    font-family: 'DejaVu Sans Mono';
+    src: url('/fonts/DejaVuSansMono.ttf') format('truetype');
+    font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+    font-family: 'DejaVu Sans Mono';
+    src: url('/fonts/DejaVuSansMono-Bold.ttf') format('truetype');
+    font-weight: 700; font-style: normal; font-display: swap;
+}
+
 @layer base {
     /* Crisper glyph edges on the dark rail. */
     body {
         -webkit-font-smoothing: antialiased;
         text-rendering: optimizeLegibility;
+        background-color: #f5f7f5;
+        background-image:
+            radial-gradient(circle at 8% 8%, rgb(205 231 236 / 48%), transparent 24rem),
+            radial-gradient(circle at 96% 94%, rgb(220 235 204 / 42%), transparent 28rem);
+        background-attachment: fixed;
     }
 
     /* A compositor-only progress bar makes server navigation acknowledge a
@@ -74,7 +114,7 @@
     /* Hairline borders, no drop shadows: definition comes from the border. */
 
     .panel {
-        @apply rounded-xl border border-slate-200 bg-white;
+        @apply rounded-2xl border border-stone-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.025)];
     }
 
     .eyebrow {
@@ -91,7 +131,7 @@
     /* ---- Type -------------------------------------------------------- */
 
     .page-title {
-        @apply text-[28px] font-semibold leading-9 tracking-[-0.02em] text-slate-900;
+        @apply text-[30px] font-semibold leading-9 tracking-[-0.035em] text-slate-950;
     }
 
     .section-title {
@@ -110,6 +150,10 @@
 
     .button-danger {
         @apply inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-red-600 transition hover:border-red-300 hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600;
+    }
+
+    .button-danger-solid {
+        @apply inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 text-sm font-medium text-white transition hover:bg-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600 disabled:cursor-not-allowed disabled:opacity-40;
     }
 
     /* A filter/segment control, as in the reference toolbar. */
@@ -208,11 +252,11 @@
     }
 
     .rail-item-active {
-        @apply bg-accent-50 text-accent-700;
+        @apply bg-accent-100 text-slate-950;
     }
 
     .rail-item-active:hover {
-        @apply bg-accent-50 text-accent-700;
+        @apply bg-accent-100 text-slate-950;
     }
 
     .rail-item:focus-visible {
@@ -228,7 +272,7 @@
     }
 
     .rail-item-active svg {
-        @apply text-accent-600;
+        @apply text-accent-800;
     }
 
     /* ---- Webinar workspace sidebar ----------------------------------- */
@@ -319,15 +363,15 @@
     }
 
     .wn-item-active {
-        @apply bg-accent-50 text-accent-700;
+        @apply bg-accent-100 text-slate-950;
     }
 
     .wn-item-active svg {
-        @apply text-accent-600;
+        @apply text-accent-800;
     }
 
     .wn-item-active:hover {
-        @apply bg-accent-50 text-accent-700;
+        @apply bg-accent-100 text-slate-950;
     }
 
     /* ---- Participant survey ------------------------------------------ */
@@ -441,4 +485,220 @@
         @apply size-4 border-accent-600 bg-white;
         box-shadow: 0 0 0 4px var(--color-accent-100);
     }
+}
+
+@layer components {
+    /* ---- Toasts ------------------------------------------------------ */
+    /* In-app messages that replace every browser alert()/confirm() dialog.
+       These classes are stable so the page script can build a toast node
+       with createElement (Trusted Types forbids innerHTML) and still get
+       the full styling. */
+
+    .toast-viewport {
+        @apply pointer-events-none fixed inset-x-0 top-4 z-[120] flex flex-col items-center gap-2 px-4 sm:inset-x-auto sm:right-6 sm:items-end;
+    }
+
+    .toast {
+        @apply pointer-events-auto flex w-full max-w-md items-start gap-3 rounded-xl border bg-white px-4 py-3 text-sm shadow-lg shadow-slate-900/5 ring-1 ring-black/[0.02];
+        animation: toast-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    .toast[data-leaving='true'] {
+        animation: toast-out 160ms ease forwards;
+    }
+
+    .toast-icon {
+        @apply mt-0.5 grid size-5 shrink-0 place-items-center;
+    }
+
+    .toast-body {
+        @apply min-w-0 flex-1 leading-5;
+    }
+
+    .toast-title {
+        @apply font-semibold;
+    }
+
+    .toast-close {
+        @apply -mr-1 -mt-0.5 grid size-6 shrink-0 place-items-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30;
+    }
+
+    .toast-success {
+        @apply border-emerald-200 text-emerald-900;
+    }
+
+    .toast-success .toast-icon {
+        @apply text-emerald-600;
+    }
+
+    .toast-error {
+        @apply border-red-200 text-red-900;
+    }
+
+    .toast-error .toast-icon {
+        @apply text-red-600;
+    }
+
+    .toast-info {
+        @apply border-slate-200 text-slate-800;
+    }
+
+    .toast-info .toast-icon {
+        @apply text-accent-600;
+    }
+
+    @keyframes toast-in {
+        from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    @keyframes toast-out {
+        to { opacity: 0; transform: translateY(-6px) scale(0.98); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .toast, .toast[data-leaving='true'] { animation: none; }
+    }
+
+    /* ---- Confirmation modal ------------------------------------------ */
+    /* Replaces window.confirm for any form marked data-confirm. */
+
+    .modal-overlay {
+        @apply fixed inset-0 z-[130] flex items-end justify-center bg-slate-900/40 px-4 pb-4 pt-24 backdrop-blur-sm sm:items-center sm:p-6;
+        animation: modal-fade 140ms ease both;
+    }
+
+    .modal-card {
+        @apply w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl shadow-slate-900/10;
+        animation: modal-pop 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    .modal-icon {
+        @apply grid size-11 shrink-0 place-items-center rounded-full;
+    }
+
+    @keyframes modal-fade {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+
+    @keyframes modal-pop {
+        from { opacity: 0; transform: translateY(8px) scale(0.98); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .modal-overlay, .modal-card { animation: none; }
+    }
+
+    /* ---- On/off switch ----------------------------------------------- */
+    /* A real checkbox styled as a toggle. The input stays in the form so
+       nothing about submission changes; only its appearance does. */
+
+    .switch {
+        @apply relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full bg-slate-200 transition-colors duration-200 ease-in-out;
+        @apply focus-within:ring-2 focus-within:ring-accent-600/30 focus-within:ring-offset-2;
+    }
+
+    .switch::after {
+        content: '';
+        @apply absolute left-0.5 size-5 rounded-full bg-white shadow transition-transform duration-200 ease-in-out;
+    }
+
+    .switch:has(input:checked) {
+        @apply bg-accent-600;
+    }
+
+    .switch:has(input:checked)::after {
+        transform: translateX(20px);
+    }
+
+    .switch input {
+        @apply absolute inset-0 m-0 cursor-pointer opacity-0;
+    }
+
+    /* ---- Segmented control ------------------------------------------- */
+    /* A radio group rendered as connected pills — used for the form
+       open/closed switch and other two/three-way status choices. */
+
+    .segmented {
+        @apply inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1;
+    }
+
+    .segmented-option {
+        @apply relative flex cursor-pointer items-center justify-center gap-2 rounded-md px-3.5 py-1.5 text-[13px] font-medium text-slate-500 transition;
+    }
+
+    .segmented-option:has(input:focus-visible) {
+        @apply ring-2 ring-accent-600/30;
+    }
+
+    .segmented-option:has(input:checked) {
+        @apply bg-white text-slate-900 shadow-sm ring-1 ring-black/[0.03];
+    }
+
+    .segmented-option input {
+        @apply sr-only;
+    }
+
+    /* The draggable/focusable certificate name in the editor. */
+    [data-cert-name][tabindex]:focus-visible {
+        outline: 2px solid var(--color-accent-600);
+        outline-offset: 3px;
+        border-radius: 2px;
+    }
+
+    /* ---- Full-screen certificate studio ----------------------------- */
+    .studio-mobile-panel-button,
+    .studio-icon-button {
+        @apply inline-flex size-9 shrink-0 items-center justify-center rounded-lg text-slate-600 transition hover:bg-slate-100 hover:text-slate-950;
+    }
+
+    .studio-empty {
+        @apply flex min-h-0 flex-1 items-center justify-center bg-slate-100 p-6;
+    }
+
+    .studio-empty > div {
+        @apply w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-xl shadow-slate-900/5;
+    }
+
+    .studio-empty h2 { @apply mt-4 text-lg font-semibold; }
+    .studio-empty p { @apply mt-2 text-sm leading-6 text-slate-500; }
+
+    .studio-side-panel {
+        @apply absolute inset-y-0 z-50 flex flex-col border-slate-200 bg-white transition-transform duration-200 lg:static lg:z-auto lg:translate-x-0;
+    }
+
+    .studio-left-panel { @apply left-0 w-[280px] -translate-x-full border-r lg:translate-x-0; }
+    .studio-right-panel { @apply right-0 w-[330px] translate-x-full border-l lg:translate-x-0; }
+    .studio-side-panel.is-open { @apply translate-x-0; }
+
+    .studio-search { @apply relative mt-3 block; }
+    .studio-search > svg { @apply pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400; }
+    .studio-search input { @apply h-9 w-full rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 text-[12px] outline-none transition focus:border-accent-400 focus:bg-white; }
+
+    .studio-certificate-row { @apply mb-1 flex cursor-pointer gap-2.5 rounded-xl border border-transparent p-2.5 transition hover:bg-slate-50; }
+    .studio-certificate-row.is-active,
+    .studio-person-row.is-active { @apply border-accent-200 bg-accent-50/80; }
+    .studio-person-row { @apply mb-1 rounded-xl border border-transparent p-3 transition hover:bg-slate-50; }
+
+    .certificate-status { @apply inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.06em]; }
+    .certificate-status-ready { @apply bg-slate-100 text-slate-600; }
+    .certificate-status-queued { @apply bg-blue-50 text-blue-700; }
+    .certificate-status-sending { @apply bg-amber-50 text-amber-700; }
+    .certificate-status-sent { @apply bg-emerald-50 text-emerald-700; }
+    .certificate-status-failed,
+    .certificate-status-missing_email { @apply bg-red-50 text-red-700; }
+
+    .studio-preview-bar { @apply flex h-11 shrink-0 items-center justify-center gap-1.5 border-b border-white/10 bg-[#1d202b] px-3 text-slate-300; }
+    .studio-dark-button { @apply inline-flex size-7 items-center justify-center rounded-md transition hover:bg-white/10 hover:text-white; }
+    .studio-dark-text-button { @apply h-7 items-center rounded-md px-2 text-[10px] font-semibold transition hover:bg-white/10 hover:text-white; }
+
+    .studio-toolbar-wrap { @apply absolute bottom-4 left-1/2 z-20 w-[min(calc(100%-1rem),900px)] -translate-x-1/2 px-2; }
+    .studio-toolbar { @apply rounded-2xl border border-slate-200 bg-white p-2.5 shadow-2xl shadow-black/35; }
+    .studio-tool-button { @apply inline-flex size-9 shrink-0 items-center justify-center rounded-lg border border-transparent text-[13px] text-slate-600 transition hover:bg-slate-100; }
+    .studio-tool-button.is-active { @apply border-accent-200 bg-accent-50 text-accent-800; }
+    .studio-nudge { @apply flex h-5 min-w-7 items-center justify-center rounded bg-slate-100 px-1 text-[11px] font-bold text-slate-600 hover:bg-accent-100 hover:text-accent-800; }
+    .studio-filter { @apply rounded-full px-2 py-1 text-[10px] font-semibold capitalize text-slate-500 hover:bg-slate-100; }
+    .studio-filter.is-active { @apply bg-slate-900 text-white hover:bg-slate-900; }
 }

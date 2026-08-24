@@ -15,12 +15,13 @@ use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 class CertificationController extends Controller
 {
     /** Requirements that can gate certificate issuance, in journey order. */
-    public const REQUIREMENTS = ['registration', 'pretest', 'posttest', 'evaluation'];
+    public const REQUIREMENTS = ['registration', 'attendance', 'pretest', 'posttest', 'evaluation'];
 
     public function edit(Webinar $webinar): View
     {
@@ -34,15 +35,7 @@ class CertificationController extends Controller
             'webinar' => $webinar,
             'rules' => $webinar->eligibilityRules->keyBy('requirement'),
             'template' => $this->activeTemplate($webinar),
-            'batches' => $webinar->certificateBatches()
-                ->select([
-                    'id', 'webinar_id', 'created_by', 'status', 'total_count',
-                    'completed_count', 'failed_count', 'created_at',
-                ])
-                ->with('creator:id,name')
-                ->latest('id')
-                ->limit(10)
-                ->get(),
+            'fonts' => CertificateTemplate::FONTS,
             'issuedCount' => $webinar->certificates()->whereNotNull('issued_at')->whereNull('revoked_at')->count(),
             'pendingCount' => $webinar->participants()
                 ->whereNull('privacy_erased_at')
@@ -73,7 +66,9 @@ class CertificationController extends Controller
                     ['webinar_id' => $webinar->id, 'requirement' => $requirement],
                     [
                         'is_required' => true,
-                        'minimum_score' => $requirement === 'registration' ? null : ($rule['minimum_score'] ?? null),
+                        'minimum_score' => in_array($requirement, ['registration', 'attendance'], true)
+                            ? null
+                            : ($rule['minimum_score'] ?? null),
                     ],
                 );
             }
@@ -90,43 +85,88 @@ class CertificationController extends Controller
 
         $data = $request->validate([
             'name' => ['required', 'string', 'max:120'],
-            'accent' => ['required', 'string', 'regex:/^#[0-9a-fA-F]{6}$/'],
             // The finished certificate is uploaded whole; the system only places
             // the name on it. An upload is required unless one is already stored.
+            // The name's position, font, size, and colour are set visually in the
+            // certificate editor, not here.
             'background' => [$template->background_path ? 'nullable' : 'required', 'image', 'mimes:png,jpg,jpeg', 'max:8192'],
-            'name_top' => ['nullable', 'numeric', 'min:0', 'max:100'],
-            'name_font_size' => ['nullable', 'numeric', 'min:12', 'max:160'],
         ], [
             'background.required' => 'Upload the finished certificate image (PNG or JPG).',
         ]);
 
         $disk = Storage::disk($template->storage_disk);
         $backgroundPath = $template->background_path;
+        $layout = $template->layout ?? [];
 
         if ($request->hasFile('background')) {
             if ($backgroundPath) {
                 $disk->delete($backgroundPath);
             }
-            $backgroundPath = $request->file('background')->storeAs(
+            $file = $request->file('background');
+            $backgroundPath = $file->storeAs(
                 'certificate-backgrounds',
-                $template->id.'-'.now()->timestamp.'.'.$request->file('background')->extension(),
+                $template->id.'-'.now()->timestamp.'.'.$file->extension(),
                 ['disk' => $template->storage_disk],
             );
+
+            // Remember the design's real pixel size so the preview and the issued
+            // PDF are both rendered at its exact aspect ratio — never distorted.
+            $dimensions = @getimagesize($file->getRealPath());
+            if ($dimensions !== false && $dimensions[0] > 0 && $dimensions[1] > 0) {
+                $layout['bg_w'] = (int) $dimensions[0];
+                $layout['bg_h'] = (int) $dimensions[1];
+            }
         }
 
         $template->update([
             'name' => $data['name'],
             'background_path' => $backgroundPath,
-            'layout' => [
-                'accent' => $data['accent'],
-                'name_top' => $data['name_top'] ?? ($template->layout['name_top'] ?? 62),
-                'name_font_size' => $data['name_font_size'] ?? ($template->layout['name_font_size'] ?? 42),
-            ],
+            // Preserve the name placement/font/colour set in the editor.
+            'layout' => $layout,
         ]);
 
         $audit->record($request, 'certificate_template.updated', $template);
 
         return back()->with('success', 'Certificate design saved. New certificates use it immediately.');
+    }
+
+    /**
+     * Save the visual name placement made in the certificate editor: position,
+     * font, size, and colour. This is cosmetic (it never changes the uploaded
+     * image or who qualifies), so it stays out of the recent-password gate to
+     * keep the editor fluid; it is still audited.
+     */
+    public function updateDesign(Request $request, Webinar $webinar, AuditService $audit): RedirectResponse
+    {
+        $template = $this->activeTemplate($webinar);
+
+        $data = $request->validate([
+            'name_top' => ['required', 'numeric', 'min:0', 'max:100'],
+            'name_left' => ['required', 'numeric', 'min:0', 'max:100'],
+            'name_font_size' => ['required', 'numeric', 'min:12', 'max:160'],
+            'name_font_family' => ['required', Rule::in(array_keys(CertificateTemplate::FONTS))],
+            'accent' => ['required', 'string', 'regex:/^#[0-9a-fA-F]{6}$/'],
+            'name_font_weight' => ['nullable', Rule::in(['regular', 'bold'])],
+            'name_font_style' => ['nullable', Rule::in(['regular', 'italic'])],
+            'name_text_align' => ['nullable', Rule::in(['left', 'center', 'right'])],
+        ]);
+
+        $template->update([
+            'layout' => array_merge($template->layout ?? [], [
+                'name_top' => round((float) $data['name_top'], 2),
+                'name_left' => round((float) $data['name_left'], 2),
+                'name_font_size' => round((float) $data['name_font_size'], 1),
+                'name_font_family' => $data['name_font_family'],
+                'accent' => Str::lower($data['accent']),
+                'name_font_weight' => $data['name_font_weight'] ?? 'bold',
+                'name_font_style' => $data['name_font_style'] ?? 'regular',
+                'name_text_align' => $data['name_text_align'] ?? 'center',
+            ]),
+        ]);
+
+        $audit->record($request, 'certificate_template.design_updated', $template);
+
+        return back()->with('success', 'Certificate design updated. New certificates use it immediately.');
     }
 
     /**

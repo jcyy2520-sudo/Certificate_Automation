@@ -34,6 +34,7 @@ class Participant extends Model
         return [
             'email_verified_at' => 'datetime',
             'verified_at' => 'datetime',
+            'checked_in_at' => 'datetime',
             'last_access_at' => 'datetime',
             'privacy_erased_at' => 'datetime',
         ];

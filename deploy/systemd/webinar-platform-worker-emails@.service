@@ -1,0 +1,25 @@
+[Unit]
+Description=Webinar Platform transactional email queue worker %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/webinar-platform/current
+EnvironmentFile=/etc/webinar-platform/runtime.env
+ExecStart=/usr/bin/php artisan queue:work redis-emails --queue=emails --sleep=1 --tries=3 --timeout=60 --max-time=3600 --memory=192
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=70
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/var/www/webinar-platform/current/storage /var/www/webinar-platform/current/bootstrap/cache
+
+[Install]
+WantedBy=webinar-platform-services.target

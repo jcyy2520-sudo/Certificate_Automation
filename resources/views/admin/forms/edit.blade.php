@@ -15,7 +15,7 @@
     $hasFields = ! in_array($form->type, ['pretest', 'posttest'], true);
     $hasQuestions = $form->type !== 'registration';
     $showTwoColumns = $hasFields && $hasQuestions;
-    $settingsOpen = $errors->hasAny(['title', 'description', 'status', 'opens_at', 'closes_at', 'max_attempts', 'show_score']);
+    $settingsOpen = $errors->hasAny(['title', 'description', 'closes_at', 'max_attempts', 'show_score']);
     $addFieldOpen = $failedRow === 'new-field';
     $addQuestionOpen = $failedRow === 'new-question';
 
@@ -29,16 +29,72 @@
     ];
 @endphp
 
+@php
+    $noun = $form->type === 'registration' ? 'Registration' : 'Form';
+    $availabilityLabel = match ($form->type) {
+        'registration' => 'Registration',
+        'pretest' => 'Pre-test',
+        'posttest' => 'Post-test',
+        'evaluation' => 'Evaluation',
+        default => 'Form',
+    };
+    $isOpen = $form->isOpen();
+    $isLive = $form->acceptsResponses();
+    // When the form is set open but responses still aren't accepted, explain why
+    // and point to exactly where to fix it.
+    $blockedByWebinar = $isOpen && ! $isLive && ! $webinar->isOpen();
+@endphp
+
 <x-page-header :title="$form->title"
                :crumbs="['Tests' => route('admin.webinars.show', $webinar)]">
     <x-slot:meta>
         <div class="mt-3 flex flex-wrap items-center gap-2.5 text-[13px] text-slate-500">
-            <span class="badge {{ $form->acceptsResponses() ? 'badge-green' : 'badge-slate' }}">{{ $form->acceptsResponses() ? 'accepting responses' : 'closed' }}</span>
-            <span class="text-slate-300">·</span>
             <span class="uppercase tracking-wide">{{ $form->type }}</span>
         </div>
     </x-slot:meta>
 </x-page-header>
+
+<section class="panel mb-6 p-5" data-availability-panel>
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div class="min-w-0">
+            <h2 class="section-title">Availability</h2>
+            <p class="mt-1 flex items-center gap-2 text-[13px]">
+                <span class="inline-flex items-center gap-1.5 font-medium {{ $isLive ? 'text-emerald-700' : 'text-slate-500' }}" data-availability-state>
+                    <span class="size-1.5 rounded-full {{ $isLive ? 'bg-emerald-500' : 'bg-slate-400' }}" data-availability-dot></span>
+                    <span data-availability-state-text>{{ $isLive ? 'Open — accepting responses now' : ($isOpen ? 'Open, but responses are currently blocked' : 'Closed — not accepting responses') }}</span>
+                </span>
+            </p>
+        </div>
+
+        {{-- One-click manual switch. Deadlines remain an independent boundary. --}}
+        <form method="POST" action="{{ route('admin.forms.toggle', [$webinar, $form]) }}" class="shrink-0" data-availability-form>@csrf
+            <input type="hidden" name="is_open" value="0">
+            <label class="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5">
+                <span class="text-right">
+                    <span class="block text-[13px] font-medium text-slate-900">{{ $availabilityLabel }}</span>
+                    <span class="block text-[12px] {{ $isOpen ? 'text-emerald-700' : 'text-slate-500' }}" data-availability-label>{{ $isOpen ? 'Open' : 'Closed' }}</span>
+                </span>
+                <span class="switch">
+                    <input type="checkbox" name="is_open" value="1" role="switch" aria-label="Open {{ Str::lower($availabilityLabel) }}" data-availability-switch @checked($isOpen)>
+                </span>
+            </label>
+            <p class="mt-1 hidden max-w-64 text-right text-[12px] text-red-600" role="alert" data-availability-error></p>
+        </form>
+    </div>
+
+        <div class="mt-4 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] leading-5 text-amber-900 {{ $isLive ? 'hidden' : '' }}" data-availability-notice>
+            <x-icon name="info" class="mt-0.5 size-4 shrink-0" />
+            <span data-availability-message>
+                @if($blockedByWebinar)
+                    This {{ Str::lower($noun) }} is switched on, but the webinar itself is closed, so nobody can respond yet. Open the webinar in <a class="font-medium underline" href="{{ route('admin.webinars.edit', $webinar) }}">Webinar settings</a>.
+                @elseif(! $isOpen)
+                    Turn on the <strong>{{ $availabilityLabel }}</strong> switch above to start accepting responses.
+                @else
+                    {{ $form->closedReason() }} Check the closing deadline in Settings below.
+                @endif
+            </span>
+        </div>
+</section>
 
 <section class="panel mb-6 p-5">
     <div class="flex items-start justify-between gap-4">
@@ -51,12 +107,8 @@
 
     <div class="mt-4 flex flex-col gap-2 sm:flex-row">
         <input id="share-link" class="field mt-0 flex-1 font-mono text-[13px]" value="{{ $form->shareUrl() }}" readonly data-select-on-click>
-        <button type="button" class="button-secondary shrink-0" data-copy-target="#share-link" data-copy-label="Copy link" data-copy-success="Copied">Copy link</button>
+        <button type="button" class="button-secondary shrink-0" data-copy-target="#share-link" data-copy-label="Copy link" data-copy-success="Link copied"><x-icon name="copy" class="size-4" />Copy link</button>
     </div>
-
-    @unless($form->acceptsResponses())
-        <p class="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-900">{{ $form->closedReason() }} Set the status to <strong>published</strong> below to accept responses.</p>
-    @endunless
 
     <div class="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
         <p class="text-[12px] text-slate-500">
@@ -77,7 +129,7 @@
         <summary class="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 hover:bg-slate-50">
             <div class="min-w-0">
                 <h2 class="section-title">Settings</h2>
-                <p class="mt-0.5 truncate text-[13px] text-slate-500 group-open:hidden">{{ ucfirst($form->status) }} · max {{ $form->max_attempts }} response(s) per email{{ $form->show_score ? ' · shows score' : '' }}</p>
+                <p class="mt-0.5 truncate text-[13px] text-slate-500 group-open:hidden">Max {{ $form->max_attempts }} response(s) per email{{ $form->show_score ? ' · shows score' : '' }} · closing deadline optional</p>
             </div>
             <span class="shrink-0 text-[13px] font-medium text-accent-600"><span class="group-open:hidden">Edit</span><span class="hidden group-open:inline">Close</span></span>
         </summary>
@@ -92,25 +144,15 @@
                     <textarea class="field {{ $errors->has('description') ? 'field-invalid' : '' }}" name="description" rows="3">{{ old('description', $form->description) }}</textarea>
                     <x-field-error :error="$errors->first('description')" />
                 </label>
-                <label class="field-label">Status
-                    <select class="field {{ $errors->has('status') ? 'field-invalid' : '' }}" name="status">
-                        @foreach(['draft', 'published', 'closed'] as $status)<option value="{{ $status }}" @selected(old('status', $form->status) === $status)>{{ ucfirst($status) }}</option>@endforeach
-                    </select>
-                    <x-field-error :error="$errors->first('status')" />
-                </label>
-                <label class="field-label">Maximum responses per email
+                <label class="field-label sm:col-span-2">Maximum responses per email
                     <input class="field {{ $errors->has('max_attempts') ? 'field-invalid' : '' }}" type="number" min="1" max="20" name="max_attempts" value="{{ old('max_attempts', $form->max_attempts) }}" required>
                     <x-field-error :error="$errors->first('max_attempts')" />
                 </label>
-                <label class="field-label">Opens
-                    <input class="field {{ $errors->has('opens_at') ? 'field-invalid' : '' }}" type="datetime-local" name="opens_at" value="{{ old('opens_at', $form->opens_at?->format('Y-m-d\TH:i')) }}">
-                    <x-field-error :error="$errors->first('opens_at')" />
-                </label>
-                <label class="field-label">Closes
-                    <input class="field {{ $errors->has('closes_at') ? 'field-invalid' : '' }}" type="datetime-local" name="closes_at" value="{{ old('closes_at', $form->closes_at?->format('Y-m-d\TH:i')) }}">
+                <label class="field-label sm:col-span-2">Closing deadline <span class="font-normal text-slate-400">optional</span>
+                    <input class="field {{ $errors->has('closes_at') ? 'field-invalid' : '' }}" type="datetime-local" name="closes_at" value="{{ old('closes_at', $form->closes_at?->copy()->setTimezone($webinar->timezone)->format('Y-m-d\TH:i')) }}">
                     <x-field-error :error="$errors->first('closes_at')" />
                 </label>
-                <p class="text-[12px] text-slate-500 sm:col-span-2">Opens/closes are interpreted in the webinar's timezone, <span class="font-medium text-slate-700">{{ $webinar->timezone }}</span>.</p>
+                <p class="text-[12px] text-slate-500 sm:col-span-2">The Open/Closed switch controls when responses start. If you set a deadline, the form closes automatically at that time; switching it on again after the deadline opens it manually.</p>
                 <label class="flex items-center gap-2.5 text-[13px] text-slate-700 sm:col-span-2"><input class="survey-check size-5" type="checkbox" name="show_score" value="1" @checked(old('show_score', $form->show_score))> Show score after submitting</label>
             </div>
             <button class="button-primary mt-4">Save settings</button>
@@ -202,10 +244,19 @@
     @endif
 
     @if($hasQuestions)
-        <section class="panel overflow-hidden self-start">
+        <section class="panel overflow-hidden self-start" data-questions>
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3.5">
+                <span class="section-title">Questions <span class="count">{{ $form->questions->count() }}</span></span>
+                <span class="segmented" data-question-tabs role="tablist">
+                    <label class="segmented-option"><input type="radio" name="qtab" value="builder" checked><x-icon name="edit" class="size-4" />Builder</label>
+                    <label class="segmented-option"><input type="radio" name="qtab" value="all"><x-icon name="file-text" class="size-4" />All questions</label>
+                </span>
+            </div>
+
+            <div data-qpanel="builder">
             <details class="group" @if($addQuestionOpen) open @endif>
                 <summary class="flex cursor-pointer list-none items-center justify-between gap-4 border-b border-slate-100 px-5 py-4 hover:bg-slate-50">
-                    <span class="section-title">Questions <span class="count">{{ $form->questions->count() }}</span></span>
+                    <span class="text-[13px] font-medium text-slate-700">Add a question</span>
                     <span class="button-secondary h-8 px-3 text-[13px]"><x-icon name="plus" class="size-4" /><span class="group-open:hidden">Add question</span><span class="hidden group-open:inline">Close</span></span>
                 </summary>
                 <form class="border-b border-slate-100 p-5" method="POST" action="{{ route('admin.forms.questions.store', [$webinar, $form]) }}">@csrf
@@ -309,7 +360,52 @@
                     <p class="px-5 py-10 text-center text-sm text-slate-500">No questions yet.</p>
                 @endforelse
             </div>
+            </div>{{-- /builder panel --}}
+
+            {{-- Compact, read-only overview of every question so the whole test
+                 can be scanned without opening each editor. --}}
+            <div data-qpanel="all" class="hidden">
+                @forelse($form->questions as $question)
+                    <div class="flex items-start gap-3 border-b border-slate-100 px-5 py-3 last:border-0">
+                        <span class="mt-0.5 grid size-6 shrink-0 place-items-center rounded-md bg-slate-100 text-[12px] font-semibold tabular-nums text-slate-500">{{ $loop->iteration }}</span>
+                        <div class="min-w-0 flex-1">
+                            <p class="text-[13px] font-medium text-slate-900">{{ $question->prompt }}</p>
+                            <p class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-slate-500">
+                                <span>{{ $questionTypeLabels[$question->question_type] ?? str_replace('_', ' ', $question->question_type) }}</span>
+                                <span class="text-slate-300">·</span>
+                                <span class="tabular-nums">{{ (float) $question->points }} {{ Str::plural('point', (float) $question->points) }}</span>
+                                @if(! $question->is_required)<span class="text-slate-300">·</span><span>optional</span>@endif
+                                @php $correct = $question->choices->firstWhere('is_correct', true); @endphp
+                                @if($correct)
+                                    <span class="text-slate-300">·</span>
+                                    <span class="inline-flex items-center gap-1 font-medium text-emerald-700"><x-icon name="check" class="size-3.5" />{{ $correct->label }}</span>
+                                @endif
+                            </p>
+                        </div>
+                    </div>
+                @empty
+                    <p class="px-5 py-10 text-center text-sm text-slate-500">No questions yet. Add them in the Builder tab.</p>
+                @endforelse
+            </div>
         </section>
     @endif
 </div>
+
+@if($hasQuestions)
+<script nonce="{{ $cspNonce }}">
+    (function () {
+        var root = document.querySelector('[data-questions]');
+        if (!root) return;
+        var tabs = root.querySelectorAll('[data-question-tabs] input[name="qtab"]');
+        var panels = root.querySelectorAll('[data-qpanel]');
+        function sync() {
+            var active = 'builder';
+            tabs.forEach(function (t) { if (t.checked) active = t.value; });
+            panels.forEach(function (p) { p.classList.toggle('hidden', p.getAttribute('data-qpanel') !== active); });
+        }
+        tabs.forEach(function (t) { t.addEventListener('change', sync); });
+        sync();
+    })();
+</script>
+@endif
 @endsection

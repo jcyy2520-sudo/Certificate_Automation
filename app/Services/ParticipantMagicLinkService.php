@@ -31,92 +31,17 @@ final class ParticipantMagicLinkService
     public function request(Form $form, string $email): void
     {
         $email = Str::lower(trim($email));
-        $participant = $this->findOrCreateParticipant($form, $email);
-
-        if (! $participant) {
-            return;
-        }
-
         $rawToken = bin2hex(random_bytes(32));
         $expiresAt = now()->addMinutes($this->tokenLifetimeMinutes());
 
-        // The fragment is never included in the HTTP request made by an email
-        // client, link scanner, reverse proxy, or web-server access log.
-        $confirmationUrl = route('forms.public.access.confirm', $form->public_token)
-            .'#token='.$rawToken;
-        $html = view('emails.participant-form-access', [
-            'confirmationUrl' => $confirmationUrl,
-            'expiresInMinutes' => $this->tokenLifetimeMinutes(),
-        ])->render();
-
-        DB::transaction(function () use ($participant, $form, $rawToken, $expiresAt, $html): void {
-            $lockedWebinar = Webinar::query()
-                ->whereKey($form->webinar_id)
-                ->whereNull('deletion_started_at')
-                ->whereNot('status', 'archived')
-                ->where(fn ($retention) => $retention
-                    ->whereNull('retention_due_at')
-                    ->orWhere('retention_due_at', '>', now()))
-                ->lockForUpdate()
-                ->first();
-
-            if (! $lockedWebinar) {
-                return;
-            }
-
-            // Serialize issuance for this identity. Several recent emails remain
-            // valid so an attacker cannot invalidate a victim's link merely by
-            // requesting a resend from another origin.
-            $lockedParticipant = Participant::query()
-                ->whereKey($participant->id)
-                ->where('webinar_id', $form->webinar_id)
-                ->whereNull('privacy_erased_at')
-                ->lockForUpdate()
-                ->first();
-
-            if (! $lockedParticipant) {
-                return;
-            }
-
-            ParticipantAccessToken::query()->create([
-                'participant_id' => $lockedParticipant->id,
-                'webinar_id' => $form->webinar_id,
-                'form_id' => $form->id,
-                'token_hash' => $this->tokenHash($rawToken),
-                'purpose' => self::PURPOSE,
-                'expires_at' => $expiresAt,
-            ]);
-
-            $keptIds = ParticipantAccessToken::query()
-                ->where('participant_id', $lockedParticipant->id)
-                ->where('purpose', self::PURPOSE)
-                ->whereNull('used_at')
-                ->where('expires_at', '>', now())
-                ->latest('id')
-                ->take($this->maximumLiveTokens())
-                ->pluck('id');
-
-            ParticipantAccessToken::query()
-                ->where('participant_id', $lockedParticipant->id)
-                ->where('purpose', self::PURPOSE)
-                ->whereNull('used_at')
-                ->where('expires_at', '>', now())
-                ->whereNotIn('id', $keptIds)
-                ->update(['used_at' => now()]);
-
-            // Persist the encrypted outbox row under the same participant lock.
-            // Privacy erasure takes this lock too, so a token can never commit
-            // without its delivery being included in a later erasure snapshot.
-            $this->notifications->queue(
-                $lockedWebinar,
-                $lockedParticipant,
-                self::DELIVERY_TYPE,
-                (string) $lockedParticipant->email,
-                'Your secure form access link',
-                $html,
-                expiresAt: $expiresAt,
-            );
-        }, attempts: 3);
+        try {
+            $this->persistAccessRequest($form, $email, $rawToken, $expiresAt, createParticipant: true);
+        } catch (UniqueConstraintViolationException) {
+            // A concurrent first request may have created the identity after our
+            // lookup. Retry through the complete locked lifecycle check, but do
+            // not attempt a second insert or bypass a form that has since closed.
+            $this->persistAccessRequest($form, $email, $rawToken, $expiresAt, createParticipant: false);
+        }
     }
 
     /**
@@ -129,26 +54,20 @@ final class ParticipantMagicLinkService
         }
 
         $result = DB::transaction(function () use ($form, $rawToken): ?array {
-            $lockedWebinar = Webinar::query()
-                ->whereKey($form->webinar_id)
-                ->whereNull('deletion_started_at')
-                ->whereNot('status', 'archived')
-                ->where(fn ($retention) => $retention
-                    ->whereNull('retention_due_at')
-                    ->orWhere('retention_due_at', '>', now()))
-                ->lockForUpdate()
-                ->first();
+            $context = $this->lockAcceptingContext($form, shared: true);
 
-            if (! $lockedWebinar) {
+            if (! $context) {
                 return null;
             }
+
+            ['webinar' => $lockedWebinar, 'form' => $lockedForm] = $context;
 
             $tokenHash = $this->tokenHash($rawToken);
             $subject = ParticipantAccessToken::query()
                 ->where('token_hash', $tokenHash)
                 ->where('purpose', self::PURPOSE)
-                ->where('webinar_id', $form->webinar_id)
-                ->where('form_id', $form->id)
+                ->where('webinar_id', $lockedWebinar->id)
+                ->where('form_id', $lockedForm->id)
                 ->select(['id', 'participant_id'])
                 ->first();
 
@@ -161,7 +80,7 @@ final class ParticipantMagicLinkService
             // token->participant order that can deadlock with erasure.
             $participant = Participant::withTrashed()
                 ->whereKey($subject->participant_id)
-                ->where('webinar_id', $form->webinar_id)
+                ->where('webinar_id', $lockedWebinar->id)
                 ->lockForUpdate()
                 ->first();
             $accessToken = ParticipantAccessToken::query()
@@ -169,8 +88,8 @@ final class ParticipantMagicLinkService
                 ->where('participant_id', $subject->participant_id)
                 ->where('token_hash', $this->tokenHash($rawToken))
                 ->where('purpose', self::PURPOSE)
-                ->where('webinar_id', $form->webinar_id)
-                ->where('form_id', $form->id)
+                ->where('webinar_id', $lockedWebinar->id)
+                ->where('form_id', $lockedForm->id)
                 ->lockForUpdate()
                 ->first();
 
@@ -241,28 +160,29 @@ final class ParticipantMagicLinkService
             }
         }
 
-        $participant = Participant::query()
-            ->whereKey((int) $grant['participant_id'])
-            ->where('webinar_id', $form->webinar_id)
-            ->whereNull('privacy_erased_at')
-            ->first();
+        $participant = DB::transaction(function () use ($form, $grant): ?Participant {
+            $context = $this->lockAcceptingContext($form, shared: true);
 
-        if (! Webinar::query()
-            ->whereKey($form->webinar_id)
-            ->whereNull('deletion_started_at')
-            ->whereNot('status', 'archived')
-            ->where(fn ($retention) => $retention
-                ->whereNull('retention_due_at')
-                ->orWhere('retention_due_at', '>', now()))
-            ->exists()) {
+            if (! $context) {
+                return null;
+            }
+
+            return Participant::query()
+                ->whereKey((int) $grant['participant_id'])
+                ->where('webinar_id', $context['webinar']->id)
+                ->whereNull('privacy_erased_at')
+                ->whereNotNull('email_verified_at')
+                ->sharedLock()
+                ->first();
+        }, attempts: 3);
+
+        if (! $participant) {
             $this->forget($request, $form->webinar_id);
 
             return null;
         }
 
-        if (! $participant
-            || ! $participant->email_verified_at
-            || ! hash_equals($grant['email_fingerprint'], $this->emailFingerprint((string) $participant->email))) {
+        if (! hash_equals($grant['email_fingerprint'], $this->emailFingerprint((string) $participant->email))) {
             $this->forget($request, $form->webinar_id);
 
             return null;
@@ -283,52 +203,135 @@ final class ParticipantMagicLinkService
         return 'participant_pass_'.$webinarId;
     }
 
-    private function findOrCreateParticipant(Form $form, string $email): ?Participant
-    {
-        try {
-            return DB::transaction(function () use ($form, $email): ?Participant {
-                $webinar = Webinar::query()
-                    ->whereKey($form->webinar_id)
-                    ->whereNull('deletion_started_at')
-                    ->whereNot('status', 'archived')
-                    ->where(fn ($retention) => $retention
-                        ->whereNull('retention_due_at')
-                        ->orWhere('retention_due_at', '>', now()))
-                    ->lockForUpdate()
-                    ->first();
+    private function persistAccessRequest(
+        Form $form,
+        string $email,
+        string $rawToken,
+        mixed $expiresAt,
+        bool $createParticipant,
+    ): void {
+        DB::transaction(function () use ($form, $email, $rawToken, $expiresAt, $createParticipant): void {
+            $context = $this->lockAcceptingContext($form, shared: true);
 
-                if (! $webinar) {
-                    return null;
-                }
+            if (! $context) {
+                return;
+            }
 
-                $participant = Participant::withTrashed()
-                    ->where('webinar_id', $form->webinar_id)
-                    ->where('email_normalized', $email)
-                    ->lockForUpdate()
-                    ->first();
+            ['webinar' => $lockedWebinar, 'form' => $lockedForm] = $context;
 
-                if (! $participant) {
-                    $participant = Participant::query()->create([
-                        'webinar_id' => $form->webinar_id,
-                        'email' => $email,
-                    ]);
-                }
-
-                return $participant->trashed() || $participant->privacy_erased_at
-                    ? null
-                    : $participant;
-            }, attempts: 3);
-        } catch (UniqueConstraintViolationException) {
-            // Resolve a concurrent first request through the same lookup path.
-            $participant = Participant::withTrashed()
-                ->where('webinar_id', $form->webinar_id)
+            // Serialize issuance for this identity. Several recent emails remain
+            // valid so an attacker cannot invalidate a victim's link merely by
+            // requesting a resend from another origin.
+            $lockedParticipant = Participant::withTrashed()
+                ->where('webinar_id', $lockedWebinar->id)
                 ->where('email_normalized', $email)
+                ->lockForUpdate()
                 ->first();
 
-            return $participant && ! $participant->trashed() && ! $participant->privacy_erased_at
-                ? $participant
-                : null;
+            if (! $lockedParticipant && $createParticipant) {
+                $lockedParticipant = Participant::query()->create([
+                    'webinar_id' => $lockedWebinar->id,
+                    'email' => $email,
+                ]);
+            }
+
+            if (! $lockedParticipant
+                || $lockedParticipant->trashed()
+                || $lockedParticipant->privacy_erased_at) {
+                return;
+            }
+
+            ParticipantAccessToken::query()->create([
+                'participant_id' => $lockedParticipant->id,
+                'webinar_id' => $lockedWebinar->id,
+                'form_id' => $lockedForm->id,
+                'token_hash' => $this->tokenHash($rawToken),
+                'purpose' => self::PURPOSE,
+                'expires_at' => $expiresAt,
+            ]);
+
+            $keptIds = ParticipantAccessToken::query()
+                ->where('participant_id', $lockedParticipant->id)
+                ->where('purpose', self::PURPOSE)
+                ->whereNull('used_at')
+                ->where('expires_at', '>', now())
+                ->latest('id')
+                ->take($this->maximumLiveTokens())
+                ->pluck('id');
+
+            ParticipantAccessToken::query()
+                ->where('participant_id', $lockedParticipant->id)
+                ->where('purpose', self::PURPOSE)
+                ->whereNull('used_at')
+                ->where('expires_at', '>', now())
+                ->whereNotIn('id', $keptIds)
+                ->update(['used_at' => now()]);
+
+            // The fragment is never included in the HTTP request made by an
+            // email client, link scanner, reverse proxy, or access log.
+            $confirmationUrl = route('forms.public.access.confirm', $lockedForm->public_token)
+                .'#token='.$rawToken;
+            $html = view('emails.participant-form-access', [
+                'confirmationUrl' => $confirmationUrl,
+                'expiresInMinutes' => $this->tokenLifetimeMinutes(),
+            ])->render();
+
+            // Persist the encrypted outbox row under the same participant lock.
+            // The encrypted form pointer lets the worker recheck this exact form
+            // before sending, without exposing a public token in a plain column.
+            $delivery = $this->notifications->queue(
+                $lockedWebinar,
+                $lockedParticipant,
+                self::DELIVERY_TYPE,
+                (string) $lockedParticipant->email,
+                'Your secure form access link',
+                $html,
+                expiresAt: $expiresAt,
+            );
+            $payload = $delivery->payload;
+            $payload['form_id'] = $lockedForm->id;
+            $delivery->update(['payload' => $payload]);
+        }, attempts: 3);
+    }
+
+    /**
+     * Lock and re-read the authoritative public-access boundary.
+     *
+     * Lock order is always webinar -> form. Callers that need an identity then
+     * lock participant -> child token/delivery records. `acceptsResponses()` is
+     * evaluated only after the fresh form has been bound to the fresh webinar.
+     *
+     * @return array{webinar: Webinar, form: Form}|null
+     */
+    private function lockAcceptingContext(Form $form, bool $shared = false): ?array
+    {
+        $webinarQuery = Webinar::query()->whereKey($form->webinar_id);
+        $lockedWebinar = ($shared ? $webinarQuery->sharedLock() : $webinarQuery->lockForUpdate())->first();
+
+        if (! $lockedWebinar
+            || $lockedWebinar->status !== 'published'
+            || $lockedWebinar->archived_at !== null
+            || $lockedWebinar->deletion_started_at !== null
+            || $lockedWebinar->retention_due_at === null
+            || ! $lockedWebinar->retention_due_at->isFuture()
+            || ! $lockedWebinar->requiresVerification()) {
+            return null;
         }
+
+        $formQuery = Form::query()
+            ->whereKey($form->id)
+            ->where('webinar_id', $lockedWebinar->id);
+        $lockedForm = ($shared ? $formQuery->sharedLock() : $formQuery->lockForUpdate())->first();
+
+        if (! $lockedForm) {
+            return null;
+        }
+
+        $lockedForm->setRelation('webinar', $lockedWebinar);
+
+        return $lockedForm->acceptsResponses()
+            ? ['webinar' => $lockedWebinar, 'form' => $lockedForm]
+            : null;
     }
 
     private function tokenHash(string $rawToken): string

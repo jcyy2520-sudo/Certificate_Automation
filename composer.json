@@ -57,7 +57,7 @@
         "dev": [
             "Composer\\Config::disableProcessTimeout",
             "@php artisan optimize:clear --ansi",
-            "npx concurrently -c \"#93c5fd,#c4b5fd,#fdba74\" \"php artisan serve\" \"php artisan queue:work --sleep=1 --tries=1\" \"npm run dev\" --names=server,queue,vite"
+            "npx concurrently -c \"#93c5fd,#fbbf24,#c4b5fd,#fdba74\" \"php artisan serve\" \"php artisan queue:work database-emails --queue=emails --sleep=1 --tries=3\" \"php artisan queue:work --sleep=1 --tries=1\" \"npm run dev\" --names=server,email,queue,vite"
         ],
         "test": [
             "@php artisan optimize:clear --ansi",

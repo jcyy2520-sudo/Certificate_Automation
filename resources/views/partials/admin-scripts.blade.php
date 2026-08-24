@@ -30,14 +30,179 @@
             showNavigationProgress();
         });
 
-        document.addEventListener('submit', function (event) {
-            var confirmation = event.target.getAttribute('data-confirm');
-            if (confirmation && !window.confirm(confirmation)) {
-                event.preventDefault();
+        // ---- In-app toasts (replace every browser alert) --------------------
+        // Trusted Types forbids innerHTML, so toast nodes are built element by
+        // element with textContent. window.notify(type, message, options) is the
+        // shared entry point used across the admin surface.
+        var iconPaths = {
+            'check-circle': ['M12 12m-8.5 0a8.5 8.5 0 1 0 17 0a8.5 8.5 0 1 0 -17 0', 'm8.5 12 2.4 2.4 4.6-4.8'],
+            'alert': ['M12 12m-8.5 0a8.5 8.5 0 1 0 17 0a8.5 8.5 0 1 0 -17 0', 'M12 8v4.5M12 16h.01'],
+            'info': ['M12 12m-8.5 0a8.5 8.5 0 1 0 17 0a8.5 8.5 0 1 0 -17 0', 'M12 11v5M12 8h.01'],
+            'x': ['M18 6 6 18M6 6l12 12'],
+        };
+        function svgIcon(name) {
+            var svgNS = 'http://www.w3.org/2000/svg';
+            var svg = document.createElementNS(svgNS, 'svg');
+            svg.setAttribute('viewBox', '0 0 24 24');
+            svg.setAttribute('fill', 'none');
+            svg.setAttribute('stroke', 'currentColor');
+            svg.setAttribute('stroke-width', '1.6');
+            svg.setAttribute('stroke-linecap', 'round');
+            svg.setAttribute('stroke-linejoin', 'round');
+            svg.setAttribute('aria-hidden', 'true');
+            svg.setAttribute('class', 'size-full');
+            (iconPaths[name] || iconPaths.info).forEach(function (d) {
+                var path = document.createElementNS(svgNS, 'path');
+                path.setAttribute('d', d);
+                svg.appendChild(path);
+            });
+            return svg;
+        }
+
+        function viewport() {
+            var vp = document.querySelector('[data-toast-viewport]');
+            if (!vp) {
+                vp = document.createElement('div');
+                vp.className = 'toast-viewport';
+                vp.setAttribute('data-toast-viewport', '');
+                vp.setAttribute('aria-live', 'polite');
+                document.body.appendChild(vp);
+            }
+            return vp;
+        }
+
+        function dismissToast(toast) {
+            if (!toast || toast.getAttribute('data-leaving') === 'true') return;
+            toast.setAttribute('data-leaving', 'true');
+            window.setTimeout(function () { toast.remove(); }, 180);
+        }
+
+        function activateToast(toast) {
+            var closer = toast.querySelector('[data-toast-close]');
+            if (closer) closer.addEventListener('click', function () { dismissToast(toast); });
+            var autohide = parseInt(toast.getAttribute('data-toast-autohide') || '0', 10);
+            if (autohide > 0) window.setTimeout(function () { dismissToast(toast); }, autohide);
+        }
+
+        window.notify = function (type, message, options) {
+            options = options || {};
+            var iconName = type === 'success' ? 'check-circle' : (type === 'error' ? 'alert' : 'info');
+            var toast = document.createElement('div');
+            toast.className = 'toast toast-' + (type === 'success' ? 'success' : (type === 'error' ? 'error' : 'info'));
+            toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+            toast.setAttribute('data-toast', '');
+
+            var iconSpan = document.createElement('span');
+            iconSpan.className = 'toast-icon';
+            iconSpan.appendChild(svgIcon(iconName));
+            toast.appendChild(iconSpan);
+
+            var body = document.createElement('div');
+            body.className = 'toast-body';
+            if (options.title) {
+                var title = document.createElement('p');
+                title.className = 'toast-title';
+                title.textContent = options.title;
+                body.appendChild(title);
+            }
+            var text = document.createElement('p');
+            text.className = options.title ? 'mt-0.5 text-slate-600' : '';
+            text.textContent = message;
+            body.appendChild(text);
+            toast.appendChild(body);
+
+            var close = document.createElement('button');
+            close.type = 'button';
+            close.className = 'toast-close';
+            close.setAttribute('data-toast-close', '');
+            close.setAttribute('aria-label', 'Dismiss');
+            close.appendChild(svgIcon('x'));
+            toast.appendChild(close);
+
+            var hold = options.autohide === false ? 0 : (options.autohide || (type === 'error' ? 0 : 5000));
+            if (hold > 0) toast.setAttribute('data-toast-autohide', String(hold));
+
+            viewport().appendChild(toast);
+            activateToast(toast);
+            return toast;
+        };
+
+        // Wire any server-rendered flash toast already in the page.
+        document.querySelectorAll('[data-toast-viewport] [data-toast]').forEach(activateToast);
+
+        // ---- Confirmation modal (replaces window.confirm) -------------------
+        var confirmModal = document.querySelector('[data-confirm-modal]');
+        var pendingForm = null;
+        var pendingSubmitter = null;
+        var lastFocused = null;
+
+        function closeConfirm() {
+            if (!confirmModal) return;
+            confirmModal.classList.add('hidden');
+            confirmModal.setAttribute('hidden', '');
+            pendingForm = null;
+            pendingSubmitter = null;
+            if (lastFocused && typeof lastFocused.focus === 'function') lastFocused.focus();
+        }
+
+        function openConfirm(form, message, submitter) {
+            if (!confirmModal) { // Fallback keeps destructive actions usable if markup is missing.
+                if (window.confirm(message)) { form.setAttribute('data-confirmed', '1'); form.requestSubmit(submitter || undefined); }
                 return;
             }
+            pendingForm = form;
+            pendingSubmitter = submitter || null;
+            lastFocused = document.activeElement;
 
-            if (!event.defaultPrevented && (!event.target.target || event.target.target === '_self')) {
+            var tone = form.getAttribute('data-confirm-tone') || 'danger';
+            var title = form.getAttribute('data-confirm-title') || 'Please confirm';
+            var acceptLabel = form.getAttribute('data-confirm-action') || 'Confirm';
+
+            confirmModal.querySelector('[data-confirm-title]').textContent = title;
+            confirmModal.querySelector('[data-confirm-message]').textContent = message;
+
+            var iconWrap = confirmModal.querySelector('[data-confirm-icon]');
+            var accept = confirmModal.querySelector('[data-confirm-accept]');
+            if (tone === 'danger') {
+                iconWrap.className = 'modal-icon bg-red-50 text-red-600';
+                accept.className = 'button-danger-solid sm:min-w-24';
+            } else {
+                iconWrap.className = 'modal-icon bg-accent-50 text-accent-600';
+                accept.className = 'button-primary sm:min-w-24';
+            }
+            accept.textContent = acceptLabel;
+
+            confirmModal.classList.remove('hidden');
+            confirmModal.removeAttribute('hidden');
+            accept.focus();
+        }
+
+        if (confirmModal) {
+            confirmModal.querySelector('[data-confirm-cancel]').addEventListener('click', closeConfirm);
+            confirmModal.querySelector('[data-confirm-accept]').addEventListener('click', function () {
+                var form = pendingForm, submitter = pendingSubmitter;
+                closeConfirm();
+                if (form) { form.setAttribute('data-confirmed', '1'); showNavigationProgress(); form.requestSubmit(submitter || undefined); }
+            });
+            confirmModal.addEventListener('click', function (event) {
+                if (event.target === confirmModal) closeConfirm();
+            });
+            document.addEventListener('keydown', function (event) {
+                if (event.key === 'Escape' && !confirmModal.classList.contains('hidden')) closeConfirm();
+            });
+        }
+
+        document.addEventListener('submit', function (event) {
+            var form = event.target;
+            var confirmation = form.getAttribute('data-confirm');
+            if (confirmation && !form.hasAttribute('data-confirmed')) {
+                event.preventDefault();
+                openConfirm(form, confirmation, event.submitter);
+                return;
+            }
+            form.removeAttribute('data-confirmed');
+
+            if (!event.defaultPrevented && (!form.target || form.target === '_self')) {
                 showNavigationProgress();
             }
         });
@@ -57,9 +222,12 @@
         var syncVisibilityToggles = function (form) {
             if (!form) return;
             form.querySelectorAll('[data-toggles-visibility]').forEach(function (source) {
+                // A checkbox toggles between the literal values "on" and "off";
+                // a select/other control matches against its current value.
+                var sourceValue = source.type === 'checkbox' ? (source.checked ? 'on' : 'off') : source.value;
                 form.querySelectorAll('[data-visible-for]').forEach(function (el) {
                     var allowed = el.getAttribute('data-visible-for').split(',');
-                    var visible = allowed.indexOf(source.value) !== -1;
+                    var visible = allowed.indexOf(sourceValue) !== -1;
                     el.classList.toggle('hidden', !visible);
                     el.querySelectorAll('input, textarea, select').forEach(function (control) {
                         control.disabled = !visible;

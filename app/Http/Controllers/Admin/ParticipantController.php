@@ -4,13 +4,17 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\EligibilityOverride;
+use App\Models\EmailDelivery;
 use App\Models\Participant;
 use App\Models\Webinar;
 use App\Services\AuditService;
 use App\Services\EligibilityService;
 use App\Services\ParticipantPrivacyService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -41,6 +45,34 @@ class ParticipantController extends Controller
 
         $participants = $query->paginate(25);
         $eligibility->attachTo($participants->getCollection(), $webinar);
+        $certificateByParticipant = $participants->getCollection()->mapWithKeys(function ($participant): array {
+            $certificate = $participant->certificates
+                ->whereNull('revoked_at')
+                ->sortByDesc('id')
+                ->first();
+
+            return [$participant->id => $certificate];
+        });
+        $deliveryByCertificate = EmailDelivery::query()
+            ->whereIn('certificate_id', $certificateByParticipant->filter()->pluck('id'))
+            ->orderBy('id')
+            ->get(['certificate_id', 'status'])
+            ->keyBy('certificate_id');
+
+        foreach ($participants as $participant) {
+            $certificate = $certificateByParticipant[$participant->id] ?? null;
+            $delivery = $certificate ? ($deliveryByCertificate[$certificate->id] ?? null) : null;
+            $participant->certificate_record = $certificate;
+            $participant->certificate_state = match (true) {
+                $certificate?->status === 'processing' => 'queued',
+                $certificate?->status === 'failed' => 'failed',
+                $delivery?->status === 'processing' => 'sending',
+                in_array($delivery?->status, ['failed', 'cancelled'], true) => 'failed',
+                $delivery?->status === 'sent' || $certificate?->sent_at !== null => 'sent',
+                $certificate?->status === 'issued' => 'queued',
+                default => 'not_sent',
+            };
+        }
 
         return view('admin.participants.index', [
             'webinar' => $webinar,
@@ -54,6 +86,77 @@ class ParticipantController extends Controller
             'completedCount' => (clone $eligibleParticipants)->count(),
             'participantFilters' => $filters,
         ]);
+    }
+
+    /**
+     * Add an off-platform attendee to the participant table. The table is the
+     * only place an administrator creates certificate recipients: once added,
+     * the participant is explicitly eligible and preselected for review.
+     */
+    public function store(Request $request, Webinar $webinar, AuditService $audit): RedirectResponse
+    {
+        abort_if($webinar->deletion_started_at !== null, 409);
+
+        $data = $request->validate([
+            'full_name' => ['required', 'string', 'max:120'],
+            'email' => ['required', 'email:rfc', 'max:255'],
+            'organization' => ['nullable', 'string', 'max:180'],
+        ]);
+        $email = Str::lower(trim($data['email']));
+        $name = trim($data['full_name']);
+
+        $outcome = DB::transaction(function () use ($webinar, $email, $name, $data, $request): array {
+            $participant = Participant::withTrashed()
+                ->where('webinar_id', $webinar->id)
+                ->where('email_normalized', $email)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $participant) {
+                $participant = Participant::query()->create([
+                    'webinar_id' => $webinar->id,
+                    'email' => $email,
+                    'full_name' => $name,
+                    'organization' => filled($data['organization'] ?? null) ? trim($data['organization']) : null,
+                ]);
+                $participant = Participant::withTrashed()->lockForUpdate()->findOrFail($participant->id);
+            }
+
+            if ($participant->privacy_erased_at !== null || $participant->trashed()) {
+                return ['status' => 'unavailable', 'participant' => $participant];
+            }
+
+            $participant->forceFill([
+                'full_name' => $name,
+                'email' => $email,
+                'organization' => filled($data['organization'] ?? null)
+                    ? trim($data['organization'])
+                    : $participant->organization,
+            ])->save();
+
+            EligibilityOverride::query()->create([
+                'participant_id' => $participant->id,
+                'decision' => 'eligible',
+                'reason' => 'Added by an administrator from the participant table.',
+                'overridden_by' => $request->user()->id,
+            ]);
+
+            return ['status' => 'added', 'participant' => $participant];
+        }, attempts: 3);
+
+        if ($outcome['status'] === 'unavailable') {
+            return back()->withInput()->with('error', 'That participant record was previously erased and cannot be restored.');
+        }
+
+        $participant = $outcome['participant'];
+        $audit->record($request, 'participant.added_manually', $participant, [
+            'email_fingerprint' => $audit->fingerprint($email, 'manual-participant-email'),
+        ]);
+        $request->session()->forget($this->filterSessionKey($webinar));
+
+        return redirect()->route('admin.participants.index', $webinar)
+            ->with('new_participant_public_id', $participant->public_id)
+            ->with('success', $name.' was added and selected. Review the row, then send the certificate.');
     }
 
     /** Store sensitive search terms in the encrypted session, never in URLs. */
@@ -95,7 +198,7 @@ class ParticipantController extends Controller
             $handle = fopen('php://output', 'wb');
 
             $this->writeCsvRow($handle, [
-                'Name', 'Email', 'Organization', 'Registered on',
+                'Name', 'Email', 'Organization', 'Registered on', 'Attendance',
                 ...$forms->map(fn ($form) => $form->title)->all(),
                 ...$scored->map(fn ($form) => $form->title.' score')->all(),
                 'Meets all requirements', 'Certificate',
@@ -131,6 +234,7 @@ class ParticipantController extends Controller
                             $participant->email ?: '(erased)',
                             $participant->organization,
                             $registeredAt?->toDateString() ?? '',
+                            $participant->checked_in_at?->toDateString() ?? '',
                         ];
 
                         foreach ($forms as $form) {
@@ -198,6 +302,44 @@ class ParticipantController extends Controller
         return back()->with('success', 'Eligibility override recorded.');
     }
 
+    public function attendance(Request $request, Webinar $webinar, Participant $participant, AuditService $audit): RedirectResponse
+    {
+        $this->assertBelongsTo($webinar, $participant);
+
+        $participant->update([
+            'checked_in_at' => $participant->checked_in_at === null ? now() : null,
+        ]);
+        $audit->record($request, 'participant.attendance_toggled', $participant, [
+            'checked_in' => $participant->checked_in_at !== null,
+        ]);
+
+        return back()->with('success', $participant->checked_in_at ? 'Participant marked present.' : 'Attendance mark removed.');
+    }
+
+    /** Correct the authoritative participant name used by every future certificate. */
+    public function updateName(Request $request, Webinar $webinar, Participant $participant, AuditService $audit): RedirectResponse|JsonResponse
+    {
+        $this->assertBelongsTo($webinar, $participant);
+        abort_if($participant->privacy_erased_at !== null, 422, 'This participant record is no longer editable.');
+
+        $data = $request->validate([
+            'full_name' => ['required', 'string', 'max:120'],
+        ]);
+        $name = trim($data['full_name']);
+
+        $participant->update(['full_name' => $name]);
+        $audit->record($request, 'participant.name_corrected', $participant);
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'participant_id' => $participant->public_id,
+                'full_name' => $name,
+            ]);
+        }
+
+        return back()->with('success', 'Participant name corrected. Future certificate previews now use this name.');
+    }
+
     /**
      * Permanently remove a response and everything attached to it.
      *
@@ -226,16 +368,16 @@ class ParticipantController extends Controller
     {
         return $webinar->participants()
             ->select([
-                'participants.id', 'participants.webinar_id', 'participants.full_name',
+                'participants.id', 'participants.public_id', 'participants.webinar_id', 'participants.full_name',
                 'participants.email', 'participants.organization',
-                'participants.verified_at', 'participants.created_at',
+                'participants.verified_at', 'participants.checked_in_at', 'participants.created_at',
             ])
             ->with([
                 'submissions' => fn ($query) => $query->select([
                     'id', 'form_id', 'participant_id', 'attempt_number', 'status', 'score', 'maximum_score',
                 ]),
                 'certificates' => fn ($query) => $query
-                    ->select(['id', 'participant_id', 'verification_code', 'issued_at', 'revoked_at']),
+                    ->select(['id', 'participant_id', 'verification_code', 'issued_at', 'sent_at', 'revoked_at', 'status']),
             ])
             ->when(filled($filters['search'] ?? null), function ($query) use ($filters): void {
                 $search = '%'.$filters['search'].'%';

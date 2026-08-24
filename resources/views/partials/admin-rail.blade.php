@@ -10,7 +10,7 @@
 @endphp
 <aside class="rail sticky top-0 z-30 flex h-screen shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-white">
     <div class="flex h-[76px] shrink-0 items-center gap-3 px-[18px]">
-        <span class="grid size-10 shrink-0 place-items-center rounded-xl bg-accent-600 text-[15px] font-bold text-white">W</span>
+        <span class="grid size-10 shrink-0 place-items-center rounded-xl bg-slate-950 text-[15px] font-bold text-white shadow-sm">W</span>
         <span class="rail-label truncate text-[13px] font-semibold text-slate-900">{{ config('app.name') }}</span>
     </div>
 

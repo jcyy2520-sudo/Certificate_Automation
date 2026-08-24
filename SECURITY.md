@@ -104,9 +104,9 @@ At minimum:
 
 ### 4. Configure managed data services
 
-- Use PostgreSQL or another supported production database, not SQLite. Require encrypted database connections with certificate verification where the provider supports it, restrict ingress, use a least-privilege application account, and keep administrative credentials separate.
-- Use database or Redis sessions. File sessions are single-node and unsuitable for horizontal scaling.
-- Use a database or Redis queue; `sync` queues are not a production configuration. Use a real transactional-email provider over HTTPS.
+- Use managed PostgreSQL, not SQLite or a substitute engine. Require TLS with server identity verification, restrict ingress, use a least-privilege application account, and keep administrative credentials separate.
+- Use encrypted Redis sessions and Redis cache with separate databases or clusters. A single `REDIS_URL` containing a database path overrides per-connection database numbers, so use connection-specific URLs when the provider supplies URLs.
+- Use Redis queues; `sync` queues are not a production configuration. Isolate queue data from sessions/cache and use a real transactional-email provider over HTTPS.
 - Store certificate files in a private, access-controlled bucket for multi-node deployments. If local storage is unavoidable, use one application node plus encrypted disks and encrypted backups.
 - Keep application logs on daily rotation with restricted access. Forward them to a protected central store if required, while preserving their retention and redaction rules.
 
@@ -151,21 +151,26 @@ Do not pass the password on a command line. Through temporarily restricted ingre
 
 ### 8. Start workers and the scheduler
 
-Run queue workers under a service manager that restarts failed processes and restarts workers after each release:
+Run the default and email queue workers under a service manager that restarts failed processes and restarts workers after each release. Their timeouts differ deliberately:
 
 ```bash
-php artisan queue:work --queue=emails,default --tries=3
+php artisan queue:work redis --queue=default --tries=3 --timeout=1800
+php artisan queue:work redis-emails --queue=emails --tries=3 --timeout=60
+php artisan schedule:work
 ```
 
-Invoke `php artisan schedule:run` every minute from one scheduler instance. The application schedules:
+Run exactly one scheduler service. The supplied `deploy/systemd` units are a hardened starting point. The application schedules:
 
 | Schedule | Task |
 | --- | --- |
 | Hourly | Delete expired or used participant access credentials and abandoned unverified participants |
+| Every minute | Record scheduler health and dispatch a heartbeat through each required queue worker |
 | Daily at 02:00 | Erase participant data whose webinar retention deadline passed |
 | Daily at 02:30 | Prune audit records beyond the configured retention period |
 
 Time values follow the application's configured timezone. Monitor both scheduler execution and job failures; merely configuring a cron entry or worker process is not evidence that it remains healthy.
+
+Before the blocking preflight, use the provider to restore the latest backup into a disposable managed PostgreSQL database. Run `deploy/verify-restored-postgres.sh`, save its output in a protected change record, verify the private certificate-file restore separately, and only then record the rehearsal timestamp/reference in production configuration.
 
 ### 9. Run the blocking preflight
 

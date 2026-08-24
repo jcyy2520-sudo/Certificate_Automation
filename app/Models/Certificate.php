@@ -24,9 +24,11 @@ class Certificate extends Model
                 $certificate->verification_code_hash = self::verificationCodeHash($code);
             }
 
-            if ($certificate->participant_id === null || $certificate->revoked_at !== null) {
+            if ($certificate->participant_id === null
+                || $certificate->revoked_at !== null
+                || ! in_array($certificate->status, ['processing', 'issued'], true)) {
                 $certificate->issuance_key = null;
-            } elseif (in_array($certificate->status, ['processing', 'issued'], true)) {
+            } else {
                 $certificate->issuance_key = $certificate->webinar_id.':'.$certificate->participant_id;
             }
         });
@@ -37,6 +39,7 @@ class Certificate extends Model
         return [
             'verification_code' => 'encrypted',
             'recipient_name' => 'encrypted',
+            'layout' => 'array',
             'revocation_reason' => 'encrypted',
             'issued_at' => 'datetime',
             'sent_at' => 'datetime',
@@ -77,7 +80,8 @@ class Certificate extends Model
 
     public function isPubliclyValid(): bool
     {
-        return $this->issued_at !== null
+        return $this->status === 'issued'
+            && $this->issued_at !== null
             && $this->revoked_at === null
             && ($this->privacy_erased_at === null
                 || config('webinar.public_verification_after_privacy_erasure', false));

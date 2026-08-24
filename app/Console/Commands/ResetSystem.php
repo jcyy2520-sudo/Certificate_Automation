@@ -51,19 +51,25 @@ class ResetSystem extends Command
 
     public function handle(): int
     {
+        if (app()->isProduction()) {
+            $this->error('System reset is disabled in production. Nothing was changed.');
+
+            return self::FAILURE;
+        }
+
         $keep = User::query()
             ->when($this->option('keep'), fn ($query, $email) => $query->where('email', $email))
             ->get();
 
         if ($keep->isEmpty()) {
             $this->error($this->option('keep')
-                ? 'No account matches '.$this->option('keep').'. Nothing was changed.'
+                ? 'No account matches the requested keep filter. Nothing was changed.'
                 : 'There are no accounts to keep. Run admin:create first.');
 
             return self::FAILURE;
         }
 
-        $this->line('Keeping: '.$keep->pluck('email')->implode(', '));
+        $this->line('Keeping '.$keep->count().' account(s).');
 
         if (! $this->option('force') && ! confirm('Erase all other data? This cannot be undone.', default: false)) {
             $this->line('Nothing was changed.');

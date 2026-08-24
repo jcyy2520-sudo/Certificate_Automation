@@ -15,9 +15,12 @@
         </div>
     </x-slot:meta>
     <x-slot:actions>
-        <form method="POST" action="{{ route('admin.certificates.store', [$webinar, $participant]) }}">@csrf
-            <button class="button-primary"><x-icon name="award" class="size-4" />Issue certificate</button>
+        <form method="POST" action="{{ route('admin.participants.attendance', [$webinar, $participant]) }}">@csrf
+            <button class="button-secondary"><x-icon name="check-circle" class="size-4" />{{ $participant->checked_in_at ? 'Remove attendance' : 'Mark present' }}</button>
         </form>
+        <a class="button-primary" href="{{ route('admin.certificates.studio', ['webinar' => $webinar, 'manual' => $participant->public_id]) }}">
+            <x-icon name="award" class="size-4" />Send certificate
+        </a>
     </x-slot:actions>
 </x-page-header>
 
@@ -72,6 +75,27 @@
     </div>
 
     <div class="space-y-6">
+        <section class="panel p-5">
+            <h2 class="section-title">Participant name</h2>
+            <p class="mt-1 text-[12px] leading-5 text-slate-500">This is the single name used on participant records and all future certificates.</p>
+            <form method="POST" action="{{ route('admin.participants.name', [$webinar, $participant]) }}" class="mt-4 flex items-end gap-2">
+                @csrf @method('PUT')
+                <label class="field-label min-w-0 flex-1">Full name
+                    <input class="field" name="full_name" value="{{ $participant->full_name }}" required maxlength="120">
+                </label>
+                <button class="button-secondary shrink-0">Correct name</button>
+            </form>
+        </section>
+        <section class="panel p-5">
+            <div class="flex items-center justify-between gap-4">
+                <div>
+                    <h2 class="section-title">Attendance</h2>
+                    <p class="mt-1 text-[13px] text-slate-500">{{ $participant->checked_in_at ? 'Marked present '.$participant->checked_in_at->format('M j, Y g:i A') : 'Attendance has not been marked.' }}</p>
+                </div>
+                <span class="badge {{ $participant->checked_in_at ? 'badge-green' : 'badge-slate' }}">{{ $participant->checked_in_at ? 'Present' : 'Not marked' }}</span>
+            </div>
+        </section>
+
         <section class="panel p-5">
             <h2 class="section-title">Requirements</h2>
             @if($eligibility['overridden'])

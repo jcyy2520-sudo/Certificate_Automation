@@ -6,8 +6,8 @@ use App\Contracts\TransactionalMailer;
 use App\Services\Email\BrevoTransactionalMailer;
 use App\Services\Email\LogTransactionalMailer;
 use Illuminate\Cache\RateLimiting\Limit;
-use Illuminate\Http\Request;
 use Illuminate\Http\Middleware\TrustProxies;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
@@ -37,9 +37,35 @@ class AppServiceProvider extends ServiceProvider
         // Resolve this from cached configuration, not directly from .env. The
         // middleware is part of Laravel's default global stack; this sets its
         // exact IP/CIDR allowlist before the first request is handled.
-        if (config('app.trusted_proxies') !== []) {
+        if (config('security.behind_proxy') && config('app.trusted_proxies') !== []) {
             TrustProxies::at(config('app.trusted_proxies'));
         }
+
+        RateLimiter::for('public-form-view', fn (Request $request): Limit => Limit::perMinute(
+            (int) config('security.rate_limits.public_form_view_ip_per_minute'),
+        )
+            ->by('public-form-view:'.hash_hmac('sha256', (string) $request->ip(), (string) config('app.key'))));
+
+        RateLimiter::for('public-form-submit', function (Request $request): array {
+            $key = (string) config('app.key');
+            $formKey = hash_hmac('sha256', (string) $request->route('token'), $key);
+            $emailKey = hash_hmac('sha256', Str::lower(trim((string) $request->input('email'))), $key);
+            $ipKey = hash_hmac('sha256', (string) $request->ip(), $key);
+
+            return [
+                Limit::perMinute((int) config('security.rate_limits.public_form_submit_identity_per_minute'))
+                    ->by("public-form-submit:identity:{$formKey}:{$emailKey}"),
+                Limit::perMinute((int) config('security.rate_limits.public_form_submit_ip_per_minute'))
+                    ->by("public-form-submit:ip:{$ipKey}"),
+                Limit::perMinute((int) config('security.rate_limits.public_form_submit_form_per_minute'))
+                    ->by("public-form-submit:form:{$formKey}"),
+            ];
+        });
+
+        RateLimiter::for('public-form-thanks', fn (Request $request): Limit => Limit::perMinute(
+            (int) config('security.rate_limits.public_form_thanks_ip_per_minute'),
+        )
+            ->by('public-form-thanks:'.hash_hmac('sha256', (string) $request->ip(), (string) config('app.key'))));
 
         RateLimiter::for('admin-login', function (Request $request): array {
             $email = Str::lower(trim((string) $request->input('email')));
@@ -89,10 +115,10 @@ class AppServiceProvider extends ServiceProvider
                 Limit::perMinute(10)->by("participant-access:email:{$emailKey}"),
                 Limit::perHour(12)->by("participant-access:email-hour:{$emailKey}"),
                 Limit::perDay(30)->by("participant-access:email-day:{$emailKey}"),
-                Limit::perMinute(30)->by("participant-access:ip:{$ipKey}"),
+                Limit::perMinute((int) config('security.rate_limits.participant_access_ip_per_minute'))->by("participant-access:ip:{$ipKey}"),
                 // Provider-budget circuit breakers limit distributed address
                 // spraying even when every request uses a new email and origin.
-                Limit::perMinute(500)->by('participant-access:global-minute'),
+                Limit::perMinute((int) config('security.rate_limits.participant_access_global_per_minute'))->by('participant-access:global-minute'),
                 Limit::perHour(2000)->by('participant-access:global-hour'),
                 Limit::perDay(10000)->by('participant-access:global-day'),
                 Limit::perHour(1000)->by("participant-access:form-hour:{$formKey}"),
@@ -105,7 +131,7 @@ class AppServiceProvider extends ServiceProvider
 
             return [
                 Limit::perMinute(10)->by('participant-confirm:session:'.$request->session()->getId()),
-                Limit::perMinute(30)->by("participant-confirm:ip:{$ipKey}"),
+                Limit::perMinute((int) config('security.rate_limits.participant_access_confirm_ip_per_minute'))->by("participant-confirm:ip:{$ipKey}"),
             ];
         });
     }

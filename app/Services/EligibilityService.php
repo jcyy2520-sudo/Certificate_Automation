@@ -134,6 +134,12 @@ class EligibilityService
                                 continue;
                             }
 
+                            if ($rule->requirement === 'attendance') {
+                                $automatic->whereNotNull('participants.checked_in_at');
+
+                                continue;
+                            }
+
                             $automatic->whereExists(function ($submissions) use ($rule, $webinar): void {
                                 $submissions->selectRaw('1')
                                     ->from('submissions')
@@ -202,6 +208,10 @@ class EligibilityService
     {
         if ($rule->requirement === 'registration') {
             return $participant->verified_at !== null;
+        }
+
+        if ($rule->requirement === 'attendance') {
+            return $participant->checked_in_at !== null;
         }
 
         return $participant->submissions

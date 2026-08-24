@@ -10,13 +10,13 @@
     <script nonce="{{ $cspNonce }}">try{if(localStorage.getItem('rail')==='open'){document.documentElement.classList.add('rail-open')}}catch(e){}</script>
     @vite('resources/css/app.css')
 </head>
-<body class="bg-neutral-50 text-slate-900">
+<body class="bg-transparent text-slate-900">
 <div class="flex min-h-screen">
 
     @include('partials.admin-rail')
 
     <div class="flex min-w-0 flex-1 flex-col">
-        <main class="mx-auto w-full max-w-[1180px] flex-1 px-6 py-8 lg:px-10 lg:py-10">
+        <main class="mx-auto w-full max-w-[1440px] flex-1 px-6 py-8 lg:px-10 lg:py-10 2xl:px-14 2xl:py-12">
             @include('partials.admin-flash')
 
             @yield('content')
@@ -24,6 +24,7 @@
     </div>
 </div>
 
+@include('partials.admin-ui')
 @include('partials.admin-scripts')
 </body>
 </html>

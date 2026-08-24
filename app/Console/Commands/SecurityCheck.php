@@ -7,7 +7,9 @@ use App\Jobs\SendTransactionalEmail;
 use App\Models\User;
 use App\Models\Webinar;
 use App\Services\Email\BrevoTransactionalMailer;
+use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Throwable;
@@ -33,6 +35,8 @@ class SecurityCheck extends Command
         $queue = (array) config("queue.connections.{$queueName}", []);
         $emailQueueName = (string) config('webinar.email.queue_connection');
         $emailQueue = (array) config("queue.connections.{$emailQueueName}", []);
+        $cacheStoreName = (string) config('cache.default');
+        $cacheStore = (array) config("cache.stores.{$cacheStoreName}", []);
         $certificateDiskName = (string) config('webinar.certificate_disk');
         $certificateDisk = config("filesystems.disks.{$certificateDiskName}");
 
@@ -71,10 +75,13 @@ class SecurityCheck extends Command
             $this->check(Str::startsWith($url, 'https://'), 'APP_URL uses HTTPS', 'Set APP_URL to the canonical HTTPS origin.');
             $this->check(! in_array($host, [null, '', 'localhost', '127.0.0.1', '::1'], true), 'APP_URL uses a deployment hostname', 'Replace the local APP_URL hostname.');
             $this->check(config('session.secure'), 'Session cookies are HTTPS-only', 'Set SESSION_SECURE_COOKIE=true after configuring HTTPS.');
-            $this->check($databaseDriver !== 'sqlite', 'Production database is not SQLite', 'Use PostgreSQL or another managed production database.');
-            $this->check($this->databaseTransportIsVerified($database, $databaseDriver), 'Database transport verifies the server', 'For PostgreSQL use DB_SSLMODE=verify-full; configure equivalent CA verification for another engine.');
+            $this->check($databaseDriver === 'pgsql', 'Production database is PostgreSQL', 'Set DB_CONNECTION=pgsql and use the managed PostgreSQL credentials.');
+            $this->check(config('operations.managed_postgres'), 'PostgreSQL is declared as a managed service', 'Set MANAGED_POSTGRES=true only after provisioning managed PostgreSQL with restricted ingress and provider backups.');
+            $this->check($this->databaseTransportIsVerified($database, $databaseDriver), 'PostgreSQL TLS verifies the server identity', 'Use DB_SSLMODE=verify-full and DB_SSLROOTCERT pointing to the provider CA bundle.');
             $this->check(config('session.driver') === 'redis', 'Production sessions use encrypted Redis payloads', 'Use SESSION_DRIVER=redis with a dedicated session connection; database sessions retain raw IP/user-agent columns.');
-            $this->check(filled(config('session.connection')), 'Session storage uses a dedicated connection', 'Set SESSION_CONNECTION=session so emergency invalidation cannot flush queues or cache.');
+            $this->check(config('session.connection') === 'session', 'Session storage uses its dedicated Redis connection', 'Set SESSION_CONNECTION=session so emergency invalidation cannot flush queues or cache.');
+            $this->check(($cacheStore['driver'] ?? null) === 'redis', 'Production cache uses Redis', 'Set CACHE_STORE=redis.');
+            $this->check($this->redisDataIsIsolated($cacheStore, $queue, $emailQueue), 'Redis cache, sessions, and queues are isolated', 'Use separate Redis databases or clusters for cache, sessions, and queue data; avoid one shared REDIS_URL database path.');
             $this->check(($queue['driver'] ?? null) !== 'sync', 'Background work uses an asynchronous queue', 'Use a database or Redis queue and run workers.');
             $this->check(
                 $this->visibilityTimeout($queue) > IssueCertificateBatch::TIMEOUT,
@@ -91,13 +98,19 @@ class SecurityCheck extends Command
             );
             $this->check($provider === 'brevo', 'Participant access email uses an approved real provider', 'Set TRANSACTIONAL_EMAIL_PROVIDER=brevo; unknown or log providers are forbidden in production.');
 
+            $trustedProxies = (array) config('app.trusted_proxies', []);
+
             if (config('security.behind_proxy')) {
-                $trustedProxies = (array) config('app.trusted_proxies', []);
-                $unsafeProxies = ['*', '**', '0.0.0.0/0', '::/0'];
                 $this->check(
-                    $trustedProxies !== [] && array_intersect($trustedProxies, $unsafeProxies) === [],
+                    $trustedProxies !== [] && $this->proxyAllowlistIsExact($trustedProxies),
                     'Reverse-proxy trust is an exact allowlist',
                     'Set APP_TRUSTED_PROXIES to exact proxy IPs/CIDRs and never a wildcard.',
+                );
+            } else {
+                $this->check(
+                    $trustedProxies === [],
+                    'Forwarded headers are disabled for direct TLS',
+                    'Either clear APP_TRUSTED_PROXIES for direct TLS or set SECURITY_BEHIND_PROXY=true and configure an exact allowlist.',
                 );
             }
 
@@ -113,6 +126,19 @@ class SecurityCheck extends Command
             $channels = (array) config('logging.channels.stack.channels', []);
             $this->check(config('logging.default') === 'stack' && in_array('daily', $channels, true), 'Logs rotate with bounded retention', 'Use LOG_CHANNEL=stack and LOG_STACK=daily.');
             $this->check($this->hasEnrolledAdministrator(), 'At least one active administrator has MFA enrolled', 'Create an administrator privately, sign in, and enroll MFA before traffic.');
+            $this->check(config('operations.backups_enabled'), 'Managed backups are declared enabled', 'Enable encrypted managed PostgreSQL and private-file backups, then set BACKUPS_ENABLED=true.');
+            $this->check(
+                $this->timestampIsRecent(
+                    config('operations.backup_last_restore_at'),
+                    (int) config('operations.backup_restore_max_age_days'),
+                    'days',
+                ) && filled(config('operations.backup_restore_reference')),
+                'A recent restore rehearsal has recorded evidence',
+                'Restore a backup to a disposable target, verify it, then set BACKUP_LAST_RESTORE_AT and BACKUP_RESTORE_REFERENCE.',
+            );
+            $this->check($this->heartbeatIsFresh('scheduler'), 'The scheduler service heartbeat is fresh', 'Run operations:heartbeat every minute under the always-on scheduler service.');
+            $this->check($this->heartbeatIsFresh('queue:default'), 'The default queue worker heartbeat is fresh', 'Start the always-on default queue worker and wait for the next scheduler probe.');
+            $this->check($this->heartbeatIsFresh('queue:emails'), 'The email queue worker heartbeat is fresh', 'Start the always-on email queue worker and wait for the next scheduler probe.');
         }
 
         if (config('session.driver') === 'file') {
@@ -186,7 +212,8 @@ class SecurityCheck extends Command
     private function databaseTransportIsVerified(string $connection, string $driver): bool
     {
         return match ($driver) {
-            'pgsql' => config("database.connections.{$connection}.sslmode") === 'verify-full',
+            'pgsql' => $this->postgresOption($connection, 'sslmode') === 'verify-full'
+                && filled($this->postgresOption($connection, 'sslrootcert')),
             'mysql', 'mariadb' => filled(config("database.connections.{$connection}.ssl_ca")),
             'sqlsrv' => in_array(
                 strtolower((string) config("database.connections.{$connection}.encrypt")),
@@ -198,5 +225,123 @@ class SecurityCheck extends Command
             ),
             default => false,
         };
+    }
+
+    private function postgresOption(string $connection, string $option): mixed
+    {
+        $configured = config("database.connections.{$connection}.{$option}");
+        $url = (string) config("database.connections.{$connection}.url", '');
+
+        if ($url === '') {
+            return $configured;
+        }
+
+        parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+
+        return $query[$option] ?? $configured;
+    }
+
+    /** @param array<string, mixed> $cacheStore @param array<string, mixed> $queue @param array<string, mixed> $emailQueue */
+    private function redisDataIsIsolated(array $cacheStore, array $queue, array $emailQueue): bool
+    {
+        if (($cacheStore['driver'] ?? null) !== 'redis'
+            || ($queue['driver'] ?? null) !== 'redis'
+            || ($emailQueue['driver'] ?? null) !== 'redis') {
+            return false;
+        }
+
+        $connections = [
+            (string) ($cacheStore['connection'] ?? ''),
+            (string) config('session.connection'),
+            (string) ($queue['connection'] ?? ''),
+            (string) ($emailQueue['connection'] ?? ''),
+        ];
+
+        if (in_array('', $connections, true)) {
+            return false;
+        }
+
+        $stores = array_map($this->effectiveRedisStorageIdentity(...), $connections);
+
+        return ! in_array(null, $stores, true)
+            && $stores[0] !== $stores[1]
+            && $stores[1] !== $stores[2]
+            && $stores[1] !== $stores[3]
+            && $stores[0] !== $stores[2]
+            && $stores[0] !== $stores[3];
+    }
+
+    private function effectiveRedisStorageIdentity(string $connection): ?string
+    {
+        $config = (array) config("database.redis.{$connection}", []);
+        $url = (string) ($config['url'] ?? '');
+        $host = $url === '' ? ($config['host'] ?? null) : parse_url($url, PHP_URL_HOST);
+        $port = $url === '' ? ($config['port'] ?? null) : (parse_url($url, PHP_URL_PORT) ?: 6379);
+        $path = $url === '' ? null : parse_url($url, PHP_URL_PATH);
+        $database = is_string($path) && trim($path, '/') !== ''
+            ? trim($path, '/')
+            : ($config['database'] ?? null);
+
+        if (! filled($host) || ! filled($port) || $database === null) {
+            return null;
+        }
+
+        return strtolower((string) $host).':'.$port.'/'.$database;
+    }
+
+    /** @param list<string> $proxies */
+    private function proxyAllowlistIsExact(array $proxies): bool
+    {
+        foreach ($proxies as $proxy) {
+            if (! str_contains($proxy, '/')) {
+                if (filter_var($proxy, FILTER_VALIDATE_IP) === false) {
+                    return false;
+                }
+
+                continue;
+            }
+
+            [$address, $prefix] = array_pad(explode('/', $proxy, 2), 2, null);
+            $maximum = filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) ? 32
+                : (filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) ? 128 : null);
+
+            if ($maximum === null || ! ctype_digit((string) $prefix) || (int) $prefix > $maximum) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function heartbeatIsFresh(string $name): bool
+    {
+        try {
+            return $this->timestampIsRecent(
+                Cache::get('operations:heartbeat:'.$name),
+                (int) config('operations.service_heartbeat_max_age_minutes'),
+                'minutes',
+            );
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    private function timestampIsRecent(mixed $value, int $maximumAge, string $unit): bool
+    {
+        if (! filled($value) || $maximumAge < 1) {
+            return false;
+        }
+
+        try {
+            $timestamp = CarbonImmutable::parse((string) $value);
+            $now = CarbonImmutable::now();
+            $oldest = $unit === 'days'
+                ? $now->subDays($maximumAge)
+                : $now->subMinutes($maximumAge);
+
+            return $timestamp->betweenIncluded($oldest, $now->addMinutes(5));
+        } catch (Throwable) {
+            return false;
+        }
     }
 }

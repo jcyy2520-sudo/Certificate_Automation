@@ -2,7 +2,7 @@
 @section('content')
     <h1 style="margin:0 0 16px;font-size:22px;line-height:30px;font-weight:700;">Your certificate is ready</h1>
 
-    <p style="margin:0 0 16px;">Congratulations {{ $participant->full_name }},</p>
+    <p style="margin:0 0 16px;">Congratulations {{ $certificate->recipient_name ?: $participant->full_name }},</p>
 
     <p style="margin:0 0 24px;">You have completed every requirement for <strong>{{ $participant->webinar->title }}</strong>. Your certificate is attached to this message as a PDF.</p>
 

@@ -106,6 +106,7 @@ class ParticipantPrivacyService
                 'organization' => null,
                 'email_verified_at' => null,
                 'verified_at' => null,
+                'checked_in_at' => null,
                 'last_access_at' => null,
                 'privacy_erased_at' => $erasedAt,
             ])->save();

@@ -11,10 +11,10 @@
 <form method="GET" class="mb-6 flex flex-wrap items-center gap-3">
     <label class="chip w-56">
         <x-icon name="filter" class="size-[18px] text-slate-400" />
-        <select name="status" data-auto-submit>
-            <option value="">All statuses</option>
-            @foreach(['draft', 'published', 'completed', 'archived'] as $status)
-                <option value="{{ $status }}" @selected(request('status') === $status)>{{ ucfirst($status) }}</option>
+        <select name="availability" data-auto-submit>
+            <option value="">All webinars</option>
+            @foreach(['open' => 'Open', 'closed' => 'Closed', 'archived' => 'Archived'] as $value => $label)
+                <option value="{{ $value }}" @selected(request('availability') === $value)>{{ $label }}</option>
             @endforeach
         </select>
     </label>
@@ -28,7 +28,7 @@
                 <div class="min-w-0">
                     <div class="flex items-center gap-2.5">
                         <p class="truncate text-sm font-medium">{{ $webinar->title }}</p>
-                        <span class="badge shrink-0 {{ $webinar->status === 'published' ? 'badge-green' : 'badge-slate' }}">{{ $webinar->status }}</span>
+                        <span class="badge shrink-0 {{ $webinar->isOpen() ? 'badge-green' : 'badge-slate' }}">{{ $webinar->availabilityLabel() }}</span>
                     </div>
                     <p class="mt-1 truncate text-[13px] text-slate-500">{{ $webinar->description ?: 'No description yet.' }}</p>
                 </div>
@@ -40,8 +40,8 @@
             </a>
         @empty
             <div class="px-5 py-16 text-center">
-                @if(request('status'))
-                    <p class="text-sm text-slate-500">No {{ request('status') }} webinars.</p>
+                @if(request('availability'))
+                    <p class="text-sm text-slate-500">No {{ request('availability') }} webinars.</p>
                     <a class="mt-3 inline-block text-[13px] font-medium text-accent-600 hover:underline" href="{{ route('admin.webinars.index') }}">Clear the filter</a>
                 @else
                     <p class="text-sm text-slate-500">No webinars yet.</p>

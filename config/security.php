@@ -7,6 +7,19 @@ return [
 
     'email_delivery_retention_days' => (int) env('EMAIL_DELIVERY_RETENTION_DAYS', 30),
 
+    // Public limits combine identity/form budgets with shared-network budgets.
+    // The defaults allow a large venue NAT while retaining global cost caps.
+    'rate_limits' => [
+        'public_form_view_ip_per_minute' => (int) env('PUBLIC_FORM_VIEW_IP_PER_MINUTE', 600),
+        'public_form_submit_identity_per_minute' => (int) env('PUBLIC_FORM_SUBMIT_IDENTITY_PER_MINUTE', 5),
+        'public_form_submit_ip_per_minute' => (int) env('PUBLIC_FORM_SUBMIT_IP_PER_MINUTE', 600),
+        'public_form_submit_form_per_minute' => (int) env('PUBLIC_FORM_SUBMIT_FORM_PER_MINUTE', 1200),
+        'public_form_thanks_ip_per_minute' => (int) env('PUBLIC_FORM_THANKS_IP_PER_MINUTE', 600),
+        'participant_access_ip_per_minute' => (int) env('PARTICIPANT_ACCESS_IP_PER_MINUTE', 600),
+        'participant_access_global_per_minute' => (int) env('PARTICIPANT_ACCESS_GLOBAL_PER_MINUTE', 500),
+        'participant_access_confirm_ip_per_minute' => (int) env('PARTICIPANT_ACCESS_CONFIRM_IP_PER_MINUTE', 600),
+    ],
+
     'require_admin_two_factor' => (bool) env('SECURITY_REQUIRE_ADMIN_TWO_FACTOR', true),
 
     // Persistent recaller cookies weaken the value of MFA on shared or stolen

@@ -8,9 +8,9 @@
     <title>@yield('title', config('app.name'))</title>
     {{-- Applied before paint so the rail never flashes at the wrong width. --}}
     <script nonce="{{ $cspNonce }}">try{if(localStorage.getItem('rail')==='open'){document.documentElement.classList.add('rail-open')}}catch(e){}</script>
-    @vite('resources/css/app.css')
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
-<body class="bg-neutral-50 text-slate-900">
+<body class="bg-transparent text-slate-900">
 <div class="flex min-h-screen">
 
     {{-- Primary application rail --}}
@@ -29,7 +29,7 @@
             <span class="min-w-0 truncate text-[13px] font-semibold text-slate-900">{{ $webinar->title }}</span>
         </div>
 
-        <main class="mx-auto w-full max-w-[1180px] flex-1 px-6 py-8 lg:px-10 lg:py-10">
+        <main class="mx-auto w-full max-w-[1440px] flex-1 px-6 py-8 lg:px-10 lg:py-10 2xl:px-14 2xl:py-12">
             @include('partials.admin-flash')
 
             @yield('content')
@@ -37,6 +37,7 @@
     </div>
 </div>
 
+@include('partials.admin-ui')
 @include('partials.admin-scripts')
 </body>
 </html>

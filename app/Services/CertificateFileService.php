@@ -5,9 +5,34 @@ namespace App\Services;
 use App\Models\Certificate;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class CertificateFileService
 {
+    /** Return a private download response after validating the stored path. */
+    public function download(Certificate $certificate): StreamedResponse
+    {
+        abort_unless($certificate->file_path, 404);
+
+        $path = str_replace('\\', '/', $certificate->file_path);
+        $expected = 'certificates/'.$certificate->public_id.'.pdf';
+        abort_unless(hash_equals($expected, $path), 404);
+
+        $disk = Storage::disk($certificate->storage_disk);
+        abort_unless($disk->exists($path), 404);
+
+        return $disk->download(
+            $path,
+            'certificate-'.$certificate->verification_code.'.pdf',
+            [
+                'Content-Type' => 'application/pdf',
+                'Cache-Control' => 'private, no-store, max-age=0',
+                'Pragma' => 'no-cache',
+                'X-Content-Type-Options' => 'nosniff',
+            ],
+        );
+    }
+
     /**
      * Delete private PDFs represented by certificate rows.
      *

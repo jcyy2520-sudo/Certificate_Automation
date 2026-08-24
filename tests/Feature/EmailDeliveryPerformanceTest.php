@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Contracts\TransactionalMailer;
 use App\Jobs\SendTransactionalEmail;
 use App\Models\EmailDelivery;
+use App\Models\Participant;
 use App\Models\User;
 use App\Models\Webinar;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -45,7 +46,14 @@ class EmailDeliveryPerformanceTest extends TestCase
 
     public function test_a_successful_delivery_discards_its_large_retry_payload(): void
     {
+        $webinar = Webinar::factory()->create();
+        $participant = Participant::query()->create([
+            'webinar_id' => $webinar->id,
+            'email' => 'participant@example.com',
+        ]);
         $delivery = EmailDelivery::query()->create([
+            'webinar_id' => $webinar->id,
+            'participant_id' => $participant->id,
             'type' => 'certificate',
             'provider' => 'test',
             'recipient_email' => 'participant@example.com',

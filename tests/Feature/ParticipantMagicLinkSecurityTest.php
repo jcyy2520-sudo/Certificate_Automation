@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Models\Webinar;
 use App\Services\ParticipantMagicLinkService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Session;
@@ -51,7 +52,7 @@ class ParticipantMagicLinkSecurityTest extends TestCase
     {
         $this->get($this->form->shareUrl())
             ->assertOk()
-            ->assertSee('Verify your email to continue')
+            ->assertSee('Confirm your email to continue')
             ->assertDontSee('About you');
 
         $this->post($this->form->shareUrl(), [
@@ -119,7 +120,7 @@ class ParticipantMagicLinkSecurityTest extends TestCase
 
     public function test_the_encrypted_pass_survives_a_new_session_and_works_across_forms(): void
     {
-        [$rawToken] = $this->requestToken('owner@example.com');
+        [$rawToken, $participant] = $this->requestToken('owner@example.com');
         $response = $this->post(route('forms.public.access.consume', $this->form->public_token), [
             'access_token' => $rawToken,
         ]);
@@ -162,7 +163,7 @@ class ParticipantMagicLinkSecurityTest extends TestCase
         $this->withCookie($cookieName, $pass)
             ->get($this->form->shareUrl())
             ->assertOk()
-            ->assertSee('Verify your email to continue')
+            ->assertSee('Confirm your email to continue')
             ->assertCookieExpired($cookieName);
     }
 
@@ -214,7 +215,7 @@ class ParticipantMagicLinkSecurityTest extends TestCase
         $this->withCookie($cookieName, $pass)
             ->get($this->form->shareUrl())
             ->assertOk()
-            ->assertSee('Verify your email to continue')
+            ->assertSee('Confirm your email to continue')
             ->assertCookieExpired($cookieName);
 
         $this->travelBack();
@@ -223,7 +224,7 @@ class ParticipantMagicLinkSecurityTest extends TestCase
         $this->withCookie($cookieName, $pass)
             ->get($this->form->shareUrl())
             ->assertOk()
-            ->assertSee('Verify your email to continue')
+            ->assertSee('Confirm your email to continue')
             ->assertCookieExpired($cookieName);
     }
 
@@ -249,6 +250,73 @@ class ParticipantMagicLinkSecurityTest extends TestCase
         $this->withCookie($cookieName, $pass)
             ->get($this->form->shareUrl())
             ->assertNotFound();
+    }
+
+    public function test_the_service_issues_nothing_when_authoritative_lifecycle_state_is_not_live(): void
+    {
+        Queue::fake();
+        $deadline = $this->webinar->retention_due_at;
+        $invalidStates = [
+            'draft webinar' => fn () => DB::table('webinars')->where('id', $this->webinar->id)->update(['status' => 'draft']),
+            'completed webinar' => fn () => DB::table('webinars')->where('id', $this->webinar->id)->update(['status' => 'completed']),
+            'archived webinar' => fn () => DB::table('webinars')->where('id', $this->webinar->id)->update(['archived_at' => now()]),
+            'missing retention deadline' => fn () => DB::table('webinars')->where('id', $this->webinar->id)->update(['retention_due_at' => null]),
+            'verification disabled' => fn () => DB::table('webinars')->where('id', $this->webinar->id)->update(['requires_verification' => false]),
+            'draft form' => fn () => DB::table('forms')->where('id', $this->form->id)->update(['status' => 'draft']),
+            'closed form' => fn () => DB::table('forms')->where('id', $this->form->id)->update(['closes_at' => now()->subSecond()]),
+        ];
+
+        foreach ($invalidStates as $description => $makeInvalid) {
+            DB::table('webinars')->where('id', $this->webinar->id)->update([
+                'status' => 'published',
+                'archived_at' => null,
+                'deletion_started_at' => null,
+                'retention_due_at' => $deadline,
+                'requires_verification' => true,
+            ]);
+            DB::table('forms')->where('id', $this->form->id)->update([
+                'status' => 'published',
+                'opens_at' => null,
+                'closes_at' => null,
+            ]);
+            $makeInvalid();
+
+            app(ParticipantMagicLinkService::class)->request(
+                $this->form,
+                str($description)->slug()->append('@example.com')->value(),
+            );
+
+            $this->assertSame(0, Participant::query()->count(), $description);
+            $this->assertSame(0, ParticipantAccessToken::query()->count(), $description);
+            $this->assertSame(0, EmailDelivery::query()->count(), $description);
+        }
+    }
+
+    public function test_token_consumption_rechecks_the_exact_form_under_lock(): void
+    {
+        [$rawToken, $participant] = $this->requestToken('owner@example.com');
+        $this->form->update(['status' => 'draft']);
+        $request = $this->sessionRequest();
+
+        $this->assertFalse(app(ParticipantMagicLinkService::class)->consume($request, $this->form, $rawToken));
+        $this->assertNull(ParticipantAccessToken::query()->firstOrFail()->used_at);
+        $this->assertNull($participant->fresh()->email_verified_at);
+    }
+
+    public function test_an_established_grant_is_revoked_when_the_exact_form_closes(): void
+    {
+        [$rawToken] = $this->requestToken('owner@example.com');
+        $request = $this->sessionRequest();
+        $magicLinks = app(ParticipantMagicLinkService::class);
+
+        $this->assertTrue($magicLinks->consume($request, $this->form, $rawToken));
+        $this->form->update(['closes_at' => now()->subSecond()]);
+        $this->assertNull($magicLinks->participant($request, $this->form));
+
+        // The invalid lifecycle check removes the session grant rather than
+        // allowing it to become valid again if an administrator reopens a form.
+        $this->form->update(['closes_at' => null]);
+        $this->assertNull($magicLinks->participant($request, $this->form));
     }
 
     public function test_a_token_is_bound_to_the_form_and_event_that_issued_it(): void
@@ -355,7 +423,7 @@ class ParticipantMagicLinkSecurityTest extends TestCase
             ]);
 
             if ($attempt <= 3) {
-                $response->assertRedirect($this->form->shareUrl())
+                $response->assertRedirect($this->form->shareUrl().'?sent=1')
                     ->assertSessionHas('participant_access_requested');
             } else {
                 $response->assertTooManyRequests();
@@ -432,7 +500,7 @@ class ParticipantMagicLinkSecurityTest extends TestCase
 
         $this->post(route('forms.public.access.request', $this->form->public_token), [
             'email' => $email,
-        ])->assertRedirect($this->form->shareUrl())
+        ])->assertRedirect($this->form->shareUrl().'?sent=1')
             ->assertSessionHas('participant_access_requested');
 
         $participant = Participant::query()->where('email', strtolower($email))->firstOrFail();
@@ -443,5 +511,13 @@ class ParticipantMagicLinkSecurityTest extends TestCase
         $this->assertArrayHasKey(1, $matches, 'The queued email did not contain a fragment credential.');
 
         return [$matches[1], $participant, $delivery];
+    }
+
+    private function sessionRequest(): Request
+    {
+        $request = Request::create('/', 'GET');
+        $request->setLaravelSession($this->app['session']->driver());
+
+        return $request;
     }
 }

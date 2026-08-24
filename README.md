@@ -107,6 +107,8 @@ Local development uses `CERTIFICATE_DISK=local`. For S3 or Cloudflare R2, set `F
 
 Do not accept real participant information until the production gate in [SECURITY.md](SECURITY.md) is complete. It documents the enforced controls, data lifecycle, secret and encryption-key handling, migrations, administrator MFA, workers, scheduler, backups, incident response, and legal responsibilities.
 
+Provider-neutral systemd service definitions and the managed PostgreSQL restore verifier are in [deploy/README.md](deploy/README.md).
+
 The production preflight returns a failure status when a required runtime control is unsafe. Lifecycle commands support a non-mutating preview:
 
 ```bash
@@ -216,13 +218,13 @@ Participant forms follow a survey layout — centred title with the final word h
 
 ## Sharing a form
 
-Open a webinar, click a form, and use the **Share link** panel. Set the form's status to `published` so the link accepts responses, then copy the URL and post it wherever you like.
+Open a webinar, click a form, and use the **Share link** panel. Turn on the form's **Open** switch so the link accepts responses, then copy the URL and post it wherever you like.
 
 - With **Require email verification (recommended)** enabled in webinar settings, the link opens an email-verification screen and nothing else. A short-lived, one-time link proves inbox control and issues an encrypted webinar pass (24 hours by default, never beyond retention), so the participant does not re-verify for pre-test, post-test, or evaluation. Every pass use is rechecked against current participant and webinar records.
 - Later forms require a completed registration for the same webinar in both modes. The Facebook/social post can therefore carry the registration link, with the pre-test, post-test, and evaluation links shared separately when needed.
 - Turning verification off is intended only for trusted, low-stakes audiences. Registration submits immediately and later forms accept a matching registered email without sending an ownership link. Anyone who knows another participant's email can impersonate them in this mode; the settings screen and `security:check` warn about this explicitly.
 - **Generate a new link** retires the current URL immediately; anyone still holding it gets a 404.
-- Set `closes_at`, or move the status off `published`, to stop accepting responses. Visitors then see a closed notice instead of the form.
+- Set `closes_at`, or turn off the form's **Open** switch, to stop accepting responses. Visitors then see a closed notice instead of the form.
 - Responses are limited by the form's *maximum attempts* setting, counted per email address.
 
 ## Tracking completion

@@ -34,7 +34,7 @@
             </span>
             <div class="webinar-nav-label min-w-0">
                 <p class="truncate text-[14px] font-semibold leading-5 text-slate-900" title="{{ $webinar->title }}">{{ $webinar->title }}</p>
-                <span class="badge mt-1 {{ $webinar->status === 'published' ? 'badge-green' : ($webinar->status === 'archived' ? 'badge-slate' : 'badge-slate') }}">{{ $webinar->status }}</span>
+                <span class="badge mt-1 {{ $webinar->isOpen() ? 'badge-green' : 'badge-slate' }}">{{ $webinar->availabilityLabel() }}</span>
             </div>
         </div>
     </div>
@@ -49,6 +49,11 @@
                 <x-icon name="chevron-down" class="wn-chevron size-4 text-slate-400" />
             </summary>
             <div class="mt-0.5 space-y-0.5 pb-1 pl-1">
+                @if($registrationForm = $navForms['registration'] ?? null)
+                    <a href="{{ route('admin.forms.edit', [$webinar, $registrationForm]) }}" class="wn-item {{ $formActive('registration') ? 'wn-item-active' : '' }}" @if($formActive('registration')) aria-current="page" @endif>
+                        <x-icon name="link" class="size-[15px]" /><span class="webinar-nav-label">Registration form &amp; link</span>
+                    </a>
+                @endif
                 <a href="{{ route('admin.participants.index', $webinar) }}" class="wn-item {{ $isParticipants ? 'wn-item-active' : '' }}" @if($isParticipants) aria-current="page" @endif>
                     <x-icon name="grid" class="size-[15px]" /><span class="webinar-nav-label">Registered participants</span>
                 </a>
@@ -83,7 +88,7 @@
                     <x-icon name="image" class="size-[15px]" /><span class="webinar-nav-label">Template &amp; requirements</span>
                 </a>
                 <a href="{{ route('admin.certificates.studio', $webinar) }}" class="wn-item {{ $isStudio ? 'wn-item-active' : '' }}" @if($isStudio) aria-current="page" @endif>
-                    <x-icon name="send" class="size-[15px]" /><span class="webinar-nav-label">Selection &amp; preview</span>
+                    <x-icon name="send" class="size-[15px]" /><span class="webinar-nav-label">Send certificates</span>
                 </a>
             </div>
         </details>

@@ -158,7 +158,8 @@ return [
         ],
 
         'default' => [
-            'url' => env('REDIS_URL'),
+            'url' => env('REDIS_DEFAULT_URL', env('REDIS_URL')),
+            'scheme' => env('REDIS_SCHEME'),
             'host' => env('REDIS_HOST', '127.0.0.1'),
             'username' => env('REDIS_USERNAME'),
             'password' => env('REDIS_PASSWORD'),
@@ -167,7 +168,8 @@ return [
         ],
 
         'cache' => [
-            'url' => env('REDIS_URL'),
+            'url' => env('REDIS_CACHE_URL', env('REDIS_URL')),
+            'scheme' => env('REDIS_SCHEME'),
             'host' => env('REDIS_HOST', '127.0.0.1'),
             'username' => env('REDIS_USERNAME'),
             'password' => env('REDIS_PASSWORD'),
@@ -178,12 +180,25 @@ return [
         // A dedicated Redis database allows an incident-response session purge
         // without flushing application cache or queued work.
         'session' => [
-            'url' => env('REDIS_URL'),
+            'url' => env('REDIS_SESSION_URL', env('REDIS_URL')),
+            'scheme' => env('REDIS_SCHEME'),
             'host' => env('REDIS_HOST', '127.0.0.1'),
             'username' => env('REDIS_USERNAME'),
             'password' => env('REDIS_PASSWORD'),
             'port' => env('REDIS_PORT', '6379'),
             'database' => env('REDIS_SESSION_DB', '2'),
+        ],
+
+        // Queue data is isolated from both cache and sessions. This keeps a
+        // cache flush or emergency session invalidation from deleting jobs.
+        'queue' => [
+            'url' => env('REDIS_QUEUE_URL', env('REDIS_URL')),
+            'scheme' => env('REDIS_SCHEME'),
+            'host' => env('REDIS_HOST', '127.0.0.1'),
+            'username' => env('REDIS_USERNAME'),
+            'password' => env('REDIS_PASSWORD'),
+            'port' => env('REDIS_PORT', '6379'),
+            'database' => env('REDIS_QUEUE_DB', '3'),
         ],
 
     ],

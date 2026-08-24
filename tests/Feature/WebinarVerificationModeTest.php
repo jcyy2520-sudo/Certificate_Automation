@@ -54,8 +54,9 @@ class WebinarVerificationModeTest extends TestCase
         $this->actingAs($administrator)
             ->get(route('admin.webinars.edit', $webinar))
             ->assertOk()
-            ->assertSee('Secure mode off')
-            ->assertSee('impersonation is possible');
+            // The off state is reflected without alarming wording.
+            ->assertSee('Participants can continue without confirming their email')
+            ->assertDontSee('impersonation is possible');
     }
 
     public function test_off_mode_records_registration_immediately_without_sending_a_link(): void
@@ -70,7 +71,7 @@ class WebinarVerificationModeTest extends TestCase
         $this->get($registration->shareUrl())
             ->assertOk()
             ->assertSee('About you')
-            ->assertDontSee('Verify your email to continue');
+            ->assertDontSee('Confirm your email to continue');
         $this->post($registration->shareUrl(), [
             'full_name' => 'Trusted Guest',
             'email' => 'Guest@Example.com',

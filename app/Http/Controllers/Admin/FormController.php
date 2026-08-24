@@ -9,6 +9,7 @@ use App\Models\Question;
 use App\Models\Webinar;
 use App\Services\AuditService;
 use Carbon\CarbonImmutable;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -29,6 +30,7 @@ class FormController extends Controller
             'questions' => fn ($query) => $query->withCount('answers'),
             'questions.choices',
         ]);
+        $form->setRelation('webinar', $webinar);
 
         return view('admin.forms.edit', compact('webinar', 'form'));
     }
@@ -39,14 +41,21 @@ class FormController extends Controller
         $data = $request->validate([
             'title' => ['required', 'string', 'max:180'],
             'description' => ['nullable', 'string', 'max:3000'],
-            'status' => ['required', Rule::in(['draft', 'published', 'closed'])],
             'opens_at' => ['nullable', 'date_format:Y-m-d\TH:i'],
             'closes_at' => ['nullable', 'date_format:Y-m-d\TH:i', 'after_or_equal:opens_at'],
             'max_attempts' => ['required', 'integer', 'min:1', 'max:20'],
             'show_score' => ['nullable', 'boolean'],
         ]);
-        $data['opens_at'] = $this->localDateTimeToUtc($data['opens_at'] ?? null, $webinar->timezone);
-        $data['closes_at'] = $this->localDateTimeToUtc($data['closes_at'] ?? null, $webinar->timezone);
+        $data['opens_at'] = $this->localDateTimeToUtc(
+            $data['opens_at'] ?? null,
+            $webinar->timezone,
+            'opens_at',
+        );
+        $data['closes_at'] = $this->localDateTimeToUtc(
+            $data['closes_at'] ?? null,
+            $webinar->timezone,
+            'closes_at',
+        );
         $data['show_score'] = $request->boolean('show_score');
 
         DB::transaction(function () use ($audit, $data, $form, $request, $webinar): void {
@@ -56,6 +65,110 @@ class FormController extends Controller
         });
 
         return back()->with('success', 'Form settings saved.');
+    }
+
+    /**
+     * Open or close a form in one click, without re-submitting the whole
+     * settings form. The database keeps its legacy status values internally,
+     * while the organizer only has one explicit Open/Closed switch.
+     */
+    public function toggle(Request $request, Webinar $webinar, Form $form, AuditService $audit): RedirectResponse|JsonResponse
+    {
+        $this->assertBelongsTo($webinar, $form);
+
+        $data = $request->validate([
+            'is_open' => ['sometimes', 'boolean'],
+            // Backward-compatible input for older bookmarks/tests; the UI no
+            // longer renders or names this lifecycle field.
+            'status' => ['required_without:is_open', Rule::in(['published', 'closed'])],
+        ]);
+        $status = $request->has('is_open')
+            ? ($request->boolean('is_open') ? 'published' : 'closed')
+            : $data['status'];
+
+        $updatedForm = DB::transaction(function () use ($audit, $form, $request, $status, $webinar): Form {
+            // Keep the same webinar -> form lock order used by public
+            // submissions so an availability change is atomic with a response.
+            $lockedWebinar = Webinar::query()->whereKey($webinar->id)->lockForUpdate()->firstOrFail();
+            $lockedForm = Form::query()
+                ->whereKey($form->id)
+                ->where('webinar_id', $lockedWebinar->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $formChanges = ['status' => $status];
+            $webinarChanges = [];
+
+            if ($status === 'published') {
+                // "Open" means open now. A future opening time or an already
+                // expired closing time must not contradict the manual switch.
+                // A future closing deadline is preserved and will still close
+                // the form automatically when that time arrives.
+                if ($lockedForm->opens_at?->isFuture()) {
+                    $formChanges['opens_at'] = null;
+                }
+                if ($lockedForm->closes_at?->isPast()) {
+                    $formChanges['closes_at'] = null;
+                }
+
+                if ($lockedForm->type === 'registration') {
+                    if ($lockedWebinar->registration_opens_at?->isFuture()) {
+                        $webinarChanges['registration_opens_at'] = null;
+                    }
+                    if ($lockedWebinar->registration_closes_at?->isPast()) {
+                        $webinarChanges['registration_closes_at'] = null;
+                    }
+                }
+            }
+
+            if ($webinarChanges !== []) {
+                $lockedWebinar->update($webinarChanges);
+            }
+            $lockedForm->update($formChanges);
+            $lockedForm->setRelation('webinar', $lockedWebinar);
+
+            $audit->record($request, 'form.availability_changed', $lockedForm, [
+                'open' => $status === 'published',
+                'schedule_overridden' => count($formChanges) > 1 || $webinarChanges !== [],
+            ]);
+
+            return $lockedForm;
+        });
+
+        $acceptsResponses = $updatedForm->acceptsResponses();
+        $message = $this->availabilityMessage($updatedForm, $updatedForm->webinar, $acceptsResponses);
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'open' => $updatedForm->isOpen(),
+                'accepts_responses' => $acceptsResponses,
+                'state' => $acceptsResponses
+                    ? 'Open — accepting responses now'
+                    : ($updatedForm->isOpen() ? 'Open, but responses are currently blocked' : 'Closed — not accepting responses'),
+                'message' => $message,
+            ]);
+        }
+
+        return back()->with('success', $status === 'published'
+            ? $message
+            : 'Form closed. It no longer accepts new responses.');
+    }
+
+    private function availabilityMessage(Form $form, Webinar $webinar, bool $acceptsResponses): string
+    {
+        if ($acceptsResponses) {
+            return 'Opened. This form is accepting responses now.';
+        }
+
+        if (! $form->isOpen()) {
+            return 'Closed. This form is not accepting responses.';
+        }
+
+        if (! $webinar->isOpen()) {
+            return 'The form is open, but the webinar is closed. Open the webinar in Webinar settings.';
+        }
+
+        return $form->closedReason();
     }
 
     /** Retire the current share link and mint a new one. Anyone holding the old URL loses access. */
@@ -149,8 +262,6 @@ class FormController extends Controller
             'is_required' => ['nullable', 'boolean'],
         ]);
 
-        $answered = $question->answers()->exists();
-
         // A locked (answered) question's edit form has no choice inputs in it
         // at all, so a legitimate browser submit never sends "choices" or
         // "correct_choice". Only bother re-validating choices when this
@@ -159,48 +270,65 @@ class FormController extends Controller
         $touchesChoices = $request->has('choices') || $request->has('correct_choice');
         $rows = $touchesChoices ? $this->submittedChoiceRows($request) : collect();
 
-        if ($answered && $touchesChoices && $this->choicesChanged($question, $rows)) {
-            return back()
-                ->withInput()
-                ->withErrors(['choices' => 'This question already has answers, so its choices can no longer be changed. Delete it and add a replacement instead.']);
-        }
+        DB::transaction(function () use ($audit, $data, $form, $question, $request, $rows, $touchesChoices, $webinar): void {
+            // Public submissions hold a shared lock on this same form row while
+            // validating and writing answers. Taking the exclusive lock before
+            // checking answer state makes the definition we inspect authoritative.
+            $this->lockedForm($webinar, $form);
+            $lockedQuestion = Question::query()
+                ->whereKey($question->id)
+                ->where('form_id', $form->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $answered = $lockedQuestion->answers()->exists();
 
-        if (! $answered && $data['question_type'] !== 'text') {
-            if ($rows->count() < 2) {
-                return back()->withInput()->withErrors(['choices' => 'Add at least two choices.']);
+            if ($answered && $data['question_type'] !== $lockedQuestion->question_type) {
+                throw ValidationException::withMessages([
+                    'question_type' => 'This question already has answers, so its answer type can no longer be changed.',
+                ]);
             }
 
-            if (! $rows->contains('is_correct', true)) {
-                return back()->withInput()->withErrors(['choices' => 'Select which choice is correct.']);
+            if ($answered && $touchesChoices && $this->choicesChanged($lockedQuestion, $rows)) {
+                throw ValidationException::withMessages([
+                    'choices' => 'This question already has answers, so its choices can no longer be changed. Delete it and add a replacement instead.',
+                ]);
             }
-        }
 
-        DB::transaction(function () use ($question, $data, $request, $rows, $answered): void {
-            $question->update([
+            if (! $answered && $data['question_type'] !== 'text') {
+                if ($rows->count() < 2) {
+                    throw ValidationException::withMessages(['choices' => 'Add at least two choices.']);
+                }
+
+                if (! $rows->contains('is_correct', true)) {
+                    throw ValidationException::withMessages(['choices' => 'Select which choice is correct.']);
+                }
+            }
+
+            $lockedQuestion->update([
                 ...collect($data)->except('choices', 'is_required')->all(),
                 'is_required' => $request->boolean('is_required'),
             ]);
 
             if ($answered) {
+                $audit->record($request, 'question.updated', $lockedQuestion);
+
                 return;
             }
 
-            $question->choices()->delete();
+            $lockedQuestion->choices()->delete();
 
-            if ($data['question_type'] === 'text') {
-                return;
+            if ($data['question_type'] !== 'text') {
+                $rows->values()->each(function (array $row, int $index) use ($lockedQuestion): void {
+                    $lockedQuestion->choices()->create([
+                        'label' => $row['label'],
+                        'is_correct' => $row['is_correct'],
+                        'sort_order' => $index + 1,
+                    ]);
+                });
             }
 
-            $rows->values()->each(function (array $row, int $index) use ($question): void {
-                $question->choices()->create([
-                    'label' => $row['label'],
-                    'is_correct' => $row['is_correct'],
-                    'sort_order' => $index + 1,
-                ]);
-            });
+            $audit->record($request, 'question.updated', $lockedQuestion);
         });
-
-        $audit->record($request, 'question.updated', $question);
 
         return back()->with('success', 'Question updated.');
     }
@@ -249,8 +377,17 @@ class FormController extends Controller
     {
         $this->assertBelongsTo($webinar, $form);
         abort_unless($field->form_id === $form->id, 404);
-        $audit->record($request, 'form_field.deleted', $field, ['label' => $field->label]);
-        $field->delete();
+
+        DB::transaction(function () use ($audit, $field, $form, $request, $webinar): void {
+            $this->lockedForm($webinar, $form);
+            $lockedField = FormField::query()
+                ->whereKey($field->id)
+                ->where('form_id', $form->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $audit->record($request, 'form_field.deleted', $lockedField, ['label' => $lockedField->label]);
+            $lockedField->delete();
+        });
 
         return back()->with('success', 'Field removed.');
     }
@@ -279,23 +416,28 @@ class FormController extends Controller
             return back()->withErrors(['choices' => 'Select which choice is correct.'])->withInput();
         }
 
-        $question = $form->questions()->create([
-            ...collect($data)->except('choices', 'is_required')->all(),
-            'is_required' => $request->boolean('is_required'),
-            'sort_order' => ($form->questions()->max('sort_order') ?? 0) + 1,
-        ]);
+        DB::transaction(function () use ($audit, $data, $form, $request, $rows, $webinar): void {
+            $lockedForm = $this->lockedForm($webinar, $form);
+            abort_if($lockedForm->type === 'registration', 422, 'Questions are not supported on the registration form.');
 
-        if ($data['question_type'] !== 'text') {
-            $rows->values()->each(function (array $row, int $index) use ($question): void {
-                $question->choices()->create([
-                    'label' => $row['label'],
-                    'is_correct' => $row['is_correct'],
-                    'sort_order' => $index + 1,
-                ]);
-            });
-        }
+            $question = $lockedForm->questions()->create([
+                ...collect($data)->except('choices', 'is_required')->all(),
+                'is_required' => $request->boolean('is_required'),
+                'sort_order' => ($lockedForm->questions()->max('sort_order') ?? 0) + 1,
+            ]);
 
-        $audit->record($request, 'question.created', $question);
+            if ($data['question_type'] !== 'text') {
+                $rows->values()->each(function (array $row, int $index) use ($question): void {
+                    $question->choices()->create([
+                        'label' => $row['label'],
+                        'is_correct' => $row['is_correct'],
+                        'sort_order' => $index + 1,
+                    ]);
+                });
+            }
+
+            $audit->record($request, 'question.created', $question);
+        });
 
         return back()->with('success', 'Question added.');
     }
@@ -304,8 +446,17 @@ class FormController extends Controller
     {
         $this->assertBelongsTo($webinar, $form);
         abort_unless($question->form_id === $form->id, 404);
-        $audit->record($request, 'question.deleted', $question, ['prompt' => $question->prompt]);
-        $question->delete();
+
+        DB::transaction(function () use ($audit, $form, $question, $request, $webinar): void {
+            $this->lockedForm($webinar, $form);
+            $lockedQuestion = Question::query()
+                ->whereKey($question->id)
+                ->where('form_id', $form->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $audit->record($request, 'question.deleted', $lockedQuestion, ['prompt' => $lockedQuestion->prompt]);
+            $lockedQuestion->delete();
+        });
 
         return back()->with('success', 'Question removed.');
     }
@@ -313,6 +464,34 @@ class FormController extends Controller
     private function assertBelongsTo(Webinar $webinar, Form $form): void
     {
         abort_unless($form->webinar_id === $webinar->id, 404);
+    }
+
+    /**
+     * Browser datetime-local values have no offset. Interpret them in the
+     * event's declared IANA timezone, reject DST-normalized nonexistent times,
+     * and persist one unambiguous UTC instant.
+     */
+    private function localDateTimeToUtc(?string $value, string $timezone, string $field): ?CarbonImmutable
+    {
+        if (blank($value)) {
+            return null;
+        }
+
+        try {
+            $local = CarbonImmutable::parse($value, $timezone);
+        } catch (\Throwable) {
+            throw ValidationException::withMessages([$field => 'Enter a valid local date and time.']);
+        }
+
+        $submittedMinute = str_replace(' ', 'T', substr(trim($value), 0, 16));
+
+        if ($local->format('Y-m-d\TH:i') !== $submittedMinute) {
+            throw ValidationException::withMessages([
+                $field => 'That local time does not exist in the selected timezone because of a clock change.',
+            ]);
+        }
+
+        return $local->utc();
     }
 
     /** Derive a stable internal key from the label so admins never have to type one. */

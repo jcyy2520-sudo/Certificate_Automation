@@ -64,7 +64,7 @@
                             <p class="truncate text-sm font-medium">{{ $webinar->title }}</p>
                             <p class="mt-0.5 text-[12px] text-slate-500 tabular-nums">{{ $webinar->participants_count }} participants · {{ $webinar->certificates_count }} certificates</p>
                         </div>
-                        <span class="badge shrink-0 {{ $webinar->status === 'published' ? 'badge-green' : 'badge-slate' }}">{{ $webinar->status }}</span>
+                        <span class="badge shrink-0 {{ $webinar->isOpen() ? 'badge-green' : 'badge-slate' }}">{{ $webinar->availabilityLabel() }}</span>
                     </a>
                 @endforeach
             </div>

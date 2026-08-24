@@ -26,163 +26,320 @@ class CertificateService
     /**
      * Issue a certificate to a participant.
      *
-     * $recipientName lets the organizer correct a typo or a wrong name at the
-     * moment of issuing; when blank the participant's own recorded name is used.
+     * The participant record is the only source for the printed name. Correct
+     * that record before issuing instead of creating a certificate-only spelling.
      */
-    public function issue(Participant $participant, ?CertificateBatch $batch = null, ?string $recipientName = null): Certificate
+    public function issue(Participant $participant, ?CertificateBatch $batch = null, ?array $layout = null): Certificate
     {
-        $participant->loadMissing('webinar');
         $diskName = (string) config('webinar.certificate_disk');
-        $attemptedPath = null;
-        $certificateId = null;
+        $certificate = $this->prepare($participant, $batch, $diskName, $layout);
+
+        if ($certificate->status === 'issued') {
+            return $certificate;
+        }
+
+        $path = $this->expectedPath($certificate);
+        $templateSignature = $this->templateSignature($certificate->template);
 
         try {
-            return DB::transaction(function () use ($participant, $batch, $recipientName, $diskName, &$attemptedPath, &$certificateId): Certificate {
-                // The global lifecycle lock order is webinar -> participant ->
-                // child records. A deletion tombstone is committed under the
-                // webinar lock before file cleanup begins.
-                $lockedWebinar = Webinar::query()
-                    ->whereKey($participant->webinar_id)
-                    ->whereNull('deletion_started_at')
-                    ->lockForUpdate()
-                    ->first();
+            $contents = $this->render($certificate);
 
-                if (! $lockedWebinar || $lockedWebinar->status === 'archived') {
-                    throw new RuntimeException('This webinar is closed for certificate issuance.');
-                }
-
-                if ($lockedWebinar->retention_due_at?->isPast()) {
-                    throw new RuntimeException('This webinar has reached its privacy retention deadline.');
-                }
-
-                $lockedParticipant = Participant::query()
-                    ->whereKey($participant->getKey())
-                    ->whereNull('privacy_erased_at')
-                    ->lockForUpdate()
-                    ->first();
-
-                if (! $lockedParticipant) {
-                    throw new RuntimeException('The participant record is no longer available for certificate issuance.');
-                }
-
-                if ($participant->relationLoaded('webinar')) {
-                    $lockedWebinar->setRelations($participant->webinar->getRelations());
-                }
-                $lockedParticipant->setRelations($participant->getRelations());
-                $lockedParticipant->setRelation('webinar', $lockedWebinar);
-
-                if (! $this->eligibility->evaluate($lockedParticipant)['eligible']) {
-                    throw new RuntimeException('The participant does not currently meet the certificate requirements.');
-                }
-
-                $existing = Certificate::query()
-                    ->where('participant_id', $lockedParticipant->id)
-                    ->whereNull('revoked_at')
-                    ->whereNotNull('issued_at')
-                    ->lockForUpdate()
-                    ->first();
-                if ($existing) {
-                    return $existing;
-                }
-
-                $template = $lockedParticipant->webinar->relationLoaded('certificateTemplates')
-                    ? $lockedParticipant->webinar->certificateTemplates->firstWhere('is_active', true)
-                    : $lockedParticipant->webinar->certificateTemplates()->where('is_active', true)->first();
-                if (! $template) {
-                    throw new RuntimeException('This webinar has no active certificate template.');
-                }
-
-                // Certificates are the uploaded design with the recipient's name
-                // placed on top. Without an uploaded design there is nothing to
-                // issue, so issuance is refused rather than inventing a layout.
-                if (blank($template->background_path)) {
-                    throw new RuntimeException('Upload a certificate design before issuing.');
-                }
-
-                $name = filled($recipientName) ? trim($recipientName) : $lockedParticipant->full_name;
-
-                // The database-level key is defence in depth for databases or
-                // code paths where row locks are accidentally weakened.
-                $certificate = Certificate::query()->create([
-                    'verification_code' => 'CERT-'.strtoupper(Str::random(20)),
-                    'webinar_id' => $lockedParticipant->webinar_id,
-                    'participant_id' => $lockedParticipant->id,
-                    'certificate_template_id' => $template->id,
-                    'certificate_batch_id' => $batch?->id,
-                    'recipient_name' => $name,
-                    'storage_disk' => $diskName,
-                    'issuance_key' => $lockedParticipant->webinar_id.':'.$lockedParticipant->id,
-                    'status' => 'processing',
-                ]);
-                $certificateId = $certificate->id;
-                $certificate->setRelation('webinar', $lockedParticipant->webinar);
-                $certificate->setRelation('template', $template);
-
-                $contents = $this->render($certificate);
-                $attemptedPath = 'certificates/'.$certificate->public_id.'.pdf';
-
-                if (! Storage::disk($diskName)->put($attemptedPath, $contents)) {
-                    throw new RuntimeException('The certificate could not be stored securely. Nothing was issued.');
-                }
-
-                // Public verification becomes valid only after durable storage
-                // succeeds. A failed write rolls this entire transaction back.
-                $certificate->update([
-                    'file_path' => $attemptedPath,
-                    'status' => 'issued',
-                    'issued_at' => now(),
-                ]);
-
-                if (filled($lockedParticipant->email)) {
-                    $verificationUrl = route('certificates.verify', $certificate->verification_code);
-                    $this->notifications->queue(
-                        $lockedParticipant->webinar,
-                        $lockedParticipant,
-                        'certificate',
-                        $lockedParticipant->email,
-                        'Your certificate for '.$lockedParticipant->webinar->title,
-                        view('emails.certificate-issued', [
-                            'participant' => $lockedParticipant,
-                            'certificate' => $certificate,
-                            'verificationUrl' => $verificationUrl,
-                        ])->render(),
-                        $certificate,
-                        [['name' => 'certificate.pdf', 'content' => base64_encode($contents)]],
-                    );
-                }
-
-                return $certificate;
-            }, attempts: 3);
-        } catch (Throwable $exception) {
-            // If the file write succeeded but the database transaction did not,
-            // remove the orphan. Do not remove a committed certificate if a
-            // post-commit queue dispatch was the operation that failed.
-            $committed = $certificateId !== null
-                && Certificate::query()->whereKey($certificateId)->whereNotNull('issued_at')->exists();
-
-            if ($attemptedPath !== null && ! $committed) {
-                try {
-                    $disk = Storage::disk($diskName);
-                    $deleted = $disk->delete($attemptedPath);
-
-                    if (! $deleted && $disk->exists($attemptedPath)) {
-                        $fingerprint = hash_hmac('sha256', $diskName."\0".$attemptedPath, (string) config('app.key'));
-                        Log::critical('A rolled-back certificate file could not be removed.', [
-                            'disk' => $diskName,
-                            'path_fingerprint' => $fingerprint,
-                        ]);
-                        AuditLog::query()->create([
-                            'action' => 'certificate.orphan_cleanup_failed',
-                            'metadata' => ['disk' => $diskName, 'path_fingerprint' => $fingerprint],
-                        ]);
-                    }
-                } catch (Throwable $cleanupException) {
-                    report($cleanupException);
-                }
+            if (! Storage::disk($diskName)->put($path, $contents)) {
+                throw new RuntimeException('The certificate could not be stored securely. Nothing was issued.');
             }
+
+            return $this->finalize($certificate, $contents, $templateSignature);
+        } catch (Throwable $exception) {
+            $this->cleanFailedProcessing($certificate, $path);
 
             throw $exception;
         }
+    }
+
+    /**
+     * Persist the one-to-one certificate work item before dispatching a queue
+     * job. This is intentionally quick: PDF rendering and email delivery happen
+     * after the browser request has returned.
+     */
+    public function queue(Participant $participant, ?array $layout = null): Certificate
+    {
+        return $this->prepare(
+            $participant,
+            null,
+            (string) config('webinar.certificate_disk'),
+            $layout,
+        );
+    }
+
+    private function prepare(
+        Participant $participant,
+        ?CertificateBatch $batch,
+        string $diskName,
+        ?array $layout,
+    ): Certificate {
+        return DB::transaction(function () use ($participant, $batch, $diskName, $layout): Certificate {
+            $webinar = $this->lockedIssuableWebinar($participant->webinar_id);
+            $lockedParticipant = Participant::query()
+                ->whereKey($participant->getKey())
+                ->where('webinar_id', $webinar->id)
+                ->whereNull('privacy_erased_at')
+                ->lockForUpdate()
+                ->first();
+
+            if (! $lockedParticipant) {
+                throw new RuntimeException('The participant record is no longer available for certificate issuance.');
+            }
+
+            $this->loadFreshEligibility($lockedParticipant, $webinar);
+
+            if (! $this->eligibility->evaluate($lockedParticipant, $webinar->eligibilityRules)['eligible']) {
+                throw new RuntimeException('The participant does not currently meet the certificate requirements.');
+            }
+
+            $existing = Certificate::query()
+                ->where('participant_id', $lockedParticipant->id)
+                ->whereNull('revoked_at')
+                ->whereIn('status', ['processing', 'issued'])
+                ->lockForUpdate()
+                ->first();
+
+            if ($existing?->status === 'issued') {
+                return $existing;
+            }
+
+            $template = $webinar->certificateTemplates()
+                ->where('is_active', true)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $template) {
+                throw new RuntimeException('This webinar has no active certificate template.');
+            }
+
+            if (blank($template->background_path)) {
+                throw new RuntimeException('Upload a certificate design before issuing.');
+            }
+
+            if ($existing) {
+                if ($existing->certificate_template_id !== $template->id) {
+                    throw new RuntimeException('A certificate is already being prepared with a different template.');
+                }
+
+                $existing->touch();
+                $existing->setRelation('webinar', $webinar);
+                $existing->setRelation('template', $template);
+
+                return $existing;
+            }
+
+            $certificate = Certificate::query()->create([
+                'verification_code' => 'CERT-'.strtoupper(Str::random(20)),
+                'webinar_id' => $lockedParticipant->webinar_id,
+                'participant_id' => $lockedParticipant->id,
+                'certificate_template_id' => $template->id,
+                'certificate_batch_id' => $batch?->id,
+                'recipient_name' => $lockedParticipant->full_name,
+                'layout' => $layout ?: $template->layout,
+                'storage_disk' => $diskName,
+                'status' => 'processing',
+            ]);
+            // HasPublicId assigns the identifier during creation. Build the
+            // inventory path from that persisted value instead of supplying a
+            // mass-assignment-guarded public_id that the model would replace.
+            $certificate->update(['file_path' => $this->expectedPath($certificate)]);
+            $certificate->setRelation('webinar', $webinar);
+            $certificate->setRelation('template', $template);
+
+            return $certificate;
+        }, attempts: 3);
+    }
+
+    private function finalize(Certificate $certificate, string $contents, string $templateSignature): Certificate
+    {
+        return DB::transaction(function () use ($certificate, $contents, $templateSignature): Certificate {
+            $webinar = $this->lockedIssuableWebinar($certificate->webinar_id);
+            $participant = Participant::query()
+                ->whereKey($certificate->participant_id)
+                ->where('webinar_id', $webinar->id)
+                ->whereNull('privacy_erased_at')
+                ->lockForUpdate()
+                ->first();
+
+            if (! $participant) {
+                throw new RuntimeException('The participant record is no longer available for certificate issuance.');
+            }
+
+            $lockedCertificate = Certificate::query()->whereKey($certificate->id)->lockForUpdate()->firstOrFail();
+
+            if ($lockedCertificate->status === 'issued') {
+                return $lockedCertificate;
+            }
+
+            if ($lockedCertificate->status !== 'processing'
+                || ! hash_equals($this->expectedPath($lockedCertificate), (string) $lockedCertificate->file_path)) {
+                throw new RuntimeException('The certificate preparation record is no longer valid.');
+            }
+
+            $template = CertificateTemplate::query()
+                ->whereKey($lockedCertificate->certificate_template_id)
+                ->where('webinar_id', $webinar->id)
+                ->where('is_active', true)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $template || blank($template->background_path)
+                || ! hash_equals($templateSignature, $this->templateSignature($template))) {
+                throw new RuntimeException('The certificate template changed while the certificate was being prepared.');
+            }
+
+            $this->loadFreshEligibility($participant, $webinar);
+
+            if (! $this->eligibility->evaluate($participant, $webinar->eligibilityRules)['eligible']) {
+                throw new RuntimeException('The participant no longer meets the certificate requirements.');
+            }
+
+            $lockedCertificate->update([
+                'status' => 'issued',
+                'issued_at' => now(),
+            ]);
+            $lockedCertificate->setRelation('webinar', $webinar);
+            $lockedCertificate->setRelation('template', $template);
+
+            if (filled($participant->email)) {
+                $verificationUrl = route('certificates.verify', $lockedCertificate->verification_code);
+                $this->notifications->queue(
+                    $webinar,
+                    $participant,
+                    'certificate',
+                    $participant->email,
+                    'Your certificate for '.$webinar->title,
+                    view('emails.certificate-issued', [
+                        'participant' => $participant,
+                        'certificate' => $lockedCertificate,
+                        'verificationUrl' => $verificationUrl,
+                    ])->render(),
+                    $lockedCertificate,
+                    [['name' => 'certificate.pdf', 'content' => base64_encode($contents)]],
+                    $webinar->retention_due_at,
+                );
+            }
+
+            return $lockedCertificate;
+        }, attempts: 3);
+    }
+
+    private function lockedIssuableWebinar(int $webinarId): Webinar
+    {
+        $webinar = Webinar::query()
+            ->whereKey($webinarId)
+            ->whereNull('deletion_started_at')
+            ->whereNull('archived_at')
+            ->whereIn('status', ['published', 'completed'])
+            ->whereNotNull('retention_due_at')
+            ->where('retention_due_at', '>', now())
+            ->lockForUpdate()
+            ->first();
+
+        if (! $webinar) {
+            throw new RuntimeException('This webinar is closed for certificate issuance.');
+        }
+
+        return $webinar;
+    }
+
+    private function loadFreshEligibility(Participant $participant, Webinar $webinar): void
+    {
+        $webinar->unsetRelation('eligibilityRules');
+        $webinar->load('eligibilityRules');
+        $participant->unsetRelations();
+        $participant->load([
+            'submissions.form',
+            'eligibilityOverrides' => fn ($query) => $query
+                ->where(fn ($active) => $active->whereNull('expires_at')->orWhere('expires_at', '>', now()))
+                ->latest()
+                ->orderByDesc('id'),
+        ]);
+        $participant->setRelation('webinar', $webinar);
+    }
+
+    private function expectedPath(Certificate $certificate): string
+    {
+        return 'certificates/'.$certificate->public_id.'.pdf';
+    }
+
+    private function templateSignature(CertificateTemplate $template): string
+    {
+        return hash('sha256', implode("\0", [
+            (string) $template->id,
+            (string) $template->getRawOriginal('updated_at'),
+            (string) $template->background_path,
+            json_encode($template->layout, JSON_THROW_ON_ERROR),
+        ]));
+    }
+
+    private function cleanFailedProcessing(Certificate $certificate, string $path): void
+    {
+        $committed = Certificate::query()
+            ->whereKey($certificate->id)
+            ->where('status', 'issued')
+            ->whereNotNull('issued_at')
+            ->exists();
+
+        if ($committed) {
+            return;
+        }
+
+        try {
+            $disk = Storage::disk($certificate->storage_disk);
+            $deleted = ! $disk->exists($path) || $disk->delete($path);
+
+            if (! $deleted && $disk->exists($path)) {
+                $this->reportOrphanCleanupFailure($certificate->storage_disk, $path);
+
+                return;
+            }
+
+            DB::transaction(function () use ($certificate, $path): void {
+                $identity = Certificate::query()
+                    ->whereKey($certificate->id)
+                    ->select(['webinar_id', 'participant_id'])
+                    ->first();
+
+                if (! $identity) {
+                    return;
+                }
+
+                Webinar::query()->whereKey($identity->webinar_id)->lockForUpdate()->first();
+                if ($identity->participant_id) {
+                    Participant::withTrashed()->whereKey($identity->participant_id)->lockForUpdate()->first();
+                }
+
+                $locked = Certificate::query()->whereKey($certificate->id)->lockForUpdate()->first();
+                if ($locked?->status === 'processing' && hash_equals($path, (string) $locked->file_path)) {
+                    $locked->update([
+                        'status' => 'failed',
+                        'file_path' => null,
+                        'issuance_key' => null,
+                    ]);
+                }
+            }, attempts: 3);
+        } catch (Throwable $cleanupException) {
+            report($cleanupException);
+            $this->reportOrphanCleanupFailure($certificate->storage_disk, $path);
+        }
+    }
+
+    private function reportOrphanCleanupFailure(string $diskName, string $path): void
+    {
+        $fingerprint = hash_hmac('sha256', $diskName."\0".$path, (string) config('app.key'));
+        Log::critical('A failed certificate file could not be removed.', [
+            'disk' => $diskName,
+            'path_fingerprint' => $fingerprint,
+        ]);
+        AuditLog::query()->create([
+            'action' => 'certificate.orphan_cleanup_failed',
+            'metadata' => ['disk' => $diskName, 'path_fingerprint' => $fingerprint],
+        ]);
     }
 
     /**
@@ -199,6 +356,8 @@ class CertificateService
 
         $candidates = $batch->webinar->participants()
             ->whereNull('privacy_erased_at')
+            ->whereNotNull('email')
+            ->where('email', '!=', '')
             ->whereDoesntHave('certificates', fn ($query) => $query->whereNull('revoked_at')->whereNotNull('issued_at'));
 
         $claimed = CertificateBatch::query()
@@ -292,10 +451,21 @@ class CertificateService
             throw new RuntimeException('This certificate template has no uploaded design to render.');
         }
 
-        return Pdf::loadView('certificates.pdf-custom', [
+        $pdf = Pdf::loadView('certificates.pdf-custom', [
             'certificate' => $certificate,
             'backgroundDataUri' => $this->backgroundDataUri($template),
-        ])->setPaper('a4', 'landscape')->output();
+        ]);
+
+        // Size the page to the uploaded design's aspect ratio so the certificate
+        // is reproduced exactly, never stretched or cropped. The reference sheet
+        // height (595, matching pdf-custom) keeps the name's size and position
+        // calibrated regardless of the image's real pixel dimensions.
+        $ratio = $template->aspectRatio();
+        $height = 595.0;
+        $width = round($height * $ratio, 2);
+        $pdf->setPaper([0, 0, $width, $height]);
+
+        return $pdf->output();
     }
 
     /** Read an uploaded certificate background off disk and inline it as a data URI, so dompdf never needs filesystem/chroot access to render it. */

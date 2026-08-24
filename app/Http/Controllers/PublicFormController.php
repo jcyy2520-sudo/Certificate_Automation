@@ -115,163 +115,195 @@ class PublicFormController extends Controller
         }
 
         $sessionParticipantId = $sessionParticipant?->id;
+        $capacityLockRequired = $form->type === 'registration'
+            && $form->webinar->registration_capacity !== null;
 
         try {
-            $submission = DB::transaction(function () use ($form, $request, $sessionParticipantId): ?Submission {
-                // Hold a SHARED lock on the form definition. Admin definition
-                // and security-mode edits lock the same form rows exclusively;
-                // public submitters remain compatible and continue in parallel.
-                $lockedForm = Form::query()->sharedLock()->findOrFail($form->id);
-                $lockedWebinar = Webinar::query()->findOrFail($form->webinar_id);
-                $lockedForm->setRelation('webinar', $lockedWebinar);
+            do {
+                $retryWithCapacityLock = false;
+                $submission = DB::transaction(function () use (
+                    $form,
+                    $request,
+                    $sessionParticipantId,
+                    $capacityLockRequired,
+                    &$retryWithCapacityLock,
+                ): ?Submission {
+                    // Lock in the same webinar -> form order as the access-link
+                    // and administrative paths. Unlimited webinars retain the
+                    // compatible shared lock; a configured registration cap
+                    // serializes only submissions which can consume a place.
+                    $webinarQuery = Webinar::query()->whereKey($form->webinar_id);
+                    $lockedWebinar = $capacityLockRequired
+                        ? $webinarQuery->lockForUpdate()->firstOrFail()
+                        : $webinarQuery->sharedLock()->firstOrFail();
+                    $lockedForm = Form::query()
+                        ->whereKey($form->id)
+                        ->where('webinar_id', $lockedWebinar->id)
+                        ->sharedLock()
+                        ->firstOrFail();
+                    $lockedForm->setRelation('webinar', $lockedWebinar);
 
-                abort_unless($lockedForm->acceptsResponses(), 403, $lockedForm->closedReason());
+                    // Capacity may have been enabled after this request resolved its
+                    // public form. Release the shared lock and retry once with the
+                    // exclusive webinar lock before reading or changing the count.
+                    if ($lockedForm->type === 'registration'
+                        && $lockedWebinar->registration_capacity !== null
+                        && ! $capacityLockRequired) {
+                        $retryWithCapacityLock = true;
 
-                // Recheck the security mode at the same transaction boundary as
-                // the write. Turning verification on while an OFF-mode page is
-                // open must never let that stale page submit without ownership.
-                if ($lockedWebinar->requiresVerification() && ! $sessionParticipantId) {
-                    return null;
-                }
+                        return null;
+                    }
 
-                // The page may have been open while an administrator changed a
-                // required field, answer choice, or scoring rule. Reload and
-                // validate the authoritative definition only after holding the
-                // same form lock used by every administrative definition edit.
-                $this->loadDefinition($lockedForm, includeCorrectAnswers: true);
-                $data = Validator::make(
-                    $request->all(),
-                    $this->rules($lockedForm),
-                    $this->messages($lockedForm),
-                )->validate();
-                $email = Str::lower(trim($data['email']));
-                $data['full_name'] = trim($data['full_name']);
-                $data['organization'] = filled($data['organization'] ?? null)
-                    ? trim($data['organization'])
-                    : null;
+                    abort_unless($lockedForm->acceptsResponses(), 403, $lockedForm->closedReason());
 
-                $participant = $sessionParticipantId
-                    ? Participant::query()
-                        ->whereKey($sessionParticipantId)
-                        ->where('webinar_id', $lockedForm->webinar_id)
-                        ->whereNull('privacy_erased_at')
-                        ->whereNotNull('email_verified_at')
-                        ->lockForUpdate()
-                        ->first()
-                    : $this->participantFor($lockedForm, $email, $data);
+                    // Recheck the security mode at the same transaction boundary as
+                    // the write. Turning verification on while an OFF-mode page is
+                    // open must never let that stale page submit without ownership.
+                    if ($lockedWebinar->requiresVerification() && ! $sessionParticipantId) {
+                        return null;
+                    }
 
-                // Repeat the identity check while the participant row is locked.
-                // A privacy erasure or administrative email correction racing the
-                // request must not let a stale session submit as the old identity.
-                if ($sessionParticipantId && $participant
-                    && ! hash_equals(Str::lower(trim((string) $participant->email)), $email)) {
-                    $participant = null;
-                }
+                    // The page may have been open while an administrator changed a
+                    // required field, answer choice, or scoring rule. Reload and
+                    // validate the authoritative definition only after holding the
+                    // same form lock used by every administrative definition edit.
+                    $this->loadDefinition($lockedForm, includeCorrectAnswers: true);
+                    $data = Validator::make(
+                        $request->all(),
+                        $this->rules($lockedForm),
+                        $this->messages($lockedForm),
+                    )->validate();
+                    $email = Str::lower(trim($data['email']));
+                    $data['full_name'] = trim($data['full_name']);
+                    $data['organization'] = filled($data['organization'] ?? null)
+                        ? trim($data['organization'])
+                        : null;
 
-                if ($lockedForm->type !== 'registration' && $participant && ! $participant->verified_at) {
-                    throw ValidationException::withMessages([
-                        'email' => self::REGISTRATION_REQUIRED_MESSAGE,
+                    $participant = $sessionParticipantId
+                        ? Participant::query()
+                            ->whereKey($sessionParticipantId)
+                            ->where('webinar_id', $lockedForm->webinar_id)
+                            ->whereNull('privacy_erased_at')
+                            ->whereNotNull('email_verified_at')
+                            ->lockForUpdate()
+                            ->first()
+                        : $this->participantFor($lockedForm, $email, $data);
+
+                    // Repeat the identity check while the participant row is locked.
+                    // A privacy erasure or administrative email correction racing the
+                    // request must not let a stale session submit as the old identity.
+                    if ($sessionParticipantId && $participant
+                        && ! hash_equals(Str::lower(trim((string) $participant->email)), $email)) {
+                        $participant = null;
+                    }
+
+                    if ($lockedForm->type !== 'registration' && $participant && ! $participant->verified_at) {
+                        throw ValidationException::withMessages([
+                            'email' => self::REGISTRATION_REQUIRED_MESSAGE,
+                        ]);
+                    }
+
+                    // Erased/deleted records and exhausted attempts deliberately receive
+                    // the same thank-you response as a successful submission. A public
+                    // form must not be usable as an email-participation oracle.
+                    if (! $participant) {
+                        return null;
+                    }
+
+                    $used = Submission::query()
+                        ->where('form_id', $lockedForm->id)
+                        ->where('participant_id', $participant->id)
+                        ->count();
+
+                    if ($used >= $lockedForm->max_attempts) {
+                        return null;
+                    }
+
+                    // A later public form cannot rewrite identity information already
+                    // collected for an email address. Verified identity changes belong
+                    // on an authenticated administrative path.
+                    if (blank($participant->full_name)) {
+                        $participant->full_name = $data['full_name'];
+                    }
+                    if (blank($participant->organization) && filled($data['organization'])) {
+                        $participant->organization = $data['organization'];
+                    }
+                    $participant->last_access_at = now();
+
+                    // Completing the registration form is what marks a participant verified.
+                    if ($lockedForm->type === 'registration' && ! $participant->verified_at) {
+                        $participant->verified_at = now();
+                    }
+
+                    $participant->save();
+
+                    $submission = Submission::query()->create([
+                        'form_id' => $lockedForm->id,
+                        'participant_id' => $participant->id,
+                        'attempt_number' => $used + 1,
+                        'status' => 'submitted',
+                        'submitted_at' => now(),
+                        'metadata' => [
+                            'privacy_notice_version' => self::PRIVACY_NOTICE_VERSION,
+                            'privacy_acknowledged_at' => now()->toIso8601String(),
+                        ],
                     ]);
-                }
 
-                // Erased/deleted records and exhausted attempts deliberately receive
-                // the same thank-you response as a successful submission. A public
-                // form must not be usable as an email-participation oracle.
-                if (! $participant) {
-                    return null;
-                }
+                    $answers = [];
+                    $timestamp = now();
 
-                $used = Submission::query()
-                    ->where('form_id', $lockedForm->id)
-                    ->where('participant_id', $participant->id)
-                    ->count();
+                    foreach ($lockedForm->fields as $field) {
+                        $value = $data['fields'][$field->id] ?? null;
+                        $answers[] = [
+                            'submission_id' => $submission->id,
+                            'form_field_id' => $field->id,
+                            'question_id' => null,
+                            // Bulk inserts bypass Eloquent casts, so encrypt explicitly.
+                            'value' => Crypt::encryptString(json_encode([$value], JSON_THROW_ON_ERROR)),
+                            'is_correct' => null,
+                            'awarded_points' => null,
+                            'created_at' => $timestamp,
+                            'updated_at' => $timestamp,
+                        ];
+                    }
 
-                if ($used >= $lockedForm->max_attempts) {
-                    return null;
-                }
+                    $score = 0.0;
+                    $maximum = 0.0;
 
-                // A later public form cannot rewrite identity information already
-                // collected for an email address. Verified identity changes belong
-                // on an authenticated administrative path.
-                if (blank($participant->full_name)) {
-                    $participant->full_name = $data['full_name'];
-                }
-                if (blank($participant->organization) && filled($data['organization'])) {
-                    $participant->organization = $data['organization'];
-                }
-                $participant->last_access_at = now();
+                    foreach ($lockedForm->questions as $question) {
+                        $value = $data['questions'][$question->id] ?? null;
+                        $maximum += (float) $question->points;
+                        $choice = $question->choices->firstWhere('id', (int) $value);
+                        $isCorrect = $question->question_type === 'text' ? null : (bool) $choice?->is_correct;
+                        $awarded = $isCorrect ? (float) $question->points : 0.0;
+                        $score += $awarded;
 
-                // Completing the registration form is what marks a participant verified.
-                if ($lockedForm->type === 'registration' && ! $participant->verified_at) {
-                    $participant->verified_at = now();
-                }
+                        $answers[] = [
+                            'submission_id' => $submission->id,
+                            'form_field_id' => null,
+                            'question_id' => $question->id,
+                            'value' => Crypt::encryptString(json_encode([$value], JSON_THROW_ON_ERROR)),
+                            'is_correct' => $isCorrect,
+                            'awarded_points' => $question->question_type === 'text' ? null : $awarded,
+                            'created_at' => $timestamp,
+                            'updated_at' => $timestamp,
+                        ];
+                    }
 
-                $participant->save();
+                    if ($answers !== []) {
+                        SubmissionAnswer::query()->insert($answers);
+                    }
 
-                $submission = Submission::query()->create([
-                    'form_id' => $lockedForm->id,
-                    'participant_id' => $participant->id,
-                    'attempt_number' => $used + 1,
-                    'status' => 'submitted',
-                    'submitted_at' => now(),
-                    'metadata' => [
-                        'privacy_notice_version' => self::PRIVACY_NOTICE_VERSION,
-                        'privacy_acknowledged_at' => now()->toIso8601String(),
-                    ],
-                ]);
+                    $submission->update([
+                        'score' => $lockedForm->questions->isEmpty() ? null : $score,
+                        'maximum_score' => $lockedForm->questions->isEmpty() ? null : $maximum,
+                    ]);
 
-                $answers = [];
-                $timestamp = now();
+                    return $submission;
+                }, attempts: 3);
 
-                foreach ($lockedForm->fields as $field) {
-                    $value = $data['fields'][$field->id] ?? null;
-                    $answers[] = [
-                        'submission_id' => $submission->id,
-                        'form_field_id' => $field->id,
-                        'question_id' => null,
-                        // Bulk inserts bypass Eloquent casts, so encrypt explicitly.
-                        'value' => Crypt::encryptString(json_encode([$value], JSON_THROW_ON_ERROR)),
-                        'is_correct' => null,
-                        'awarded_points' => null,
-                        'created_at' => $timestamp,
-                        'updated_at' => $timestamp,
-                    ];
-                }
-
-                $score = 0.0;
-                $maximum = 0.0;
-
-                foreach ($lockedForm->questions as $question) {
-                    $value = $data['questions'][$question->id] ?? null;
-                    $maximum += (float) $question->points;
-                    $choice = $question->choices->firstWhere('id', (int) $value);
-                    $isCorrect = $question->question_type === 'text' ? null : (bool) $choice?->is_correct;
-                    $awarded = $isCorrect ? (float) $question->points : 0.0;
-                    $score += $awarded;
-
-                    $answers[] = [
-                        'submission_id' => $submission->id,
-                        'form_field_id' => null,
-                        'question_id' => $question->id,
-                        'value' => Crypt::encryptString(json_encode([$value], JSON_THROW_ON_ERROR)),
-                        'is_correct' => $isCorrect,
-                        'awarded_points' => $question->question_type === 'text' ? null : $awarded,
-                        'created_at' => $timestamp,
-                        'updated_at' => $timestamp,
-                    ];
-                }
-
-                if ($answers !== []) {
-                    SubmissionAnswer::query()->insert($answers);
-                }
-
-                $submission->update([
-                    'score' => $lockedForm->questions->isEmpty() ? null : $score,
-                    'maximum_score' => $lockedForm->questions->isEmpty() ? null : $maximum,
-                ]);
-
-                return $submission;
-            }, attempts: 3);
+                $capacityLockRequired = $capacityLockRequired || $retryWithCapacityLock;
+            } while ($retryWithCapacityLock);
         } catch (ValidationException $exception) {
             // The authoritative validation runs inside the transaction. Clear
             // the payload before Laravel can flash personal data into session.
@@ -445,7 +477,7 @@ class PublicFormController extends Controller
                 'id', 'webinar_id', 'public_token', 'public_token_hash', 'type', 'title', 'description', 'status',
                 'opens_at', 'closes_at', 'max_attempts', 'show_score',
             ])
-            ->with('webinar:id,title,status,registration_opens_at,registration_closes_at,data_retention_days,archived_at')
+            ->with('webinar:id,title,status,registration_opens_at,registration_closes_at,registration_capacity,data_retention_days,archived_at')
             ->where('public_token_hash', Form::publicTokenHash($token))
             ->whereHas('webinar', fn ($query) => $query->whereNull('archived_at'))
             ->firstOrFail();

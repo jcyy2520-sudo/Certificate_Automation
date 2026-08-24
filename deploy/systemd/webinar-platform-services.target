@@ -1,0 +1,7 @@
+[Unit]
+Description=Webinar Platform background services
+Requires=webinar-platform-worker-default.service webinar-platform-worker-emails@1.service webinar-platform-worker-emails@2.service webinar-platform-worker-emails@3.service webinar-platform-worker-emails@4.service webinar-platform-scheduler.service
+After=webinar-platform-worker-default.service webinar-platform-worker-emails@1.service webinar-platform-worker-emails@2.service webinar-platform-worker-emails@3.service webinar-platform-worker-emails@4.service webinar-platform-scheduler.service
+
+[Install]
+WantedBy=multi-user.target

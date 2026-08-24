@@ -15,7 +15,16 @@ class PruneEmailDeliveries extends Command
 
     public function handle(): int
     {
-        $days = max(1, min(365, (int) ($this->option('days') ?: config('security.email_delivery_retention_days', 30))));
+        $days = $this->option('days') === null
+            ? filter_var(config('security.email_delivery_retention_days', 30), FILTER_VALIDATE_INT)
+            : filter_var($this->option('days'), FILTER_VALIDATE_INT);
+
+        if (! is_int($days) || $days < 1 || $days > 365) {
+            $this->error('Email delivery retention must be between 1 and 365 days.');
+
+            return self::INVALID;
+        }
+
         $query = EmailDelivery::query()
             ->whereIn('status', ['sent', 'failed', 'cancelled'])
             ->where('updated_at', '<=', now()->subDays($days));
@@ -26,7 +35,7 @@ class PruneEmailDeliveries extends Command
         }
 
         $verb = $this->option('dry-run') ? 'would be deleted' : 'deleted';
-        $this->info("{$count} terminal email delivery record(s) {$verb}.");
+        $this->info("{$count} terminal email delivery record(s) {$verb}; retention is {$days} day(s).");
 
         return self::SUCCESS;
     }

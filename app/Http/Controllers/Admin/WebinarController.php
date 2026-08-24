@@ -29,7 +29,17 @@ class WebinarController extends Controller
         $webinars = Webinar::query()
             ->select(['id', 'title', 'description', 'status', 'starts_at', 'created_at'])
             ->withCount(['participants', 'certificates'])
-            ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')))
+            ->when($request->filled('availability'), function ($query) use ($request): void {
+                match ($request->string('availability')->value()) {
+                    'open' => $query->where('status', 'published'),
+                    'closed' => $query->whereIn('status', ['draft', 'completed']),
+                    'archived' => $query->where('status', 'archived'),
+                    default => null,
+                };
+            })
+            // Keep old bookmarked filters working even though lifecycle status
+            // is no longer exposed in the interface.
+            ->when(! $request->filled('availability') && $request->filled('status'), fn ($query) => $query->where('status', $request->string('status')))
             ->latest()
             ->paginate(12)
             ->withQueryString();
@@ -41,7 +51,6 @@ class WebinarController extends Controller
     {
         return view('admin.webinars.form', [
             'webinar' => new Webinar,
-            'timezoneOptions' => Webinar::timezoneOptions(),
         ]);
     }
 
@@ -81,27 +90,36 @@ class WebinarController extends Controller
 
         $audit->record($request, 'webinar.created', $webinar);
 
-        return redirect()->route('admin.webinars.show', $webinar)->with('success', 'Webinar created with its default forms and certificate template.');
+        return redirect()->route('admin.webinars.show', $webinar)->with('success', 'Webinar created. Open the webinar and registration form when you are ready to accept participants.');
     }
 
     public function show(Webinar $webinar): View
     {
         $webinar->load([
             'forms' => fn ($query) => $query->select([
-                'id', 'webinar_id', 'type', 'title', 'status', 'opens_at', 'closes_at',
+                'id', 'webinar_id', 'type', 'title', 'status', 'opens_at', 'closes_at', 'public_token',
             ]),
         ])->loadCount([
             'participants',
             'certificates',
             'certificates as issued_certificates_count' => fn ($query) => $query->whereNotNull('issued_at'),
         ]);
+
+        // Bind the parent so each form's acceptsResponses()/shareUrl() resolves
+        // without an extra query per row.
+        $webinar->forms->each->setRelation('webinar', $webinar);
         $recentParticipants = $webinar->participants()
             ->select(['id', 'webinar_id', 'full_name', 'email', 'verified_at', 'created_at'])
             ->latest()
             ->limit(8)
             ->get();
 
-        return view('admin.webinars.show', compact('webinar', 'recentParticipants'));
+        $hasCertificateDesign = $webinar->certificateTemplates()
+            ->where('is_active', true)
+            ->whereNotNull('background_path')
+            ->exists();
+
+        return view('admin.webinars.show', compact('webinar', 'recentParticipants', 'hasCertificateDesign'));
     }
 
     /**
@@ -158,7 +176,6 @@ class WebinarController extends Controller
     {
         return view('admin.webinars.form', [
             'webinar' => $webinar,
-            'timezoneOptions' => Webinar::timezoneOptions(),
         ]);
     }
 
@@ -166,12 +183,14 @@ class WebinarController extends Controller
     {
         abort_if($webinar->deletion_started_at !== null, 409, 'This webinar is being permanently deleted.');
 
-        $data = $this->validated($request);
+        $data = $this->validated($request, $webinar);
         $this->assertRetentionDeadlineNotExtended($webinar, $data);
         $previousDeadline = $webinar->retention_due_at?->copy();
 
         $verificationChanges = array_key_exists('requires_verification', $data)
             && (bool) $data['requires_verification'] !== $webinar->requiresVerification();
+        $capacityChanges = array_key_exists('registration_capacity', $data)
+            && $data['registration_capacity'] !== $webinar->registration_capacity;
 
         if ($verificationChanges) {
             DB::transaction(function () use (&$webinar, $data): void {
@@ -189,6 +208,14 @@ class WebinarController extends Controller
                 $lockedWebinar->update($data);
                 $webinar = $lockedWebinar;
             }, attempts: 3);
+        } elseif ($capacityChanges) {
+            DB::transaction(function () use (&$webinar, $data): void {
+                // Capacity-limited registration submissions lock this same row
+                // exclusively, so changing the limit is atomic with their count.
+                $lockedWebinar = Webinar::query()->whereKey($webinar->id)->lockForUpdate()->firstOrFail();
+                $lockedWebinar->update($data);
+                $webinar = $lockedWebinar;
+            }, attempts: 3);
         } else {
             $webinar->update($data);
         }
@@ -198,6 +225,7 @@ class WebinarController extends Controller
                 && $webinar->retention_due_at?->lessThan($previousDeadline),
             'verification_mode_changed' => $verificationChanges,
             'requires_verification' => $webinar->requiresVerification(),
+            'registration_capacity_changed' => $capacityChanges,
         ]);
 
         return redirect()->route('admin.webinars.show', $webinar)->with('success', 'Webinar settings updated.');
@@ -303,23 +331,40 @@ class WebinarController extends Controller
         return redirect()->route('admin.webinars.index')->with('success', 'Webinar deleted along with its forms, responses, and certificates.');
     }
 
-    private function validated(Request $request): array
+    private function validated(Request $request, ?Webinar $webinar = null): array
     {
+        $resolvedStatus = $this->resolvedStatus($request, $webinar);
+
         $data = $request->validate([
             'title' => ['required', 'string', 'max:180'],
             'description' => ['nullable', 'string', 'max:5000'],
-            'status' => ['required', Rule::in(['draft', 'published', 'completed'])],
+            // Open/Closed is the only lifecycle control shown to organizers.
+            // `status` remains accepted for imports and older clients while the
+            // database's draft/completed distinction stays an internal detail.
+            'is_open' => ['sometimes', 'boolean'],
+            'status' => ['sometimes', Rule::in(['draft', 'published', 'completed'])],
             'starts_at' => ['nullable', 'date'],
             'ends_at' => [
-                Rule::requiredIf(fn (): bool => in_array($request->input('status'), ['published', 'completed'], true)),
+                Rule::requiredIf(fn (): bool => in_array($resolvedStatus, ['published', 'completed'], true)),
                 'nullable', 'date', 'after_or_equal:starts_at',
             ],
             'registration_opens_at' => ['nullable', 'date'],
             'registration_closes_at' => ['nullable', 'date', 'after_or_equal:registration_opens_at'],
-            'timezone' => ['required', 'timezone'],
+            'registration_capacity' => ['nullable', 'integer', 'min:1'],
+            // The timezone picker was removed from the UI: schedule times are
+            // interpreted in the application's single timezone. A value is still
+            // accepted (tests and imports may supply one) but is never required.
+            'timezone' => ['sometimes', 'nullable', 'timezone'],
             'data_retention_days' => ['required', 'integer', 'min:1', 'max:3650'],
             'requires_verification' => ['sometimes', 'boolean'],
         ]);
+
+        unset($data['is_open']);
+        $data['status'] = $resolvedStatus;
+
+        $data['timezone'] = filled($data['timezone'] ?? null)
+            ? $data['timezone']
+            : config('app.timezone');
 
         foreach (['starts_at', 'ends_at', 'registration_opens_at', 'registration_closes_at'] as $field) {
             if (blank($data[$field] ?? null)) {
@@ -335,7 +380,35 @@ class WebinarController extends Controller
             );
         }
 
+        $data['registration_capacity'] = filled($data['registration_capacity'] ?? null)
+            ? (int) $data['registration_capacity']
+            : null;
+
         return $data;
+    }
+
+    /**
+     * Translate the public Open/Closed switch into the legacy lifecycle values.
+     * A webinar closed after being open becomes completed so certificates and
+     * participant status links still work; a webinar not opened yet stays draft.
+     */
+    private function resolvedStatus(Request $request, ?Webinar $webinar): string
+    {
+        if (! $request->has('is_open')) {
+            return (string) ($request->input('status') ?: $webinar?->status ?: 'draft');
+        }
+
+        if ($webinar?->status === 'archived') {
+            return 'archived';
+        }
+
+        if ($request->boolean('is_open')) {
+            return 'published';
+        }
+
+        return in_array($webinar?->status, ['published', 'completed'], true)
+            ? 'completed'
+            : 'draft';
     }
 
     /**

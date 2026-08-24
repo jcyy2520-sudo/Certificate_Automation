@@ -37,6 +37,21 @@ class Webinar extends Model
         return $this->requires_verification !== false;
     }
 
+    /** The organizer-facing manual availability state. */
+    public function isOpen(): bool
+    {
+        return $this->status === 'published'
+            && $this->archived_at === null
+            && $this->deletion_started_at === null;
+    }
+
+    public function availabilityLabel(): string
+    {
+        return $this->archived_at !== null || $this->status === 'archived'
+            ? 'Archived'
+            : ($this->isOpen() ? 'Open' : 'Closed');
+    }
+
     /**
      * Every IANA zone the timezone field will accept, each with its current
      * UTC offset so the picker can be searched and read without memorizing

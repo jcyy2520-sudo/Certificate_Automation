@@ -53,6 +53,53 @@ class PublicFormTest extends TestCase
             ->assertSee('noindex, nofollow, noarchive', false);
     }
 
+    public function test_the_complete_public_form_journey_stays_isolated_and_ends_on_thank_you_pages(): void
+    {
+        $forms = collect([$this->registration]);
+
+        foreach ([
+            'pretest' => 'Pre-assessment',
+            'posttest' => 'Post-assessment',
+            'evaluation' => 'Evaluation',
+        ] as $type => $title) {
+            $forms->push($this->webinar->forms()->create([
+                'type' => $type,
+                'title' => $title,
+                'status' => 'published',
+            ]));
+        }
+
+        foreach ($forms as $form) {
+            $this->get($form->shareUrl())
+                ->assertOk()
+                ->assertSee($form->title)
+                ->assertSee('Submit')
+                ->assertDontSee(route('login'))
+                ->assertDontSee('/admin')
+                ->assertDontSee('Dashboard')
+                ->assertSee('noindex, nofollow, noarchive', false);
+
+            $this->post($form->shareUrl(), [
+                'full_name' => 'Public Participant',
+                'email' => 'participant@example.com',
+                'privacy_acknowledged' => '1',
+            ])->assertRedirect(route('forms.public.thanks', $form->public_token));
+
+            $this->get(route('forms.public.thanks', $form->public_token))
+                ->assertOk()
+                ->assertSee('Your response has been recorded')
+                ->assertSee('Thank you for completing this form.')
+                ->assertSee('You can close this page now.')
+                ->assertDontSee('Submit')
+                ->assertDontSee(route('login'))
+                ->assertDontSee('/admin')
+                ->assertDontSee('Dashboard');
+        }
+
+        $this->assertSame(1, Participant::query()->count());
+        $this->assertSame(4, Submission::query()->count());
+    }
+
     public function test_submitting_records_the_participant_and_shows_a_thank_you(): void
     {
         $field = $this->registration->fields()->create(['key' => 'role', 'label' => 'Job role', 'field_type' => 'text', 'is_required' => true]);
@@ -266,7 +313,7 @@ class PublicFormTest extends TestCase
         $this->assertSame('Original Organization', $participant->organization);
     }
 
-    public function test_only_a_published_webinar_within_registration_dates_accepts_responses(): void
+    public function test_only_an_open_webinar_before_the_registration_deadline_accepts_responses(): void
     {
         foreach (['draft', 'completed'] as $status) {
             $this->webinar->update(['status' => $status]);
@@ -279,7 +326,7 @@ class PublicFormTest extends TestCase
         $this->webinar->update([
             'status' => 'published', 'registration_opens_at' => now()->addHour(), 'registration_closes_at' => null,
         ]);
-        $this->get($this->registration->shareUrl())->assertOk()->assertSee('Registration is not open yet.');
+        $this->get($this->registration->shareUrl())->assertOk()->assertDontSee('not accepting responses');
 
         $this->webinar->update([
             'registration_opens_at' => now()->subHours(2), 'registration_closes_at' => now()->subHour(),

@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Models\CertificateTemplate;
 use App\Models\EligibilityRule;
-use App\Models\Participant;
 use App\Models\Submission;
 use App\Models\User;
 use App\Models\Webinar;
@@ -50,18 +49,43 @@ class ZzPreviewSnapshotTest extends TestCase
             'webinar_id' => $webinar->id,
             'name' => 'ACLS completion certificate',
             'storage_disk' => config('webinar.certificate_disk'),
-            'template_path' => 'generated/classic',
+            'template_path' => 'uploaded',
+            'background_path' => 'certificate-backgrounds/preview-sample.png',
             'layout' => [
                 'accent' => '#1d4ed8',
-                'heading' => 'Certificate of Completion',
-                'body' => 'has successfully completed all requirements of',
-                'signatory_name' => 'Dr. Morgan Lee',
-                'signatory_title' => 'Program Director',
+                'name_top' => 60,
+                'name_left' => 50,
+                'name_font_size' => 44,
+                'name_font_family' => 'serif',
+                'bg_w' => 1200,
+                'bg_h' => 850,
             ],
             'is_active' => true,
         ]);
 
         $forms = $webinar->forms->keyBy('type');
+
+        // A couple of real questions so the builder and the "All questions"
+        // overview both render with content.
+        foreach ([
+            ['What is the compression-to-ventilation ratio for adult CPR?', ['15:1', '30:2', '5:1'], 1],
+            ['Defibrillation should be delayed until IV access is established.', ['True', 'False'], 1],
+        ] as $q => [$prompt, $choices, $correct]) {
+            $question = $forms['pretest']->questions()->create([
+                'prompt' => $prompt,
+                'question_type' => $q === 1 ? 'true_false' : 'multiple_choice',
+                'points' => 1,
+                'is_required' => true,
+                'sort_order' => $q + 1,
+            ]);
+            foreach ($choices as $i => $label) {
+                $question->choices()->create([
+                    'label' => $label,
+                    'is_correct' => $i === $correct,
+                    'sort_order' => $i + 1,
+                ]);
+            }
+        }
 
         $people = [
             ['Maria Santos', 'maria.santos@example.com', 'St. Luke’s Medical Center'],
@@ -106,10 +130,13 @@ class ZzPreviewSnapshotTest extends TestCase
 
         $pages = [
             'overview' => route('admin.webinars.show', $webinar),
+            'new-webinar' => route('admin.webinars.create'),
+            'settings' => route('admin.webinars.edit', $webinar),
             'participants' => route('admin.participants.index', $webinar),
             'studio' => route('admin.certificates.studio', $webinar),
             'reports' => route('admin.webinars.reports', $webinar),
             'template' => route('admin.certification.edit', $webinar),
+            'form-edit' => route('admin.forms.edit', [$webinar, $forms['pretest']]),
         ];
 
         foreach ($pages as $key => $url) {

@@ -9,6 +9,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CertificateVerificationController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ParticipantAccessController;
+use App\Http\Controllers\ParticipantStatusController;
 use App\Http\Controllers\PasswordConfirmationController;
 use App\Http\Controllers\PublicFormController;
 use App\Http\Controllers\TwoFactorChallengeController;
@@ -27,7 +28,7 @@ use Illuminate\Support\Facades\Route;
 */
 Route::get('/f/{token}', [PublicFormController::class, 'show'])
     ->where('token', '[a-z0-9]{24}')
-    ->middleware('throttle:60,1')
+    ->middleware('throttle:public-form-view')
     ->name('forms.public');
 
 Route::post('/f/{token}/access/request', [ParticipantAccessController::class, 'request'])
@@ -47,13 +48,46 @@ Route::post('/f/{token}/access/confirm', [ParticipantAccessController::class, 'c
 
 Route::post('/f/{token}', [PublicFormController::class, 'submit'])
     ->where('token', '[a-z0-9]{24}')
-    ->middleware('throttle:10,1')
+    ->middleware('throttle:public-form-submit')
     ->name('forms.public.submit');
 
 Route::get('/f/{token}/submitted', [PublicFormController::class, 'thanks'])
     ->where('token', '[a-z0-9]{24}')
-    ->middleware('throttle:60,1')
+    ->middleware('throttle:public-form-thanks')
     ->name('forms.public.thanks');
+
+Route::get('/f/{token}/status', [ParticipantStatusController::class, 'entry'])
+    ->where('token', '[a-z0-9]{24}')
+    ->middleware('throttle:public-form-view')
+    ->name('forms.public.status');
+
+Route::post('/f/{token}/status/access/request', [ParticipantStatusController::class, 'request'])
+    ->where('token', '[a-z0-9]{24}')
+    ->middleware('throttle:participant-access-request')
+    ->name('forms.public.status.access.request');
+
+Route::get('/f/{token}/status/access/confirm', [ParticipantStatusController::class, 'confirm'])
+    ->where('token', '[a-z0-9]{24}')
+    ->middleware('throttle:60,1')
+    ->name('forms.public.status.access.confirm');
+
+Route::post('/f/{token}/status/access/confirm', [ParticipantStatusController::class, 'consume'])
+    ->where('token', '[a-z0-9]{24}')
+    ->middleware('throttle:participant-access-confirm')
+    ->name('forms.public.status.access.consume');
+
+Route::get('/f/{token}/status/view', [ParticipantStatusController::class, 'show'])
+    ->where('token', '[a-z0-9]{24}')
+    ->middleware('throttle:public-form-view')
+    ->name('forms.public.status.view');
+
+Route::get('/f/{token}/status/certificates/{certificatePublicId}/download', [ParticipantStatusController::class, 'download'])
+    ->where([
+        'token' => '[a-z0-9]{24}',
+        'certificatePublicId' => '[0-9A-HJKMNP-TV-Z]{26}',
+    ])
+    ->middleware('throttle:30,1')
+    ->name('forms.public.status.certificate.download');
 
 // Certificate holders and anyone they show a certificate to. Reveals only the
 // event, issue date, and validity for an exact code — never personal data.
@@ -106,6 +140,7 @@ Route::middleware(['auth', EnsureAdministrator::class, 'auth.session', EnsureTwo
 
         Route::get('/webinars/{webinar}/forms/{form}/edit', [AdminFormController::class, 'edit'])->name('forms.edit');
         Route::put('/webinars/{webinar}/forms/{form}', [AdminFormController::class, 'update'])->name('forms.update');
+        Route::post('/webinars/{webinar}/forms/{form}/toggle', [AdminFormController::class, 'toggle'])->name('forms.toggle');
         Route::post('/webinars/{webinar}/forms/{form}/rotate-link', [AdminFormController::class, 'rotateLink'])
             ->middleware(EnsureRecentPassword::class)
             ->name('forms.rotate-link');
@@ -127,15 +162,25 @@ Route::middleware(['auth', EnsureAdministrator::class, 'auth.session', EnsureTwo
         Route::put('/webinars/{webinar}/certification/template', [AdminCertificationController::class, 'updateTemplate'])
             ->middleware(EnsureRecentPassword::class)
             ->name('certification.template');
+        // Cosmetic name placement from the certificate editor — audited but not
+        // recent-password gated, so visual editing stays fluid.
+        Route::put('/webinars/{webinar}/certification/design', [AdminCertificationController::class, 'updateDesign'])
+            ->name('certification.design');
         Route::get('/webinars/{webinar}/certification/preview', [AdminCertificationController::class, 'preview'])->name('certification.preview');
         Route::get('/webinars/{webinar}/certification/background', [AdminCertificationController::class, 'background'])->name('certification.background');
 
         Route::get('/webinars/{webinar}/participants', [AdminParticipantController::class, 'index'])->name('participants.index');
+        Route::post('/webinars/{webinar}/participants', [AdminParticipantController::class, 'store'])
+            ->name('participants.store');
         Route::post('/webinars/{webinar}/participants/filter', [AdminParticipantController::class, 'filter'])->name('participants.filter');
         Route::get('/webinars/{webinar}/participants/export', [AdminParticipantController::class, 'export'])
             ->middleware(EnsureRecentPassword::class)
             ->name('participants.export');
         Route::get('/webinars/{webinar}/participants/{participant}', [AdminParticipantController::class, 'show'])->name('participants.show');
+        Route::post('/webinars/{webinar}/participants/{participant}/attendance', [AdminParticipantController::class, 'attendance'])
+            ->name('participants.attendance');
+        Route::put('/webinars/{webinar}/participants/{participant}/name', [AdminParticipantController::class, 'updateName'])
+            ->name('participants.name');
         Route::post('/webinars/{webinar}/participants/{participant}/override', [AdminParticipantController::class, 'override'])
             ->middleware(EnsureRecentPassword::class)
             ->name('participants.override');
@@ -144,9 +189,15 @@ Route::middleware(['auth', EnsureAdministrator::class, 'auth.session', EnsureTwo
             ->name('participants.destroy');
 
         Route::get('/webinars/{webinar}/certificates/studio', [AdminCertificateController::class, 'studio'])->name('certificates.studio');
+        Route::get('/webinars/{webinar}/certificates/studio/status', [AdminCertificateController::class, 'status'])->name('certificates.studio.status');
+        // Issue only the explicit selection prepared in the participant table;
+        // the final send remains behind the recent-password gate.
         Route::post('/webinars/{webinar}/certificates/issue-selected', [AdminCertificateController::class, 'issueSelected'])
             ->middleware(EnsureRecentPassword::class)
             ->name('certificates.issue-selected');
+        Route::post('/certificates/{certificate}/resend', [AdminCertificateController::class, 'resend'])
+            ->middleware(EnsureRecentPassword::class)
+            ->name('certificates.resend');
         Route::post('/webinars/{webinar}/certificates/batch', [AdminCertificateController::class, 'batch'])
             ->middleware(EnsureRecentPassword::class)
             ->name('certificates.batch');

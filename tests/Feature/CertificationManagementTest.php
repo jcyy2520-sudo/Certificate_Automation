@@ -2,15 +2,19 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\IssueSelectedCertificate;
 use App\Models\Certificate;
 use App\Models\CertificateBatch;
 use App\Models\CertificateTemplate;
+use App\Models\EligibilityOverride;
 use App\Models\EligibilityRule;
+use App\Models\EmailDelivery;
 use App\Models\Participant;
 use App\Models\User;
 use App\Models\Webinar;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -29,7 +33,9 @@ class CertificationManagementTest extends TestCase
         $this->administrator = User::factory()->create(['is_active' => true]);
         $this->webinar = Webinar::query()->create([
             'title' => 'Data Privacy Briefing', 'slug' => 'data-privacy-briefing',
-            'status' => 'published', 'timezone' => 'UTC', 'created_by' => $this->administrator->id,
+            'status' => 'published', 'timezone' => 'UTC',
+            'ends_at' => now()->addDay(), 'data_retention_days' => 7,
+            'created_by' => $this->administrator->id,
         ]);
     }
 
@@ -82,23 +88,33 @@ class CertificationManagementTest extends TestCase
 
         $this->actingAs($this->administrator)->get(route('admin.certification.edit', $this->webinar))->assertOk();
 
+        // The template page now handles only the name and the uploaded image;
+        // the name's placement/font/colour are set in the visual editor.
         $this->actingAs($this->administrator)->put(route('admin.certification.template', $this->webinar), [
             'name' => 'Formal award',
-            'accent' => '#7c3aed',
-            'name_top' => 58,
-            'name_font_size' => 48,
             'background' => UploadedFile::fake()->image('certificate.png', 1200, 850),
         ])->assertRedirect();
 
         $template = $this->webinar->certificateTemplates()->where('is_active', true)->firstOrFail();
         $this->assertSame('Formal award', $template->name);
-        $this->assertSame('#7c3aed', $template->layout['accent']);
-        $this->assertSame(58, (int) $template->layout['name_top']);
         $this->assertNotNull($template->background_path);
         Storage::disk('local')->assertExists($template->background_path);
+        // The image's real dimensions are remembered so the PDF preserves the ratio.
+        $this->assertSame(1200, (int) $template->layout['bg_w']);
+        $this->assertSame(850, (int) $template->layout['bg_h']);
         // The removed "generated design" fields must not linger in the layout.
         $this->assertArrayNotHasKey('heading', $template->layout);
         $this->assertArrayNotHasKey('signatory_name', $template->layout);
+
+        // Saving the visual placement stores position, font, size, and colour.
+        $this->actingAs($this->administrator)->put(route('admin.certification.design', $this->webinar), [
+            'name_top' => 58, 'name_left' => 50, 'name_font_size' => 48,
+            'name_font_family' => 'serif', 'accent' => '#7c3aed',
+        ])->assertRedirect();
+        $template->refresh();
+        $this->assertSame('#7c3aed', $template->layout['accent']);
+        $this->assertSame(58, (int) $template->layout['name_top']);
+        $this->assertSame('serif', $template->layout['name_font_family']);
 
         $response = $this->actingAs($this->administrator)->get(route('admin.certification.preview', $this->webinar));
         $response->assertOk()->assertHeader('Content-Type', 'application/pdf');
@@ -116,7 +132,7 @@ class CertificationManagementTest extends TestCase
     public function test_a_certificate_image_is_required_before_saving(): void
     {
         $this->actingAs($this->administrator)->put(route('admin.certification.template', $this->webinar), [
-            'name' => 'No image yet', 'accent' => '#123456',
+            'name' => 'No image yet',
         ])->assertSessionHasErrors('background');
     }
 
@@ -130,15 +146,13 @@ class CertificationManagementTest extends TestCase
 
     public function test_an_invalid_accent_colour_is_rejected(): void
     {
-        Storage::fake('local');
-
-        $this->actingAs($this->administrator)->put(route('admin.certification.template', $this->webinar), [
-            'name' => 'Broken', 'accent' => 'red',
-            'background' => UploadedFile::fake()->image('certificate.png', 800, 600),
+        $this->actingAs($this->administrator)->put(route('admin.certification.design', $this->webinar), [
+            'name_top' => 60, 'name_left' => 50, 'name_font_size' => 42,
+            'name_font_family' => 'sans', 'accent' => 'red',
         ])->assertSessionHasErrors('accent');
     }
 
-    public function test_a_wrong_name_can_be_corrected_when_issuing(): void
+    public function test_a_participant_name_is_corrected_before_issuing(): void
     {
         Storage::fake('local');
 
@@ -149,11 +163,221 @@ class CertificationManagementTest extends TestCase
         ]);
 
         $this->actingAs($this->administrator)
-            ->post(route('admin.certificates.store', [$this->webinar, $participant]), ['recipient_name' => 'Maria Santos'])
+            ->putJson(route('admin.participants.name', [$this->webinar, $participant]), ['full_name' => 'Maria Santos'])
+            ->assertOk()
+            ->assertJsonPath('participant_id', $participant->public_id)
+            ->assertJsonPath('full_name', 'Maria Santos');
+
+        $this->assertSame('Maria Santos', $participant->fresh()->full_name);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'participant.name_corrected']);
+
+        $this->actingAs($this->administrator)
+            ->post(route('admin.certificates.store', [$this->webinar, $participant]), [
+                'recipient_name' => 'Certificate-only overrides are ignored',
+            ])
             ->assertRedirect();
 
         $certificate = Certificate::query()->where('participant_id', $participant->id)->firstOrFail();
         $this->assertSame('Maria Santos', $certificate->recipient_name);
+        $this->assertSame('issued', $certificate->status);
+        Storage::disk('local')->assertExists($certificate->file_path);
+    }
+
+    public function test_selected_eligible_participants_are_sent_certificates_from_the_studio(): void
+    {
+        Storage::fake('local');
+
+        EligibilityRule::query()->create(['webinar_id' => $this->webinar->id, 'requirement' => 'registration', 'is_required' => true]);
+        $this->uploadedTemplate();
+        $eligible = Participant::query()->create([
+            'webinar_id' => $this->webinar->id, 'full_name' => 'Wrong Spelling', 'email' => 'wei@example.com', 'verified_at' => now(),
+        ]);
+        $notEligible = Participant::query()->create([
+            'webinar_id' => $this->webinar->id, 'full_name' => 'Not Verified', 'email' => 'nv@example.com',
+        ]);
+
+        // The studio lists only eligible participants and stays in the section.
+        $this->actingAs($this->administrator)->get(route('admin.certificates.studio', $this->webinar))
+            ->assertOk()
+            ->assertSee('Wrong Spelling')
+            ->assertDontSee('Not Verified');
+
+        $this->actingAs($this->administrator)
+            ->put(route('admin.participants.name', [$this->webinar, $eligible]), ['full_name' => 'Wei Chen'])
+            ->assertRedirect();
+
+        $this->actingAs($this->administrator)
+            ->post(route('admin.certificates.issue-selected', $this->webinar), [
+                'participants' => [$eligible->public_id, $notEligible->public_id],
+                'preview_confirmed' => '1',
+            ])
+            ->assertRedirect(route('admin.certificates.studio', $this->webinar))
+            ->assertSessionHas('success');
+
+        $certificate = Certificate::query()->where('participant_id', $eligible->id)->firstOrFail();
+        $this->assertSame('Wei Chen', $eligible->fresh()->full_name);
+        $this->assertSame('Wei Chen', $certificate->recipient_name);
+        $this->assertSame('issued', $certificate->status);
+        // The ineligible participant is skipped, not certified.
+        $this->assertSame(0, Certificate::query()->where('participant_id', $notEligible->id)->count());
+    }
+
+    public function test_selected_certificates_are_queued_without_rendering_in_the_browser_request(): void
+    {
+        Storage::fake('local');
+        Queue::fake();
+
+        EligibilityRule::query()->create(['webinar_id' => $this->webinar->id, 'requirement' => 'registration', 'is_required' => true]);
+        $this->uploadedTemplate();
+        $participant = Participant::query()->create([
+            'webinar_id' => $this->webinar->id,
+            'full_name' => 'Queued Person',
+            'email' => 'queued@example.com',
+            'verified_at' => now(),
+        ]);
+
+        $this->actingAs($this->administrator)
+            ->post(route('admin.certificates.issue-selected', $this->webinar), [
+                'participants' => [$participant->public_id],
+                'preview_confirmed' => '1',
+            ])
+            ->assertRedirect(route('admin.certificates.studio', $this->webinar));
+
+        $certificate = Certificate::query()->where('participant_id', $participant->id)->sole();
+        $this->assertSame('processing', $certificate->status);
+        Storage::disk('local')->assertMissing($certificate->file_path);
+        $this->assertDatabaseCount('email_deliveries', 0);
+        Queue::assertPushed(IssueSelectedCertificate::class, fn ($job) => $job->participantId === $participant->id);
+    }
+
+    public function test_saved_name_placement_survives_a_reload_of_the_editor(): void
+    {
+        Storage::fake('local');
+
+        EligibilityRule::query()->create(['webinar_id' => $this->webinar->id, 'requirement' => 'registration', 'is_required' => true]);
+        $this->uploadedTemplate();
+        Participant::query()->create([
+            'webinar_id' => $this->webinar->id, 'full_name' => 'Ready Person', 'email' => 'ready@example.com', 'verified_at' => now(),
+        ]);
+
+        $this->actingAs($this->administrator)->put(route('admin.certification.design', $this->webinar), [
+            'name_top' => 58, 'name_left' => 40, 'name_font_size' => 50,
+            'name_font_family' => 'serif', 'accent' => '#123456',
+        ])->assertRedirect();
+
+        // Re-opening the editor shows those exact values in its controls.
+        $this->actingAs($this->administrator)->get(route('admin.certificates.studio', $this->webinar))
+            ->assertOk()
+            ->assertSee('name="name_top" value="58"', false)
+            ->assertSee('name="name_left" value="40"', false)
+            ->assertSee('value="50"', false)
+            ->assertSee('value="#123456"', false);
+    }
+
+    public function test_an_off_platform_recipient_is_added_and_selected_from_the_participant_table(): void
+    {
+        Storage::fake('local');
+
+        EligibilityRule::query()->create(['webinar_id' => $this->webinar->id, 'requirement' => 'registration', 'is_required' => true]);
+        $this->uploadedTemplate();
+
+        // Someone who attended but never registered here.
+        $addResponse = $this->actingAs($this->administrator)
+            ->post(route('admin.participants.store', $this->webinar), [
+                'full_name' => 'Off List Person', 'email' => 'Off@Example.com', 'organization' => 'Community Group',
+            ]);
+
+        $participant = Participant::query()->where('email', 'off@example.com')->firstOrFail();
+        $addResponse->assertRedirect(route('admin.participants.index', $this->webinar))
+            ->assertSessionHas('success')
+            ->assertSessionHas('new_participant_public_id', $participant->public_id);
+        $this->assertSame('Off List Person', $participant->full_name);
+        $this->assertSame('Community Group', $participant->organization);
+        $this->assertSame(1, $participant->eligibilityOverrides()->where('decision', 'eligible')->count());
+
+        // They are selected in the table, then flow into the normal studio.
+        $this->actingAs($this->administrator)->get(route('admin.participants.index', $this->webinar))
+            ->assertOk()
+            ->assertSee('Off List Person')
+            ->assertSee('data-auto-selected checked', false);
+        $this->actingAs($this->administrator)->get(route('admin.certificates.studio', [
+            'webinar' => $this->webinar,
+            'participants' => [$participant->public_id],
+        ]))->assertOk()->assertSee('data-initial-participant="'.$participant->public_id.'"', false);
+
+        $this->actingAs($this->administrator)
+            ->post(route('admin.certificates.issue-selected', $this->webinar), [
+                'participants' => [$participant->public_id],
+                'preview_confirmed' => '1',
+            ])
+            ->assertRedirect()->assertSessionHas('success');
+
+        $certificate = Certificate::query()->where('participant_id', $participant->id)->sole();
+        $delivery = EmailDelivery::query()->where('certificate_id', $certificate->id)->sole();
+        $this->assertSame('off@example.com', $delivery->recipient_email);
+        $this->assertSame('certificate', $delivery->type);
+        $this->assertSame('certificate.pdf', $delivery->payload['attachments'][0]['name']);
+        $this->assertNotEmpty($delivery->payload['attachments'][0]['content']);
+    }
+
+    public function test_empty_studio_sends_the_administrator_back_to_the_participant_table_and_sending_requires_preview(): void
+    {
+        Storage::fake('local');
+        $this->uploadedTemplate();
+
+        $this->actingAs($this->administrator)
+            ->get(route('admin.certificates.studio', $this->webinar))
+            ->assertOk()
+            ->assertSee('Open participants')
+            ->assertDontSee('Add certificate recipient manually')
+            ->assertDontSee('/certificates/add-recipient', false);
+
+        $participant = Participant::query()->create([
+            'webinar_id' => $this->webinar->id,
+            'full_name' => 'Preview Required',
+            'email' => 'preview@example.com',
+        ]);
+        EligibilityOverride::query()->create([
+            'participant_id' => $participant->id,
+            'decision' => 'eligible',
+            'reason' => 'Manual test recipient.',
+            'overridden_by' => $this->administrator->id,
+        ]);
+
+        $this->actingAs($this->administrator)
+            ->post(route('admin.certificates.issue-selected', $this->webinar), [
+                'participants' => [$participant->public_id],
+            ])
+            ->assertSessionHasErrors('preview_confirmed');
+
+        $this->assertDatabaseCount('certificates', 0);
+        $this->assertDatabaseCount('email_deliveries', 0);
+    }
+
+    public function test_a_failed_certificate_delivery_can_be_resent(): void
+    {
+        Storage::fake('local');
+
+        EligibilityRule::query()->create(['webinar_id' => $this->webinar->id, 'requirement' => 'registration', 'is_required' => true]);
+        $this->uploadedTemplate();
+        $participant = Participant::query()->create([
+            'webinar_id' => $this->webinar->id, 'full_name' => 'Ken Adams', 'email' => 'ken@example.com', 'verified_at' => now(),
+        ]);
+
+        $this->actingAs($this->administrator)
+            ->post(route('admin.certificates.store', [$this->webinar, $participant]))
+            ->assertRedirect();
+        $certificate = Certificate::query()->where('participant_id', $participant->id)->firstOrFail();
+
+        // Simulate the delivery having failed.
+        EmailDelivery::query()->where('certificate_id', $certificate->id)->update(['status' => 'failed', 'failed_at' => now()]);
+        $before = EmailDelivery::query()->where('certificate_id', $certificate->id)->count();
+
+        $this->actingAs($this->administrator)
+            ->post(route('admin.certificates.resend', $certificate))
+            ->assertRedirect()->assertSessionHas('success');
+
+        $this->assertGreaterThan($before, EmailDelivery::query()->where('certificate_id', $certificate->id)->count());
     }
 
     public function test_issuance_is_refused_until_a_certificate_is_uploaded(): void

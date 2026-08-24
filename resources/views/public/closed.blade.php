@@ -28,10 +28,6 @@
 
     <h2 class="mt-6 text-[20px] font-bold text-slate-900">{{ $form->closedReason() }}</h2>
 
-    @if($form->opens_at && $form->opens_at->isFuture())
-        <p class="mx-auto mt-3 max-w-sm text-[15px] leading-6 text-slate-600">It opens on {{ $form->opens_at->format('F j, Y \a\t g:i A') }}.</p>
-    @endif
-
     <p class="mx-auto mt-10 max-w-sm border-t border-slate-200 pt-6 text-[13px] leading-5 text-slate-500">If you believe this is a mistake, contact the event organizer.</p>
 </div>
 @endsection
