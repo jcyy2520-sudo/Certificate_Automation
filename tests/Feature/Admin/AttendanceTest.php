@@ -135,11 +135,18 @@ class AttendanceTest extends TestCase
     {
         $this->participant->update(['checked_in_at' => now()]);
 
-        $this->actingAs($this->administrator)
-            ->get(route('admin.participants.index', $this->webinar))
+        $response = $this->actingAs($this->administrator)
+            ->get(route('admin.participants.index', $this->webinar));
+
+        $response
             ->assertOk()
             ->assertSee('Attendance')
-            ->assertSee('Present');
+            ->assertSee('Present')
+            ->assertSee('form="attendance-'.$this->participant->id.'"', false)
+            ->assertSee('id="attendance-'.$this->participant->id.'"', false);
+
+        $table = str($response->getContent())->between('<table', '</table>');
+        $this->assertStringNotContainsString('<form', (string) $table);
 
         $this->actingAs($this->administrator)
             ->get(route('admin.participants.show', [$this->webinar, $this->participant]))

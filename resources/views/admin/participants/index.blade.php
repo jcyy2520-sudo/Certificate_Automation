@@ -115,12 +115,9 @@
                         <td class="px-5 py-3.5 text-slate-600">{{ $participant->email ?: '—' }}</td>
                         <td class="px-5 py-3.5 text-slate-600">{{ $participant->organization ?: '—' }}</td>
                         <td class="px-5 py-3.5">
-                            <form method="POST" action="{{ route('admin.participants.attendance', [$webinar, $participant]) }}">
-                                @csrf
-                                <button class="badge {{ $participant->checked_in_at ? 'badge-green' : 'badge-slate' }}" title="{{ $participant->checked_in_at?->format('M j, Y g:i A') ?? 'Attendance has not been marked' }}">
-                                    {{ $participant->checked_in_at ? 'Present' : 'Not marked' }}
-                                </button>
-                            </form>
+                            <button class="badge {{ $participant->checked_in_at ? 'badge-green' : 'badge-slate' }}" form="attendance-{{ $participant->id }}" title="{{ $participant->checked_in_at?->format('M j, Y g:i A') ?? 'Attendance has not been marked' }}">
+                                {{ $participant->checked_in_at ? 'Present' : 'Not marked' }}
+                            </button>
                         </td>
                         @foreach($forms as $form)
                             @php
@@ -158,6 +155,12 @@
     </div>
 </div>
 </form>
+
+@foreach($participants as $participant)
+    <form id="attendance-{{ $participant->id }}" method="POST" action="{{ route('admin.participants.attendance', [$webinar, $participant]) }}" class="hidden">
+        @csrf
+    </form>
+@endforeach
 
 <div class="mt-6">{{ $participants->links() }}</div>
 @endsection
