@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Enums\CertificateDeliveryState;
 use App\Http\Controllers\Controller;
 use App\Models\EligibilityOverride;
 use App\Models\EmailDelivery;
@@ -63,15 +64,7 @@ class ParticipantController extends Controller
             $certificate = $certificateByParticipant[$participant->id] ?? null;
             $delivery = $certificate ? ($deliveryByCertificate[$certificate->id] ?? null) : null;
             $participant->certificate_record = $certificate;
-            $participant->certificate_state = match (true) {
-                $certificate?->status === 'processing' => 'queued',
-                $certificate?->status === 'failed' => 'failed',
-                $delivery?->status === 'processing' => 'sending',
-                in_array($delivery?->status, ['failed', 'cancelled'], true) => 'failed',
-                $delivery?->status === 'sent' || $certificate?->sent_at !== null => 'sent',
-                $certificate?->status === 'issued' => 'queued',
-                default => 'not_sent',
-            };
+            $participant->certificate_delivery_state = CertificateDeliveryState::from($certificate, $delivery);
         }
 
         return view('admin.participants.index', [

@@ -225,6 +225,25 @@ class CertificationManagementTest extends TestCase
             route('forms.public.status', $registration->public_token),
             (string) EmailDelivery::query()->where('certificate_id', $certificate->id)->sole()->payload['html'],
         );
+
+        EmailDelivery::query()->where('certificate_id', $certificate->id)->delete();
+        $certificate->update(['sent_at' => null]);
+
+        $this->get(route('admin.participants.index', $this->webinar))
+            ->assertOk()
+            ->assertSee('Queued for email');
+        $this->get(route('admin.certificates.studio', $this->webinar))
+            ->assertOk()
+            ->assertSee('Queued for email');
+        $this->get(route('admin.certificates.studio.status', $this->webinar))
+            ->assertOk()
+            ->assertJsonFragment([
+                'participant_id' => $eligible->public_id,
+                'status' => 'queued',
+                'status_label' => 'Queued for email',
+                'status_detail' => "Certificate ready \u{00B7} waiting for the email worker",
+            ]);
+
         // The ineligible participant is skipped, not certified.
         $this->assertSame(0, Certificate::query()->where('participant_id', $notEligible->id)->count());
     }

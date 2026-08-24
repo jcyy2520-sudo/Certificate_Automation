@@ -99,8 +99,9 @@
                         $hasActiveCertificate = $participant->certificates->contains(fn ($certificate) => ! $certificate->revoked_at && in_array($certificate->status, ['processing', 'issued'], true));
                         $canSendCertificate = $participant->eligibility['eligible'] && ! $hasActiveCertificate && filled($participant->email);
                         $justAdded = session('new_participant_public_id') === $participant->public_id;
-                        $certificateLabels = ['not_sent' => 'Not sent', 'queued' => 'Queued', 'sending' => 'Sending', 'sent' => 'Accepted by provider', 'failed' => 'Failed'];
-                        $certificateBadge = match ($participant->certificate_state) {
+                        $certificateState = $participant->certificate_delivery_state;
+                        $certificateStatus = $certificateState->slug();
+                        $certificateBadge = match ($certificateStatus) {
                             'sent' => 'badge-green',
                             'queued', 'sending' => 'badge-amber',
                             'failed' => 'badge-red',
@@ -136,12 +137,8 @@
                             @if($participant->eligibility['overridden'])<span class="badge badge-amber ml-1">override</span>@endif
                         </td>
                         <td class="px-5 py-3.5">
-                            <span class="badge {{ $certificateBadge }}">{{ $certificateLabels[$participant->certificate_state] }}</span>
-                            @if($participant->certificate_state === 'queued')
-                                <span class="mt-1 block whitespace-nowrap text-[10px] text-slate-500">Waiting in background queue</span>
-                            @elseif($participant->certificate_state === 'sent')
-                                <span class="mt-1 block whitespace-nowrap text-[10px] text-slate-500">Provider accepted the email</span>
-                            @endif
+                            <span class="badge {{ $certificateBadge }}">{{ $certificateState->label() }}</span>
+                            <span class="mt-1 block whitespace-nowrap text-[10px] text-slate-500">{{ $certificateState->detail() }}</span>
                         </td>
                         <td class="px-5 py-3.5 text-right">
                             <a class="text-[13px] font-medium text-accent-600 hover:underline" href="{{ route('admin.participants.show', [$webinar, $participant]) }}">Open</a>

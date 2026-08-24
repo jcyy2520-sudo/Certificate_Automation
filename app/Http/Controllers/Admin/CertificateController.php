@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Enums\CertificateDeliveryState;
 use App\Http\Controllers\Controller;
 use App\Jobs\IssueCertificateBatch;
 use App\Jobs\IssueSelectedCertificate;
@@ -58,30 +59,20 @@ class CertificateController extends Controller
         $held = fn ($participant) => $participant->certificates
             ->sortByDesc('id')
             ->first(fn ($c) => ! $c->revoked_at && in_array($c->status, ['processing', 'issued', 'failed'], true));
-        $deliveryMeta = $this->deliveryMetaByCertificate(
+        $deliveryByCertificate = $this->deliveryByCertificate(
             $participants->map($held)->filter()->pluck('id'),
         );
         foreach ($participants as $participant) {
             $certificate = $held($participant);
-            $participant->cert_status = match (true) {
-                $certificate?->status === 'processing' => 'queued',
-                $certificate?->status === 'failed' => 'failed',
-                $certificate !== null => $deliveryMeta[$certificate->id]['status'] ?? ($certificate->sent_at ? 'sent' : 'queued'),
-                blank($participant->email) => 'missing_email',
-                default => 'ready',
-            };
+            $delivery = $certificate ? $deliveryByCertificate->get($certificate->id) : null;
+            $state = $certificate === null && blank($participant->email)
+                ? CertificateDeliveryState::MissingEmail
+                : CertificateDeliveryState::from($certificate, $delivery);
+            $participant->certificate_delivery_state = $state;
+            $participant->cert_status = $state->slug();
             $participant->certificate_record = $certificate;
-            $participant->delivery_meta = $certificate ? ($deliveryMeta[$certificate->id] ?? []) : [];
-            $participant->cert_status_detail = match (true) {
-                $certificate?->status === 'processing' => 'Waiting for the certificate worker',
-                $certificate?->status === 'failed' => 'Certificate generation failed',
-                ($deliveryMeta[$certificate?->id]['status'] ?? null) === 'queued' => 'Certificate ready · waiting for the email worker',
-                ($deliveryMeta[$certificate?->id]['status'] ?? null) === 'sending' => 'Sending to the email provider now',
-                ($deliveryMeta[$certificate?->id]['status'] ?? null) === 'sent' => 'Accepted by the email provider',
-                ($deliveryMeta[$certificate?->id]['status'] ?? null) === 'failed' => 'Email provider rejected the delivery',
-                blank($participant->email) => 'Add an email address before sending',
-                default => 'Ready to generate and email',
-            };
+            $participant->delivery_meta = $this->deliveryMeta($delivery, $state);
+            $participant->cert_status_detail = $state->detail();
         }
 
         // The "sent history" list: every certificate issued for this webinar,
@@ -91,8 +82,14 @@ class CertificateController extends Controller
             ->with('participant:id,full_name,email')
             ->latest('issued_at')
             ->limit(25)
-            ->get(['id', 'participant_id', 'webinar_id', 'recipient_name', 'verification_code', 'issued_at', 'revoked_at']);
-        $historyStatus = $this->deliveryStatusByCertificate($history->pluck('id'));
+            ->get(['id', 'participant_id', 'webinar_id', 'recipient_name', 'verification_code', 'status', 'issued_at', 'sent_at', 'revoked_at']);
+        $historyDeliveries = $this->deliveryByCertificate($history->pluck('id'));
+        $historyStatus = $history->mapWithKeys(fn ($certificate) => [
+            $certificate->id => CertificateDeliveryState::from(
+                $certificate,
+                $historyDeliveries->get($certificate->id),
+            )->slug(),
+        ])->all();
 
         // If certificate emails have been waiting to go out for a while, the
         // background email sender is probably not running — warn the admin so
@@ -144,38 +141,21 @@ class CertificateController extends Controller
                 ->select(['id', 'participant_id', 'verification_code', 'status', 'issued_at', 'sent_at'])])
             ->get(['id', 'public_id', 'webinar_id']);
         $certificates = $participants->pluck('certificates')->flatten(1);
-        $deliveryMeta = $this->deliveryMetaByCertificate($certificates->pluck('id'));
+        $deliveryByCertificate = $this->deliveryByCertificate($certificates->pluck('id'));
 
         return response()->json([
-            'certificates' => $participants->map(function ($participant) use ($deliveryMeta) {
+            'certificates' => $participants->map(function ($participant) use ($deliveryByCertificate) {
                 $certificate = $participant->certificates->sortByDesc('id')->first();
-                $meta = $certificate ? ($deliveryMeta[$certificate->id] ?? []) : [];
-
-                $status = match (true) {
-                    $certificate?->status === 'processing' => 'queued',
-                    $certificate?->status === 'failed' => 'failed',
-                    $certificate !== null => $meta['status'] ?? ($certificate->sent_at ? 'sent' : 'queued'),
-                    default => 'ready',
-                };
+                $delivery = $certificate ? $deliveryByCertificate->get($certificate->id) : null;
+                $state = CertificateDeliveryState::from($certificate, $delivery);
+                $meta = $this->deliveryMeta($delivery, $state);
 
                 return [
                     'participant_id' => $participant->public_id,
                     'certificate_number' => $certificate?->verification_code,
-                    'status' => $status,
-                    'status_label' => match ($status) {
-                        'queued' => $certificate?->status === 'processing' ? 'Queued for generation' : 'Queued for email',
-                        'sending' => 'Sending email',
-                        'sent' => 'Accepted by provider',
-                        'failed' => 'Delivery failed',
-                        default => 'Ready to send',
-                    },
-                    'status_detail' => match ($status) {
-                        'queued' => $certificate?->status === 'processing' ? 'Waiting for the certificate worker' : 'Certificate ready · waiting for the email worker',
-                        'sending' => 'Sending to the email provider now',
-                        'sent' => 'Accepted by the email provider',
-                        'failed' => $meta['failed_reason'] ?? 'Certificate generation or email delivery failed',
-                        default => 'Ready to generate and email',
-                    },
+                    'status' => $state->slug(),
+                    'status_label' => $state->label(),
+                    'status_detail' => $state->detail(),
                     'failed_reason' => $meta['failed_reason'] ?? null,
                     'retry_count' => $meta['retry_count'] ?? 0,
                     'failed_at' => $meta['failed_at'] ?? null,
@@ -229,42 +209,29 @@ class CertificateController extends Controller
         return back()->with('success', 'The certificate email was queued again. Watch its delivery status here.');
     }
 
-    /**
-     * Latest email-delivery status per certificate id, collapsed to the plain
-     * words the admin sees. Certificates with no delivery row (recipient had no
-     * email) are simply absent, and the caller treats those as already "sent".
-     *
-     * @param  Collection<int, int>  $certificateIds
-     * @return array<int, string>
-     */
-    private function deliveryStatusByCertificate($certificateIds): array
-    {
-        return collect($this->deliveryMetaByCertificate($certificateIds))
-            ->map(fn ($meta) => $meta['status'])->all();
-    }
-
-    /** @return array<int, array{status:string,failed_reason:?string,retry_count:int,failed_at:?string}> */
-    private function deliveryMetaByCertificate($certificateIds): array
+    /** @return Collection<int, EmailDelivery> */
+    private function deliveryByCertificate($certificateIds): Collection
     {
         if ($certificateIds->isEmpty()) {
-            return [];
+            return collect();
         }
 
         return EmailDelivery::query()
             ->whereIn('certificate_id', $certificateIds)
             ->orderBy('id')
             ->get(['certificate_id', 'status', 'last_error', 'attempts', 'failed_at'])
-            ->mapWithKeys(fn ($delivery) => [$delivery->certificate_id => [
-                'status' => match ($delivery->status) {
-                    'sent' => 'sent',
-                    'failed', 'cancelled' => 'failed',
-                    'processing' => 'sending',
-                    default => 'queued',
-                },
-                'failed_reason' => $delivery->last_error,
-                'retry_count' => (int) $delivery->attempts,
-                'failed_at' => $delivery->failed_at?->toIso8601String(),
-            ]])->all();
+            ->keyBy('certificate_id');
+    }
+
+    /** @return array{status:string,failed_reason:?string,retry_count:int,failed_at:?string} */
+    private function deliveryMeta(?EmailDelivery $delivery, CertificateDeliveryState $state): array
+    {
+        return [
+            'status' => $state->slug(),
+            'failed_reason' => $delivery?->last_error,
+            'retry_count' => (int) ($delivery?->attempts ?? 0),
+            'failed_at' => $delivery?->failed_at?->toIso8601String(),
+        ];
     }
 
     /**
