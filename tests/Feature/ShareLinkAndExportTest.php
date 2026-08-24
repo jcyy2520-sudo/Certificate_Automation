@@ -54,11 +54,18 @@ class ShareLinkAndExportTest extends TestCase
     {
         $form = $this->webinar->forms->firstWhere('type', 'registration');
 
-        $this->actingAs($this->administrator)
-            ->get(route('admin.forms.edit', [$this->webinar, $form]))
+        $response = $this->actingAs($this->administrator)
+            ->get(route('admin.forms.edit', [$this->webinar, $form]));
+
+        $response
             ->assertOk()
             ->assertSee($form->shareUrl())
             ->assertSee('opens this form and nothing else', false);
+
+        $this->assertMatchesRegularExpression(
+            '/aria-label="Breadcrumb".*?>Participants<\/a>/s',
+            $response->getContent(),
+        );
     }
 
     public function test_rotating_the_link_retires_the_old_url(): void

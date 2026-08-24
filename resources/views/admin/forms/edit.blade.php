@@ -46,7 +46,7 @@
 @endphp
 
 <x-page-header :title="$form->title"
-               :crumbs="['Tests' => route('admin.webinars.show', $webinar)]">
+               :crumbs="[($form->type === 'registration' ? 'Participants' : 'Tests') => route('admin.webinars.show', $webinar)]">
     <x-slot:meta>
         <div class="mt-3 flex flex-wrap items-center gap-2.5 text-[13px] text-slate-500">
             <span class="uppercase tracking-wide">{{ $form->type }}</span>
