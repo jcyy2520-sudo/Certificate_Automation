@@ -316,9 +316,9 @@ class PublicFormController extends Controller
         return $submission ? $redirect->with('submission_id', $submission->id) : $redirect;
     }
 
-    public function thanks(Request $request, string $token): View
+    public function thanks(Request $request, string $token, PublicFormResolver $forms): View
     {
-        $form = $this->resolve($token);
+        $form = $forms->resolve($token);
         $submission = Submission::query()
             ->where('form_id', $form->id)
             ->find($request->session()->get('submission_id'));
@@ -505,23 +505,6 @@ class PublicFormController extends Controller
         }
 
         $request->request->replace($safe);
-    }
-
-    /**
-     * Resolve a share token to its form. A wrong or retired token is a plain 404 —
-     * it must not reveal whether the token, the form, or the event exists.
-     */
-    private function resolve(string $token): Form
-    {
-        return Form::query()
-            ->select([
-                'id', 'webinar_id', 'public_token', 'public_token_hash', 'type', 'title', 'description', 'status',
-                'opens_at', 'closes_at', 'max_attempts', 'show_score',
-            ])
-            ->with('webinar:id,title,status,registration_opens_at,registration_closes_at,registration_capacity,data_retention_days,archived_at')
-            ->where('public_token_hash', Form::publicTokenHash($token))
-            ->whereHas('webinar', fn ($query) => $query->whereNull('archived_at'))
-            ->firstOrFail();
     }
 
     /** Load only the columns needed to render and validate a public form. */

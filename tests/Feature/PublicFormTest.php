@@ -235,6 +235,11 @@ class PublicFormTest extends TestCase
         $this->webinar->update(['archived_at' => now()]);
 
         $this->get($this->registration->shareUrl())->assertNotFound();
+
+        $this->webinar->update(['archived_at' => null]);
+        $this->webinar->forceFill(['deletion_started_at' => now()])->save();
+
+        $this->get(route('forms.public.thanks', $this->registration->public_token))->assertNotFound();
     }
 
     public function test_answers_outside_the_offered_choices_are_rejected(): void
