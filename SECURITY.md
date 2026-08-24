@@ -25,6 +25,7 @@ Passing the automated checks is not a certification, penetration test, or guaran
 - TOTP multi-factor authentication is mandatory by default. A TOTP time step cannot be replayed, recovery codes are stored encrypted and hashed and are consumed once, and sensitive two-factor changes require the current password.
 - Persistent administrator login is disabled by default. Previously issued remember tokens are invalidated by the hardening migration.
 - Participant CSV export requires recent password confirmation by default. Exported spreadsheet cells are neutralized when their content could be interpreted as a formula.
+- Manual participant creation and authoritative participant-name correction require recent password confirmation. High-frequency attendance toggles and cosmetic certificate-design changes remain ungated by deliberate decision; both actions are audited.
 - Resource bindings are scoped to their parent webinar or form so an identifier from one resource cannot be substituted into another webinar's route.
 
 ### Participant access

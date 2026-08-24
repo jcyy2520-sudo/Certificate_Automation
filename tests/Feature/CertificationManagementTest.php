@@ -162,6 +162,7 @@ class CertificationManagementTest extends TestCase
             'webinar_id' => $this->webinar->id, 'full_name' => 'Maria Snatos', 'email' => 'maria@example.com', 'verified_at' => now(),
         ]);
 
+        $this->confirmAdministratorPassword();
         $this->actingAs($this->administrator)
             ->putJson(route('admin.participants.name', [$this->webinar, $participant]), ['full_name' => 'Maria Santos'])
             ->assertOk()
@@ -205,6 +206,7 @@ class CertificationManagementTest extends TestCase
             ->assertSee('Wrong Spelling')
             ->assertDontSee('Not Verified');
 
+        $this->confirmAdministratorPassword();
         $this->actingAs($this->administrator)
             ->put(route('admin.participants.name', [$this->webinar, $eligible]), ['full_name' => 'Wei Chen'])
             ->assertRedirect();
@@ -308,6 +310,7 @@ class CertificationManagementTest extends TestCase
         $this->uploadedTemplate();
 
         // Someone who attended but never registered here.
+        $this->confirmAdministratorPassword();
         $addResponse = $this->actingAs($this->administrator)
             ->post(route('admin.participants.store', $this->webinar), [
                 'full_name' => 'Off List Person', 'email' => 'Off@Example.com', 'organization' => 'Community Group',
@@ -525,5 +528,12 @@ class CertificationManagementTest extends TestCase
             'layout' => ['accent' => '#1d4ed8', 'name_top' => 62, 'name_font_size' => 42],
             'is_active' => true,
         ]);
+    }
+
+    private function confirmAdministratorPassword(): void
+    {
+        $this->actingAs($this->administrator)
+            ->post(route('admin.password.confirm.store'), ['password' => 'password'])
+            ->assertRedirect(route('admin.dashboard'));
     }
 }

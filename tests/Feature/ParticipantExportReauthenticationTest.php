@@ -50,7 +50,9 @@ class ParticipantExportReauthenticationTest extends TestCase
             'admin.forms.questions.destroy',
             'admin.certification.rules',
             'admin.certification.template',
+            'admin.participants.store',
             'admin.participants.export',
+            'admin.participants.name',
             'admin.participants.override',
             'admin.participants.destroy',
             'admin.certificates.batch',
@@ -66,6 +68,16 @@ class ParticipantExportReauthenticationTest extends TestCase
                 EnsureRecentPassword::class,
                 $route->middleware(),
                 "Sensitive route {$name} is missing recent-password confirmation.",
+            );
+        }
+
+        foreach (['admin.participants.attendance', 'admin.certification.design'] as $name) {
+            $route = app('router')->getRoutes()->getByName($name);
+            $this->assertNotNull($route, "Missing deliberately ungated route {$name}.");
+            $this->assertNotContains(
+                EnsureRecentPassword::class,
+                $route->middleware(),
+                "Operational route {$name} should remain outside recent-password confirmation.",
             );
         }
     }

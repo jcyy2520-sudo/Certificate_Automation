@@ -171,6 +171,7 @@ Route::middleware(['auth', EnsureAdministrator::class, 'auth.session', EnsureTwo
 
         Route::get('/webinars/{webinar}/participants', [AdminParticipantController::class, 'index'])->name('participants.index');
         Route::post('/webinars/{webinar}/participants', [AdminParticipantController::class, 'store'])
+            ->middleware(EnsureRecentPassword::class)
             ->name('participants.store');
         Route::post('/webinars/{webinar}/participants/filter', [AdminParticipantController::class, 'filter'])->name('participants.filter');
         Route::get('/webinars/{webinar}/participants/export', [AdminParticipantController::class, 'export'])
@@ -180,6 +181,7 @@ Route::middleware(['auth', EnsureAdministrator::class, 'auth.session', EnsureTwo
         Route::post('/webinars/{webinar}/participants/{participant}/attendance', [AdminParticipantController::class, 'attendance'])
             ->name('participants.attendance');
         Route::put('/webinars/{webinar}/participants/{participant}/name', [AdminParticipantController::class, 'updateName'])
+            ->middleware(EnsureRecentPassword::class)
             ->name('participants.name');
         Route::post('/webinars/{webinar}/participants/{participant}/override', [AdminParticipantController::class, 'override'])
             ->middleware(EnsureRecentPassword::class)
