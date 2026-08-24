@@ -52,44 +52,6 @@ class Webinar extends Model
             : ($this->isOpen() ? 'Open' : 'Closed');
     }
 
-    /**
-     * Every IANA zone the timezone field will accept, each with its current
-     * UTC offset so the picker can be searched and read without memorizing
-     * zone names.
-     *
-     * @return array<int, array{id: string, label: string}>
-     */
-    public static function timezoneOptions(): array
-    {
-        return collect(\DateTimeZone::listIdentifiers())
-            ->map(fn (string $id): array => [
-                'id' => $id,
-                'label' => self::timezoneLabel($id),
-                'offset' => (new \DateTimeZone($id))->getOffset(new \DateTime('now')),
-            ])
-            ->sortBy(['offset', 'id'])
-            ->values()
-            ->all();
-    }
-
-    /** A short "UTC-04:00 · EDT" label for a stored IANA zone, or null if it isn't one. */
-    public static function timezoneLabel(?string $timezone): ?string
-    {
-        if (blank($timezone)) {
-            return null;
-        }
-
-        try {
-            $zone = new \DateTimeZone($timezone);
-        } catch (\Exception) {
-            return null;
-        }
-
-        $now = (new \DateTime('now'))->setTimezone($zone);
-
-        return 'UTC'.$now->format('P').' · '.$now->format('T');
-    }
-
     protected function casts(): array
     {
         return [
