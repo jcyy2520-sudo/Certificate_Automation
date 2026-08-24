@@ -41,7 +41,9 @@ class EmailDeliveryPerformanceTest extends TestCase
                 'certificates' => 0,
                 'emails' => 0,
             ])
-            ->assertViewHas('deliveries', fn ($deliveries): bool => ! array_key_exists('payload', $deliveries->first()->getAttributes()));
+            ->assertViewHas('deliveries', fn ($deliveries): bool => ! array_key_exists('payload', $deliveries->first()->getAttributes()))
+            ->assertSee('p••••••••••@example.com')
+            ->assertDontSee('participant@example.com');
     }
 
     public function test_a_successful_delivery_discards_its_large_retry_payload(): void

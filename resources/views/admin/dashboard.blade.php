@@ -76,12 +76,19 @@
             </div>
             <div class="divide-y divide-slate-100">
                 @forelse($deliveries as $delivery)
+                    @php
+                        $maskedEmail = null;
+                        if (is_string($delivery->recipient_email) && str_contains($delivery->recipient_email, '@')) {
+                            [$local, $domain] = explode('@', $delivery->recipient_email, 2);
+                            $maskedEmail = mb_substr($local, 0, 1).str_repeat('•', max(2, mb_strlen($local) - 1)).'@'.$domain;
+                        }
+                    @endphp
                     <div class="px-5 py-3.5">
                         <div class="flex items-start justify-between gap-3">
                             <p class="truncate text-[13px] font-medium">{{ $delivery->subject }}</p>
                             <span class="badge shrink-0 {{ $delivery->status === 'sent' ? 'badge-green' : ($delivery->status === 'failed' ? 'badge-red' : 'badge-slate') }}">{{ $delivery->status }}</span>
                         </div>
-                        <p class="mt-0.5 truncate text-[12px] text-slate-500">{{ $delivery->recipient_email }}</p>
+                        <p class="mt-0.5 truncate text-[12px] text-slate-500">{{ $maskedEmail ?: 'Recipient unavailable' }}</p>
                     </div>
                 @empty
                     <p class="px-5 py-12 text-center text-sm text-slate-500">Certificate emails will appear here once you issue some.</p>
