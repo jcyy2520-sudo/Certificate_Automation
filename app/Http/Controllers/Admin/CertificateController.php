@@ -8,7 +8,6 @@ use App\Jobs\IssueSelectedCertificate;
 use App\Models\Certificate;
 use App\Models\CertificateBatch;
 use App\Models\CertificateTemplate;
-use App\Models\EligibilityOverride;
 use App\Models\EmailDelivery;
 use App\Models\Participant;
 use App\Models\Webinar;
@@ -23,7 +22,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 use Illuminate\View\View;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -184,72 +182,6 @@ class CertificateController extends Controller
                 ];
             })->values(),
         ]);
-    }
-
-    /**
-     * Add a recipient who is not in the eligible list — for example someone who
-     * attended but registered off-platform or under a different address. This
-     * only marks them eligible (an audited override); no certificate is issued
-     * until they are selected and sent, which stays behind the recent-password
-     * gate. No free-text reason is required.
-     */
-    public function addRecipient(Request $request, Webinar $webinar, AuditService $audit): RedirectResponse
-    {
-        abort_if($webinar->deletion_started_at !== null, 409);
-
-        $data = $request->validate([
-            'full_name' => ['required', 'string', 'max:120'],
-            'email' => ['required', 'email:rfc', 'max:255'],
-        ]);
-        $email = Str::lower(trim($data['email']));
-        $name = trim($data['full_name']);
-
-        $outcome = DB::transaction(function () use ($webinar, $email, $name, $request): array {
-            $participant = Participant::withTrashed()
-                ->where('webinar_id', $webinar->id)
-                ->where('email_normalized', $email)
-                ->lockForUpdate()
-                ->first();
-
-            if (! $participant) {
-                $participant = Participant::query()->create([
-                    'webinar_id' => $webinar->id,
-                    'email' => $email,
-                    'full_name' => $name,
-                ]);
-                $participant = Participant::withTrashed()->lockForUpdate()->findOrFail($participant->id);
-            }
-
-            if ($participant->privacy_erased_at !== null || $participant->trashed()) {
-                return ['status' => 'unavailable', 'participant' => $participant];
-            }
-
-            // The typed name is the one the organizer intends to preview and
-            // print, including when this email already belongs to a participant.
-            $participant->forceFill(['full_name' => $name, 'email' => $email])->save();
-
-            EligibilityOverride::query()->create([
-                'participant_id' => $participant->id,
-                'decision' => 'eligible',
-                'reason' => 'Added directly in the certificate editor.',
-                'overridden_by' => $request->user()->id,
-            ]);
-
-            return ['status' => 'added', 'participant' => $participant];
-        }, attempts: 3);
-
-        if ($outcome['status'] === 'unavailable') {
-            return back()->with('error', 'That person’s data has been erased and cannot be added.');
-        }
-
-        $audit->record($request, 'certificate.recipient_added', $outcome['participant'], [
-            'email_fingerprint' => $audit->fingerprint($email, 'manual-certificate-email'),
-        ]);
-
-        return redirect()->route('admin.certificates.studio', [
-            'webinar' => $webinar,
-            'manual' => $outcome['participant']->public_id,
-        ])->with('success', $name.' was added. Review the certificate and confirm the send.');
     }
 
     /**
