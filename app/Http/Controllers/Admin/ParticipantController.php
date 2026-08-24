@@ -272,11 +272,19 @@ class ParticipantController extends Controller
     {
         $this->assertBelongsTo($webinar, $participant);
         $participant->load(['submissions.form', 'certificates', 'eligibilityOverrides.administrator']);
+        $activeOverride = $participant->eligibilityOverrides
+            ->filter(fn (EligibilityOverride $override): bool => $override->expires_at === null || $override->expires_at->isFuture())
+            ->sortBy([
+                ['created_at', 'desc'],
+                ['id', 'desc'],
+            ])
+            ->first();
 
         return view('admin.participants.show', [
             'webinar' => $webinar,
             'participant' => $participant,
             'eligibility' => $eligibilityService->evaluate($participant),
+            'activeOverride' => $activeOverride,
         ]);
     }
 
@@ -298,6 +306,31 @@ class ParticipantController extends Controller
         ]);
 
         return back()->with('success', 'Eligibility override recorded.');
+    }
+
+    public function destroyOverride(
+        Request $request,
+        Webinar $webinar,
+        Participant $participant,
+        EligibilityOverride $eligibilityOverride,
+        AuditService $audit,
+    ): RedirectResponse {
+        $this->assertBelongsTo($webinar, $participant);
+        abort_unless($eligibilityOverride->participant_id === $participant->id, 404);
+
+        DB::transaction(function () use ($audit, $eligibilityOverride, $participant, $request): void {
+            $lockedOverride = EligibilityOverride::query()
+                ->whereKey($eligibilityOverride->id)
+                ->where('participant_id', $participant->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $audit->record($request, 'eligibility.override_removed', $lockedOverride, [
+                'decision' => $lockedOverride->decision,
+            ]);
+            $lockedOverride->delete();
+        });
+
+        return back()->with('success', 'Eligibility override removed. Eligibility was recalculated.');
     }
 
     public function attendance(Request $request, Webinar $webinar, Participant $participant, AuditService $audit): RedirectResponse

@@ -186,6 +186,9 @@ Route::middleware(['auth', EnsureAdministrator::class, 'auth.session', EnsureTwo
         Route::post('/webinars/{webinar}/participants/{participant}/override', [AdminParticipantController::class, 'override'])
             ->middleware(EnsureRecentPassword::class)
             ->name('participants.override');
+        Route::delete('/webinars/{webinar}/participants/{participant}/overrides/{eligibilityOverride}', [AdminParticipantController::class, 'destroyOverride'])
+            ->middleware(EnsureRecentPassword::class)
+            ->name('participants.override.destroy');
         Route::delete('/webinars/{webinar}/participants/{participant}', [AdminParticipantController::class, 'destroy'])
             ->middleware(EnsureRecentPassword::class)
             ->name('participants.destroy');

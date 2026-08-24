@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\EligibilityRule;
+use App\Models\EligibilityOverride;
 use App\Models\Participant;
 use App\Models\User;
 use App\Models\Webinar;
@@ -122,6 +123,51 @@ class AdminParticipantManagementTest extends TestCase
             'action' => 'eligibility.overridden',
             'user_id' => $this->administrator->id,
         ]);
+    }
+
+    public function test_an_active_override_is_visible_and_can_be_removed_after_password_confirmation(): void
+    {
+        config()->set('security.require_sensitive_action_password_confirmation', true);
+        EligibilityRule::query()->create([
+            'webinar_id' => $this->webinar->id,
+            'requirement' => 'registration',
+            'is_required' => true,
+        ]);
+        $override = EligibilityOverride::query()->create([
+            'participant_id' => $this->participant->id,
+            'decision' => 'eligible',
+            'reason' => 'Off-platform attendance was verified.',
+            'overridden_by' => $this->administrator->id,
+        ]);
+        $route = route('admin.participants.override.destroy', [$this->webinar, $this->participant, $override]);
+
+        $this->actingAs($this->administrator)
+            ->get(route('admin.participants.show', [$this->webinar, $this->participant]))
+            ->assertOk()
+            ->assertSee('Active eligibility override')
+            ->assertSee($this->administrator->name)
+            ->assertSee($override->created_at->format('M j, Y g:i A'))
+            ->assertSee('Off-platform attendance was verified.')
+            ->assertSee($route, false)
+            ->assertSee('Remove override');
+
+        $this->delete($route)->assertRedirect(route('admin.password.confirm'));
+        $this->assertDatabaseHas('eligibility_overrides', ['id' => $override->id]);
+
+        $this->post(route('admin.password.confirm.store'), ['password' => 'password'])
+            ->assertRedirect(route('admin.dashboard'));
+        $this->delete($route)
+            ->assertRedirect()
+            ->assertSessionHas('success', 'Eligibility override removed. Eligibility was recalculated.');
+
+        $this->assertDatabaseMissing('eligibility_overrides', ['id' => $override->id]);
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'eligibility.override_removed',
+            'user_id' => $this->administrator->id,
+            'auditable_type' => EligibilityOverride::class,
+            'auditable_id' => $override->id,
+        ]);
+        $this->assertFalse(app(EligibilityService::class)->evaluate($this->participant->fresh())['eligible']);
     }
 
     public function test_an_override_requires_a_substantive_reason(): void

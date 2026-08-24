@@ -98,8 +98,21 @@
 
         <section class="panel p-5">
             <h2 class="section-title">Requirements</h2>
-            @if($eligibility['overridden'])
-                <p class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-900">An override is in force, so the automatic requirements are bypassed.</p>
+            @if($activeOverride)
+                <div class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-900">
+                    <div class="flex items-start justify-between gap-3">
+                        <div>
+                            <p class="font-semibold">Active eligibility override</p>
+                            <p class="mt-1">{{ ucfirst($activeOverride->decision) }} · set by {{ $activeOverride->administrator?->name ?? 'unknown administrator' }} on {{ $activeOverride->created_at->format('M j, Y g:i A') }}</p>
+                        </div>
+                        <span class="badge badge-amber shrink-0">{{ $activeOverride->decision }}</span>
+                    </div>
+                    <p class="mt-2 text-amber-800">{{ $activeOverride->reason }}</p>
+                    <form class="mt-3" method="POST" action="{{ route('admin.participants.override.destroy', [$webinar, $participant, $activeOverride]) }}" data-confirm="Remove this eligibility override? Eligibility will be recalculated immediately.">
+                        @csrf @method('DELETE')
+                        <button class="button-secondary">Remove override</button>
+                    </form>
+                </div>
             @else
                 <div class="mt-4 space-y-2.5">
                     @forelse($eligibility['requirements'] as $requirement => $met)

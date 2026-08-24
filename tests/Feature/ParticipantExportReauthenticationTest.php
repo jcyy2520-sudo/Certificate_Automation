@@ -54,6 +54,7 @@ class ParticipantExportReauthenticationTest extends TestCase
             'admin.participants.export',
             'admin.participants.name',
             'admin.participants.override',
+            'admin.participants.override.destroy',
             'admin.participants.destroy',
             'admin.certificates.batch',
             'admin.certificates.store',
