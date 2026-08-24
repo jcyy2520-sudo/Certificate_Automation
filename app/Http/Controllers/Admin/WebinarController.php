@@ -13,6 +13,7 @@ use App\Models\Webinar;
 use App\Services\AuditService;
 use App\Services\CertificateFileService;
 use App\Services\EligibilityService;
+use App\Support\LocalDateTime;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -373,7 +374,7 @@ class WebinarController extends Controller
                 continue;
             }
 
-            $data[$field] = $this->localDateTimeToUtc(
+            $data[$field] = LocalDateTime::toUtc(
                 (string) $data[$field],
                 (string) $data['timezone'],
                 $field,
@@ -409,30 +410,6 @@ class WebinarController extends Controller
         return in_array($webinar?->status, ['published', 'completed'], true)
             ? 'completed'
             : 'draft';
-    }
-
-    /**
-     * Browser datetime-local values have no offset. Interpret them in the
-     * event's declared IANA timezone, reject DST-normalized nonexistent times,
-     * and persist one unambiguous UTC instant.
-     */
-    private function localDateTimeToUtc(string $value, string $timezone, string $field): CarbonImmutable
-    {
-        try {
-            $local = CarbonImmutable::parse($value, $timezone);
-        } catch (\Throwable) {
-            throw ValidationException::withMessages([$field => 'Enter a valid local date and time.']);
-        }
-
-        $submittedMinute = str_replace(' ', 'T', substr(trim($value), 0, 16));
-
-        if ($local->format('Y-m-d\TH:i') !== $submittedMinute) {
-            throw ValidationException::withMessages([
-                $field => 'That local time does not exist in the selected timezone because of a clock change.',
-            ]);
-        }
-
-        return $local->utc();
     }
 
     /**

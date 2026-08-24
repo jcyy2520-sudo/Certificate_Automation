@@ -8,7 +8,7 @@ use App\Models\FormField;
 use App\Models\Question;
 use App\Models\Webinar;
 use App\Services\AuditService;
-use Carbon\CarbonImmutable;
+use App\Support\LocalDateTime;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -46,12 +46,12 @@ class FormController extends Controller
             'max_attempts' => ['required', 'integer', 'min:1', 'max:20'],
             'show_score' => ['nullable', 'boolean'],
         ]);
-        $data['opens_at'] = $this->localDateTimeToUtc(
+        $data['opens_at'] = LocalDateTime::toUtc(
             $data['opens_at'] ?? null,
             $webinar->timezone,
             'opens_at',
         );
-        $data['closes_at'] = $this->localDateTimeToUtc(
+        $data['closes_at'] = LocalDateTime::toUtc(
             $data['closes_at'] ?? null,
             $webinar->timezone,
             'closes_at',
@@ -464,34 +464,6 @@ class FormController extends Controller
     private function assertBelongsTo(Webinar $webinar, Form $form): void
     {
         abort_unless($form->webinar_id === $webinar->id, 404);
-    }
-
-    /**
-     * Browser datetime-local values have no offset. Interpret them in the
-     * event's declared IANA timezone, reject DST-normalized nonexistent times,
-     * and persist one unambiguous UTC instant.
-     */
-    private function localDateTimeToUtc(?string $value, string $timezone, string $field): ?CarbonImmutable
-    {
-        if (blank($value)) {
-            return null;
-        }
-
-        try {
-            $local = CarbonImmutable::parse($value, $timezone);
-        } catch (\Throwable) {
-            throw ValidationException::withMessages([$field => 'Enter a valid local date and time.']);
-        }
-
-        $submittedMinute = str_replace(' ', 'T', substr(trim($value), 0, 16));
-
-        if ($local->format('Y-m-d\TH:i') !== $submittedMinute) {
-            throw ValidationException::withMessages([
-                $field => 'That local time does not exist in the selected timezone because of a clock change.',
-            ]);
-        }
-
-        return $local->utc();
     }
 
     /** Derive a stable internal key from the label so admins never have to type one. */
