@@ -30,12 +30,9 @@
     @endif
 </header>
 
-<div class="stepper mt-9 h-4 justify-between" data-stepper>
+<div class="stepper mt-9 h-2" data-stepper role="progressbar" aria-label="Form completion" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
     <span class="stepper-track"></span>
     <span class="stepper-fill" data-stepper-fill style="width:0"></span>
-    <span class="stepper-dot stepper-dot-current" data-stepper-dot></span>
-    <span class="stepper-dot" data-stepper-dot></span>
-    <span class="stepper-dot" data-stepper-dot></span>
 </div>
 
 @if($errors->any())
@@ -156,16 +153,15 @@
 </form>
 
 <script nonce="{{ $cspNonce }}">
-    // Drives the stepper from how much of the form is filled in.
+    // Drives the determinate progress bar from how much of the form is filled in.
     (function () {
         var form = document.querySelector('[data-survey]');
         var stepper = document.querySelector('[data-stepper]');
         if (!form || !stepper) return;
 
         var fill = stepper.querySelector('[data-stepper-fill]');
-        var dots = Array.prototype.slice.call(stepper.querySelectorAll('[data-stepper-dot]'));
         var inputs = Array.prototype.slice.call(form.querySelectorAll('[data-answerable]'));
-        if (!fill || dots.length < 2 || inputs.length === 0) return;
+        if (!fill || inputs.length === 0) return;
 
         // Group radios by name so a question counts once, not once per choice.
         var groups = [];
@@ -187,31 +183,16 @@
             });
         }
 
-        function centre(dot) {
-            return dot.offsetLeft + dot.offsetWidth / 2;
-        }
-
         function render() {
             var done = groups.filter(answered).length;
             var progress = done / groups.length;
 
-            var start = centre(dots[0]);
-            var end = centre(dots[dots.length - 1]);
-            fill.style.width = (start + (end - start) * progress) + 'px';
-
-            dots.forEach(function (dot, index) {
-                var threshold = index / (dots.length - 1);
-                var reached = progress >= threshold - 0.0001;
-                var leading = reached && (index === dots.length - 1 || progress < (index + 1) / (dots.length - 1));
-
-                dot.classList.toggle('stepper-dot-done', reached && !leading);
-                dot.classList.toggle('stepper-dot-current', leading);
-            });
+            fill.style.width = (progress * 100) + '%';
+            stepper.setAttribute('aria-valuenow', String(Math.round(progress * 100)));
         }
 
         form.addEventListener('input', render);
         form.addEventListener('change', render);
-        window.addEventListener('resize', render);
         render();
     })();
 </script>

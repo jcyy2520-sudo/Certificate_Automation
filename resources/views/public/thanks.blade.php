@@ -14,12 +14,9 @@
     </h1>
 </header>
 
-<div class="stepper mt-9 h-4 justify-between">
+<div class="stepper mt-9 h-2" role="progressbar" aria-label="Form completion" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">
     <span class="stepper-track"></span>
     <span class="stepper-fill" style="width:100%"></span>
-    <span class="stepper-dot stepper-dot-done"></span>
-    <span class="stepper-dot stepper-dot-done"></span>
-    <span class="stepper-dot stepper-dot-current"></span>
 </div>
 
 <div class="mt-12 text-center">
