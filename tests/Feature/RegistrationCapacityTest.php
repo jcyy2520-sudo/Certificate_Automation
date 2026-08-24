@@ -8,6 +8,7 @@ use App\Models\Submission;
 use App\Models\User;
 use App\Models\Webinar;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class RegistrationCapacityTest extends TestCase
@@ -49,6 +50,20 @@ class RegistrationCapacityTest extends TestCase
             'verified_at' => now(),
             'privacy_erased_at' => now(),
         ]);
+
+        $verifiedCountQueries = 0;
+        DB::listen(function ($query) use (&$verifiedCountQueries): void {
+            $sql = strtolower($query->sql);
+
+            if (str_contains($sql, 'count(*)') && str_contains($sql, 'participants')) {
+                $verifiedCountQueries++;
+            }
+        });
+
+        $this->assertTrue($registration->acceptsResponses());
+        $this->assertSame('This form is not accepting responses.', $registration->closedReason());
+        $this->assertTrue($registration->acceptsResponses());
+        $this->assertSame(1, $verifiedCountQueries);
 
         $this->get($registration->shareUrl())->assertOk()->assertDontSee('Registration is full.');
         $this->register($registration, 'last-place@example.test')->assertRedirect();

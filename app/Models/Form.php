@@ -10,6 +10,8 @@ class Form extends Model
 {
     use HasFactory;
 
+    private ?int $verifiedCount = null;
+
     protected $guarded = ['id'];
 
     protected $hidden = ['public_token', 'public_token_hash'];
@@ -98,10 +100,10 @@ class Form extends Model
     private function registrationIsFull(): bool
     {
         return $this->webinar?->registration_capacity !== null
-            && $this->webinar->participants()
+            && ($this->verifiedCount ??= $this->webinar->participants()
                 ->whereNotNull('verified_at')
                 ->whereNull('privacy_erased_at')
-                ->count() >= $this->webinar->registration_capacity;
+                ->count()) >= $this->webinar->registration_capacity;
     }
 
     public function webinar()

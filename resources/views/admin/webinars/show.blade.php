@@ -5,6 +5,7 @@
     $displayTimezone = $webinar->timezone ?: config('app.timezone');
     $registrationForm = $webinar->forms->firstWhere('type', 'registration');
     $registrationLive = $registrationForm?->acceptsResponses();
+    $registrationClosedReason = $registrationLive ? null : $registrationForm?->closedReason();
 @endphp
 
 <x-page-header title="Overview">
@@ -87,7 +88,7 @@
                 <div class="mt-4 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] leading-5 text-amber-900">
                     <x-icon name="info" class="mt-0.5 size-4 shrink-0" />
                     <span>
-                        The link works, but the registration form isn't accepting responses yet{{ $registrationForm->closedReason() ? ' — '.rtrim($registrationForm->closedReason(), '.').'.' : '.' }}
+                        The link works, but the registration form isn't accepting responses yet{{ $registrationClosedReason ? ' — '.rtrim($registrationClosedReason, '.').'.' : '.' }}
                         @if(! $webinar->isOpen())
                             Turn on the <strong>Webinar</strong> switch in <a class="font-medium underline" href="{{ route('admin.webinars.edit', $webinar) }}">Settings</a> to allow registration.
                         @else
@@ -117,14 +118,17 @@
         </div>
         <div class="divide-y divide-slate-100">
             @foreach($webinar->forms as $form)
+                @php
+                    $live = $form->acceptsResponses();
+                @endphp
                 <a href="{{ route('admin.forms.edit', [$webinar, $form]) }}" class="flex items-center justify-between gap-4 px-5 py-4 transition hover:bg-slate-50">
                     <div class="min-w-0">
                         <p class="truncate text-sm font-medium">{{ $form->title }}</p>
                         <p class="mt-0.5 text-[12px] uppercase tracking-wide text-slate-400">{{ $form->type }}</p>
                     </div>
-                    <span class="inline-flex shrink-0 items-center gap-2 text-[13px] font-medium {{ $form->acceptsResponses() ? 'text-emerald-700' : 'text-slate-400' }}">
-                        <span class="size-1.5 rounded-full {{ $form->acceptsResponses() ? 'bg-emerald-500' : 'bg-slate-300' }}"></span>
-                        {{ $form->acceptsResponses() ? 'Live' : 'Closed' }}
+                    <span class="inline-flex shrink-0 items-center gap-2 text-[13px] font-medium {{ $live ? 'text-emerald-700' : 'text-slate-400' }}">
+                        <span class="size-1.5 rounded-full {{ $live ? 'bg-emerald-500' : 'bg-slate-300' }}"></span>
+                        {{ $live ? 'Live' : 'Closed' }}
                     </span>
                 </a>
             @endforeach
