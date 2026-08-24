@@ -95,10 +95,7 @@ class PublicFormController extends Controller
         try {
             $initialData = $request->validate($this->rules($form), $this->messages($form));
         } catch (ValidationException $exception) {
-            // Laravel normally flashes the complete invalid payload to the
-            // session. Names, addresses, organizations, and answers must not
-            // become an untracked copy that participant erasure cannot locate.
-            $request->request->replace([]);
+            $this->retainSafeInput($request, $form);
 
             throw $exception;
         }
@@ -107,7 +104,7 @@ class PublicFormController extends Controller
 
         if ($sessionParticipant
             && ! hash_equals(Str::lower(trim((string) $sessionParticipant->email)), $initialEmail)) {
-            $request->request->replace([]);
+            $this->retainSafeInput($request, $form);
 
             throw ValidationException::withMessages([
                 'email' => 'Use the email address verified for this session.',
@@ -305,9 +302,7 @@ class PublicFormController extends Controller
                 $capacityLockRequired = $capacityLockRequired || $retryWithCapacityLock;
             } while ($retryWithCapacityLock);
         } catch (ValidationException $exception) {
-            // The authoritative validation runs inside the transaction. Clear
-            // the payload before Laravel can flash personal data into session.
-            $request->request->replace([]);
+            $this->retainSafeInput($request, $form);
 
             throw $exception;
         } catch (UniqueConstraintViolationException) {
@@ -464,6 +459,52 @@ class PublicFormController extends Controller
         }
 
         return $messages;
+    }
+
+    /**
+     * Keep only opaque, non-identifying answers for Laravel's old-input flash.
+     * Free text and participant identity never enter the session.
+     */
+    private function retainSafeInput(Request $request, Form $form): void
+    {
+        $safe = [];
+
+        foreach ($form->fields as $field) {
+            if (in_array($field->field_type, ['text', 'textarea', 'email'], true)) {
+                continue;
+            }
+
+            $value = $request->input('fields.'.$field->id);
+            if (! is_scalar($value)) {
+                continue;
+            }
+
+            $value = (string) $value;
+            $valid = match ($field->field_type) {
+                'select', 'radio' => in_array($value, $field->options ?? [], true),
+                'checkbox' => in_array($value, ['0', '1'], true),
+                'number' => preg_match('/^-?(?:0|[1-9]\d{0,11})(?:\.\d{1,4})?$/', $value) === 1,
+                'date' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) === 1,
+                default => false,
+            };
+
+            if ($valid) {
+                $safe['fields'][$field->id] = $value;
+            }
+        }
+
+        foreach ($form->questions->where('question_type', '!=', 'text') as $question) {
+            $value = $request->input('questions.'.$question->id);
+            if (is_scalar($value) && $question->choices->contains('id', (int) $value)) {
+                $safe['questions'][$question->id] = (int) $value;
+            }
+        }
+
+        if ((string) $request->input('privacy_acknowledged') === '1') {
+            $safe['privacy_acknowledged'] = '1';
+        }
+
+        $request->request->replace($safe);
     }
 
     /**

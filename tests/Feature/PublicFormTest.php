@@ -250,10 +250,29 @@ class PublicFormTest extends TestCase
     public function test_a_required_question_must_be_answered(): void
     {
         $posttest = $this->publishedPosttest();
+        $answeredQuestion = $posttest->questions->first();
+        $answer = $answeredQuestion->choices->first();
+        $missingQuestion = $posttest->questions()->create([
+            'prompt' => 'Should unique passwords be used?', 'question_type' => 'true_false', 'points' => 10,
+        ]);
+        $missingQuestion->choices()->create(['label' => 'Yes', 'is_correct' => true]);
+        $missingQuestion->choices()->create(['label' => 'No', 'is_correct' => false]);
 
         $this->from($posttest->shareUrl())->post($posttest->shareUrl(), [
-            'full_name' => 'Maria Santos', 'email' => 'maria@example.com', 'privacy_acknowledged' => '1',
-        ])->assertSessionHasErrors('questions.'.$posttest->questions->first()->id);
+            'full_name' => 'Maria Santos', 'email' => 'maria@example.com', 'organization' => 'City Archives',
+            'privacy_acknowledged' => '1', 'questions' => [$answeredQuestion->id => $answer->id],
+        ])->assertSessionHasErrors('questions.'.$missingQuestion->id)
+            ->assertSessionHas('_old_input', [
+                'questions' => [$answeredQuestion->id => $answer->id],
+                'privacy_acknowledged' => '1',
+            ]);
+
+        $this->get($posttest->shareUrl())
+            ->assertOk()
+            ->assertSee('value="'.$answer->id.'" checked', false)
+            ->assertDontSee('value="Maria Santos"', false)
+            ->assertDontSee('value="maria@example.com"', false)
+            ->assertDontSee('value="City Archives"', false);
 
         $this->assertDatabaseCount('submissions', 0);
     }
