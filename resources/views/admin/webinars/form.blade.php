@@ -201,6 +201,13 @@
                 <input id="data_retention_days" class="field max-w-xs {{ $errors->has('data_retention_days') ? 'field-invalid' : '' }}" type="number" min="1" max="3650"
                        name="data_retention_days" value="{{ old('data_retention_days', $webinar->data_retention_days ?: \App\Models\Webinar::defaultRetentionDays()) }}" required>
                 <x-field-error :error="$errors->first('data_retention_days')" />
+                @if($webinar->retention_due_at)
+                    <div class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] leading-5 text-amber-900">
+                        The committed participant-data erasure deadline is
+                        <strong>{{ $webinar->retention_due_at->timezone($webinar->timezone ?: config('app.timezone'))->format('F j, Y \a\t g:i A T') }}</strong>.
+                        This deadline can be shortened but never extended.
+                    </div>
+                @endif
                 <div class="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-[12px] leading-5 text-slate-600">
                     <span class="flex items-start gap-2">
                         <x-icon name="shield" class="mt-px size-4 shrink-0 text-slate-400" />

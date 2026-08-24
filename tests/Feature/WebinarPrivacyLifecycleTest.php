@@ -46,6 +46,12 @@ class WebinarPrivacyLifecycleTest extends TestCase
         $this->assertTrue($webinar->retention_due_at->equalTo($committedDeadline));
 
         $this->actingAs($this->administrator)
+            ->get(route('admin.webinars.edit', $webinar))
+            ->assertOk()
+            ->assertSee($committedDeadline->format('F j, Y \a\t g:i A T'))
+            ->assertSee('This deadline can be shortened but never extended.');
+
+        $this->actingAs($this->administrator)
             ->from(route('admin.webinars.edit', $webinar))
             ->put(route('admin.webinars.update', $webinar), $this->updatePayload($webinar, [
                 'data_retention_days' => 8,
