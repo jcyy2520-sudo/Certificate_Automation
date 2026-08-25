@@ -16,25 +16,17 @@
         </tr>
     </table>
 
-    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
-        <tr>
-            <td style="background-color:#1d4ed8;border-radius:12px;">
-                <a href="{{ $verificationUrl }}" style="display:inline-block;padding:14px 28px;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;">Verify this certificate</a>
-            </td>
-        </tr>
-    </table>
+    <p style="margin:0 0 24px;font-size:14px;line-height:22px;">
+        Keep the verification code above. Quote it if you ever need us to confirm
+        this certificate or reissue it.
+    </p>
 
-    @if($statusUrl)
-        <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
-            <tr>
-                <td style="border:1px solid #1d4ed8;border-radius:12px;">
-                    <a href="{{ $statusUrl }}" style="display:inline-block;padding:13px 27px;color:#1d4ed8;font-size:15px;font-weight:600;text-decoration:none;">View your progress and certificate</a>
-                </td>
-            </tr>
-        </table>
-    @endif
-
+    @php($supportEmail = config('webinar.support_email'))
     <p style="margin:0;font-size:13px;line-height:20px;color:#64748b;">
-        Anyone can confirm this certificate is genuine at the address above. The public page shows only the event, issue date, and validity — never your contact details or assessment results.
+        Something wrong with your name or certificate? Reply to this message
+        @if($supportEmail)
+            or write to <a href="mailto:{{ $supportEmail }}" style="color:#1d4ed8;">{{ $supportEmail }}</a>
+        @endif
+        and we will sort it out.
     </p>
 @endsection

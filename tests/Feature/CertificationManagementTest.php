@@ -110,7 +110,7 @@ class CertificationManagementTest extends TestCase
         $this->actingAs($this->administrator)->put(route('admin.certification.design', $this->webinar), [
             'name_top' => 58, 'name_left' => 50, 'name_font_size' => 48,
             'name_font_family' => 'serif', 'accent' => '#7c3aed',
-        ])->assertRedirect();
+        ])->assertRedirect(route('admin.certification.edit', $this->webinar).'#participant-name-style');
         $template->refresh();
         $this->assertSame('#7c3aed', $template->layout['accent']);
         $this->assertSame(58, (int) $template->layout['name_top']);
@@ -127,6 +127,55 @@ class CertificationManagementTest extends TestCase
 
         // A preview must never persist a certificate.
         $this->assertDatabaseCount('certificates', 0);
+    }
+
+    public function test_saving_certificate_style_never_redirects_to_the_raw_background_image(): void
+    {
+        Storage::fake('local');
+        $template = $this->uploadedTemplate();
+
+        // Loading the protected image after the settings page reproduces the
+        // browser request order that can poison Laravel's session previous URL.
+        $this->actingAs($this->administrator)
+            ->get(route('admin.certification.edit', $this->webinar))
+            ->assertOk();
+        $this->actingAs($this->administrator)
+            ->get(route('admin.certification.background', $this->webinar))
+            ->assertOk();
+
+        $this->actingAs($this->administrator)
+            ->put(route('admin.certification.design', $this->webinar), [
+                'name_top' => 58,
+                'name_left' => 50,
+                'name_font_size' => 48,
+                'name_font_family' => 'serif',
+                'accent' => '#7c3aed',
+            ])
+            ->assertRedirect(route('admin.certification.edit', $this->webinar).'#participant-name-style')
+            ->assertSessionHas('success');
+
+        $this->assertSame('#7c3aed', $template->fresh()->layout['accent']);
+    }
+
+    public function test_the_pdf_canvas_uses_the_same_point_units_as_the_pdf_page(): void
+    {
+        $certificate = new Certificate([
+            'verification_code' => 'CERT-LAYOUT-TEST',
+            'recipient_name' => 'Layout Test',
+            'layout' => ['name_font_size' => 42],
+        ]);
+
+        $html = view('certificates.pdf-custom', [
+            'certificate' => $certificate,
+            'backgroundDataUri' => null,
+        ])->render();
+
+        // DomPDF's setPaper() dimensions are points. Using px here converts
+        // 595px to 446.25pt, stretching the background across only 75% of the
+        // page and leaving a large white strip underneath it.
+        $this->assertStringContainsString('height: 595pt;', $html);
+        $this->assertStringContainsString('font-size: 42pt;', $html);
+        $this->assertStringNotContainsString('height: 595px;', $html);
     }
 
     public function test_a_certificate_image_is_required_before_saving(): void
@@ -223,10 +272,15 @@ class CertificationManagementTest extends TestCase
         $this->assertSame('Wei Chen', $eligible->fresh()->full_name);
         $this->assertSame('Wei Chen', $certificate->recipient_name);
         $this->assertSame('issued', $certificate->status);
-        $this->assertStringContainsString(
-            route('forms.public.status', $registration->public_token),
-            (string) EmailDelivery::query()->where('certificate_id', $certificate->id)->sole()->payload['html'],
-        );
+        // The certificate email carries no link back into the application. Both
+        // the verification and status URLs are built from APP_URL at issue time
+        // and are baked into mail that has already been delivered, so an issued
+        // certificate would be permanently tied to whatever host was configured
+        // when it was sent. The verification code stays, as text, for support.
+        $html = (string) EmailDelivery::query()->where('certificate_id', $certificate->id)->sole()->payload['html'];
+        $this->assertStringContainsString($certificate->verification_code, $html);
+        $this->assertStringNotContainsString(route('forms.public.status', $registration->public_token), $html);
+        $this->assertStringNotContainsString(url('/'), $html);
 
         EmailDelivery::query()->where('certificate_id', $certificate->id)->delete();
         $certificate->update(['sent_at' => null]);

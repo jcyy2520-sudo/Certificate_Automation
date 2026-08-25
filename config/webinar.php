@@ -15,6 +15,10 @@ return [
         FILTER_VALIDATE_BOOL,
     ),
     'certificate_disk' => env('CERTIFICATE_DISK', env('FILESYSTEM_DISK', 'local')),
+
+    // Shown in the certificate email so a recipient with a problem has somewhere
+    // to write. Falls back to the sending address when not set separately.
+    'support_email' => env('SUPPORT_EMAIL') ?: env('MAIL_FROM_ADDRESS'),
     'email' => [
         'provider' => env('TRANSACTIONAL_EMAIL_PROVIDER', 'log'),
         'queue' => env('EMAIL_QUEUE', 'emails'),

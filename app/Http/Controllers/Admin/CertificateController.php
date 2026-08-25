@@ -185,7 +185,6 @@ class CertificateController extends Controller
 
         $disk = Storage::disk((string) $certificate->storage_disk);
         abort_unless($certificate->file_path && $disk->exists($certificate->file_path), 404, 'The stored certificate file is missing.');
-        $statusForm = $certificate->webinar->forms()->where('type', 'registration')->first(['public_token']);
 
         $notifications->queue(
             $certificate->webinar,
@@ -196,10 +195,6 @@ class CertificateController extends Controller
             view('emails.certificate-issued', [
                 'participant' => $participant,
                 'certificate' => $certificate,
-                'verificationUrl' => route('certificates.verify', $certificate->verification_code),
-                'statusUrl' => $statusForm
-                    ? route('forms.public.status', $statusForm->public_token)
-                    : null,
             ])->render(),
             $certificate,
             [['name' => 'certificate.pdf', 'content' => base64_encode($disk->get($certificate->file_path))]],
