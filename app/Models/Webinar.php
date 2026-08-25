@@ -155,6 +155,16 @@ class Webinar extends Model
         return $this->hasMany(CertificateBatch::class);
     }
 
+    public function imports()
+    {
+        return $this->hasMany(Import::class);
+    }
+
+    public function importIssues()
+    {
+        return $this->hasMany(ImportIssue::class);
+    }
+
     public function certificates()
     {
         return $this->hasMany(Certificate::class);

@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\AuditLog;
+use App\Models\ImportIssue;
 use App\Models\Participant;
 use App\Models\Webinar;
 use App\Services\ParticipantPrivacyService;
@@ -22,6 +23,7 @@ class EraseExpiredParticipantData extends Command
         $erased = 0;
         $erasedByWebinar = [];
         $failedErasures = 0;
+        $purgedImportIssues = 0;
         $missingDeadlines = Webinar::query()
             ->whereNull('retention_due_at')
             ->whereExists(function ($participants): void {
@@ -43,7 +45,7 @@ class EraseExpiredParticipantData extends Command
         Webinar::query()
             ->whereNotNull('retention_due_at')
             ->where('retention_due_at', '<=', now())
-            ->eachById(function (Webinar $webinar) use (&$erased, &$erasedByWebinar, &$failedErasures, $privacy): void {
+            ->eachById(function (Webinar $webinar) use (&$erased, &$erasedByWebinar, &$failedErasures, &$purgedImportIssues, $privacy): void {
                 $webinar->participants()
                     ->withTrashed()
                     ->whereNull('privacy_erased_at')
@@ -74,6 +76,17 @@ class EraseExpiredParticipantData extends Command
                             $erasedByWebinar[$participant->webinar_id] = ($erasedByWebinar[$participant->webinar_id] ?? 0) + 1;
                         }
                     });
+
+                // Rows an import could not attach to a participant have no
+                // participant to be erased through, so the sweep above cannot
+                // reach them. Purge them at the same deadline.
+                if ($this->option('dry-run')) {
+                    $purgedImportIssues += ImportIssue::query()
+                        ->where('webinar_id', $webinar->id)
+                        ->count();
+                } else {
+                    $purgedImportIssues += $privacy->eraseWebinarImports($webinar)['issues'];
+                }
             });
 
         if (! $this->option('dry-run')) {
@@ -89,6 +102,7 @@ class EraseExpiredParticipantData extends Command
 
         $verb = $this->option('dry-run') ? 'would be erased' : 'erased';
         $this->info("{$erased} participant record(s) {$verb}.");
+        $this->info("{$purgedImportIssues} import issue record(s) {$verb}.");
 
         if ($failedErasures > 0) {
             $this->error($failedErasures.' overdue participant record(s) require retry or operator intervention.');

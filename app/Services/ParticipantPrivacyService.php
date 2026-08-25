@@ -6,8 +6,11 @@ use App\Models\AuditLog;
 use App\Models\Certificate;
 use App\Models\EligibilityOverride;
 use App\Models\EmailDelivery;
+use App\Models\Import;
+use App\Models\ImportIssue;
 use App\Models\Participant;
 use App\Models\SubmissionAnswer;
+use App\Models\Webinar;
 use Illuminate\Support\Facades\DB;
 
 class ParticipantPrivacyService
@@ -114,6 +117,47 @@ class ParticipantPrivacyService
             if ($forceDelete) {
                 $participant->forceDelete();
             }
+        }, attempts: 3);
+    }
+
+    /**
+     * Erase the personal data an import left behind for one webinar.
+     *
+     * The per-participant sweep cannot reach this. An unmatched row belongs to
+     * someone who completed a test but never registered, so it has no
+     * participant to erase through, and it would otherwise outlive the
+     * retention deadline indefinitely.
+     *
+     * Issue rows carry the address and the original spreadsheet row, so they are
+     * deleted outright. The import rows keep their counts and timestamps as
+     * evidence the run happened, matching how a delivered EmailDelivery is
+     * retained with its message content removed.
+     *
+     * @return array{imports: int, issues: int}
+     */
+    public function eraseWebinarImports(Webinar $webinar): array
+    {
+        return DB::transaction(function () use ($webinar): array {
+            $importIds = Import::query()
+                ->where('webinar_id', $webinar->id)
+                ->whereNull('privacy_erased_at')
+                ->lockForUpdate()
+                ->pluck('id');
+
+            // Issues are deleted whether or not their import was already
+            // stamped, so a partially completed earlier run cannot strand them.
+            $issues = ImportIssue::query()->where('webinar_id', $webinar->id)->delete();
+
+            if ($importIds->isEmpty()) {
+                return ['imports' => 0, 'issues' => $issues];
+            }
+
+            $imports = Import::query()->whereIn('id', $importIds)->update([
+                'column_map' => null,
+                'privacy_erased_at' => now(),
+            ]);
+
+            return ['imports' => $imports, 'issues' => $issues];
         }, attempts: 3);
     }
 }
