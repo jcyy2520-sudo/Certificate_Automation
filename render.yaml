@@ -64,38 +64,30 @@ services:
       - key: DB_SSLROOTCERT
         sync: false
 
-      # --- Redis --------------------------------------------------------
-      # Three separate instances, because the app requires cache, sessions,
-      # and queues to be isolated and managed Redis usually pins you to
-      # database 0. One shared instance will fail the isolation check.
-      - key: REDIS_CLIENT
-        value: phpredis
-      - key: REDIS_CACHE_URL
-        fromService:
-          name: webinar-platform-cache
-          type: redis
-          property: connectionString
-      - key: REDIS_SESSION_URL
-        fromService:
-          name: webinar-platform-sessions
-          type: redis
-          property: connectionString
-      - key: REDIS_QUEUE_URL
-        fromService:
-          name: webinar-platform-queue
-          type: redis
-          property: connectionString
-
+      # --- Cache, sessions, queues -------------------------------------
+      # PostgreSQL-backed, not Redis. The free tier will not give you three
+      # separate Key Value instances, and the application requires cache,
+      # sessions, and queues to be isolated from one another -- one shared
+      # instance fails that check anyway. The sessions, cache, and jobs tables
+      # all ship in the migrations, so this needs no extra service.
+      #
+      # security:check --production will FAIL the three Redis checks with this
+      # configuration. Those checks exist to stop single-node storage from
+      # breaking a horizontally scaled deployment; on one free instance that
+      # scenario does not arise. Accept them knowingly, and switch to Redis
+      # when you move to a paid plan with more than one instance.
+      #
+      # Note: database sessions store raw IP and user-agent columns, which
+      # Redis sessions would not. That is a real privacy difference, not just
+      # a scaling one.
       - key: CACHE_STORE
-        value: redis
+        value: database
       - key: SESSION_DRIVER
-        value: redis
-      - key: SESSION_CONNECTION
-        value: session
+        value: database
       - key: QUEUE_CONNECTION
-        value: redis
+        value: database
       - key: EMAIL_QUEUE_CONNECTION
-        value: redis-emails
+        value: database-emails
 
       # --- Sessions and security ---------------------------------------
       - key: SESSION_LIFETIME
@@ -147,7 +139,8 @@ services:
         value: Webinar Platform
 
       # --- Queue timing -------------------------------------------------
-      - key: REDIS_QUEUE_RETRY_AFTER
+      # Must exceed the 1800s certificate job timeout.
+      - key: DB_QUEUE_RETRY_AFTER
         value: "2100"
       - key: EMAIL_QUEUE_RETRY_AFTER
         value: "120"
@@ -169,23 +162,6 @@ services:
         value: daily
       - key: LOG_LEVEL
         value: warning
-
-  # Managed Redis. Three instances keep cache, sessions, and queues isolated,
-  # so an emergency session flush cannot delete queued certificate jobs.
-  - type: redis
-    name: webinar-platform-cache
-    plan: free
-    ipAllowList: []
-
-  - type: redis
-    name: webinar-platform-sessions
-    plan: free
-    ipAllowList: []
-
-  - type: redis
-    name: webinar-platform-queue
-    plan: free
-    ipAllowList: []
 
 databases:
   - name: webinar-platform-db
