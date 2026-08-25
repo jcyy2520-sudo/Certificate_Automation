@@ -2,6 +2,18 @@
 
 These files implement the application-side portion of the production gate. Provider-side provisioning still has to be completed and evidenced by the infrastructure owner.
 
+## Server prerequisites
+
+PHP 8.3 with the extensions the runtime needs: `pdo_pgsql`, `gd` (certificate QR codes), `mbstring`, `openssl`, `fileinfo`, `intl`, `bcmath`, and `zip`.
+
+Redis needs a client library as well. `REDIS_CLIENT=phpredis` requires the `redis` PHP extension, which is **not** installed on most base images and is **not** a Composer dependency, so `composer install` cannot catch its absence:
+
+```bash
+sudo pecl install redis && echo "extension=redis.so" | sudo tee /etc/php/8.3/mods-available/redis.ini
+```
+
+If installing the extension is not an option, set `REDIS_CLIENT=predis` instead — `predis/predis` ships with the application and needs no extension. `php artisan security:check --production` fails when the selected client is not loadable, so this is caught at the gate rather than on the first request.
+
 ## Always-on services
 
 The `systemd` units assume the release is at `/var/www/webinar-platform/current`, PHP is `/usr/bin/php`, the service account is `www-data`, and production secrets are in `/etc/webinar-platform/runtime.env` with restrictive permissions. Adjust those four deployment-specific values before installation.

@@ -1,5 +1,5 @@
-# Production Deployment Checklist
 
+# Production Deployment Checklist
 Every item below maps to a failure or warning from the app's own preflight:
 
 ```bash
@@ -26,8 +26,9 @@ The hardened reference values already live in [`.env.example`](.env.example). Se
 | 8 | Session storage uses a dedicated connection | `SESSION_CONNECTION=session` + `REDIS_SESSION_DB=2`, so an emergency session flush cannot wipe queue/cache. |
 | 9 | Production cache uses Redis | `CACHE_STORE=redis`, using a cache database/cluster distinct from sessions. |
 | 10 | Redis data is isolated | Configure cache database 1, session database 2, and queue database 3. When URLs are used, set connection-specific `REDIS_CACHE_URL`, `REDIS_SESSION_URL`, and `REDIS_QUEUE_URL`; one shared URL path overrides the numbered settings. |
-| 11 | Backups and restore rehearsal have evidence | After provider backups and a successful restore drill, set `BACKUPS_ENABLED=true`, `BACKUP_LAST_RESTORE_AT`, and `BACKUP_RESTORE_REFERENCE`. |
-| 12 | Background services are alive | Start both queue workers and the scheduler; wait for their one-minute heartbeats. |
+| 11 | The configured Redis client is installed | `REDIS_CLIENT=phpredis` needs the `redis` PHP extension on the server. Install it (`pecl install redis` or the distro package) **or** set `REDIS_CLIENT=predis` to use the bundled pure-PHP client. Without one of these the app fatals on the first request. |
+| 12 | Backups and restore rehearsal have evidence | After provider backups and a successful restore drill, set `BACKUPS_ENABLED=true`, `BACKUP_LAST_RESTORE_AT`, and `BACKUP_RESTORE_REFERENCE`. |
+| 13 | Background services are alive | Start both queue workers and the scheduler; wait for their one-minute heartbeats. |
 
 Also confirm these are already correct (they were, on the last check):
 `APP_ENV=production`, `APP_DEBUG=false`, `APP_KEY` set, `SECURITY_REQUIRE_ADMIN_TWO_FACTOR=true`, `SESSION_ENCRYPT=true`, `SESSION_SAME_SITE=strict`, `SECURITY_CSP_REPORT_ONLY=false`, `QUEUE_CONNECTION=redis`, `EMAIL_QUEUE_CONNECTION=redis-emails`, `TRANSACTIONAL_EMAIL_PROVIDER=brevo` + a newly rotated `BREVO_API_KEY`.

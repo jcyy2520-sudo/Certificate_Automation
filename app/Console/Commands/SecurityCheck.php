@@ -82,6 +82,11 @@ class SecurityCheck extends Command
             $this->check(config('session.connection') === 'session', 'Session storage uses its dedicated Redis connection', 'Set SESSION_CONNECTION=session so emergency invalidation cannot flush queues or cache.');
             $this->check(($cacheStore['driver'] ?? null) === 'redis', 'Production cache uses Redis', 'Set CACHE_STORE=redis.');
             $this->check($this->redisDataIsIsolated($cacheStore, $queue, $emailQueue), 'Redis cache, sessions, and queues are isolated', 'Use separate Redis databases or clusters for cache, sessions, and queue data; avoid one shared REDIS_URL database path.');
+            $this->check(
+                $this->redisClientIsAvailable($cacheStore, $queue, $emailQueue),
+                'The configured Redis client is installed',
+                'REDIS_CLIENT=phpredis needs the `redis` PHP extension. Install it, or set REDIS_CLIENT=predis to use the bundled pure-PHP client.',
+            );
             $this->check(($queue['driver'] ?? null) !== 'sync', 'Background work uses an asynchronous queue', 'Use a database or Redis queue and run workers.');
             $this->check(
                 $this->visibilityTimeout($queue) > IssueCertificateBatch::TIMEOUT,
@@ -239,6 +244,36 @@ class SecurityCheck extends Command
         parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
 
         return $query[$option] ?? $configured;
+    }
+
+    /**
+     * A Redis driver is only usable when its client is actually loadable.
+     *
+     * The `redis` extension is absent from many base images, so `composer
+     * install` succeeds and the first web request then fatals on
+     * `Class "Redis" not found` while opening the session. Fail at the gate
+     * instead, where the remedy is obvious.
+     *
+     * @param  array<string, mixed>  $cacheStore
+     * @param  array<string, mixed>  $queue
+     * @param  array<string, mixed>  $emailQueue
+     */
+    private function redisClientIsAvailable(array $cacheStore, array $queue, array $emailQueue): bool
+    {
+        $usesRedis = config('session.driver') === 'redis'
+            || ($cacheStore['driver'] ?? null) === 'redis'
+            || ($queue['driver'] ?? null) === 'redis'
+            || ($emailQueue['driver'] ?? null) === 'redis';
+
+        if (! $usesRedis) {
+            return true;
+        }
+
+        return match ((string) config('database.redis.client', 'phpredis')) {
+            'phpredis' => extension_loaded('redis'),
+            'predis' => class_exists('Predis\Client'),
+            default => false,
+        };
     }
 
     /** @param array<string, mixed> $cacheStore @param array<string, mixed> $queue @param array<string, mixed> $emailQueue */

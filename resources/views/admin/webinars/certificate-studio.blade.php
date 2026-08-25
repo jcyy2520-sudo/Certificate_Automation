@@ -57,8 +57,11 @@
     @elseif($participants->isEmpty())
         <main class="studio-empty"><div><x-icon name="award" class="mx-auto size-10 text-slate-300" /><h2>No eligible certificates to load</h2><p>Add or select recipients from the participant table first. Names and email addresses are managed in one place.</p><a class="button-primary mt-5" href="{{ $backUrl }}#add-participant"><x-icon name="users" class="size-4" />Open participants</a></div></main>
     @else
-        @if($pipelineWarning)<div class="absolute left-1/2 top-[4.75rem] z-40 flex w-[min(92vw,720px)] -translate-x-1/2 items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] leading-5 text-amber-950 shadow-lg"><x-icon name="alert" class="mt-0.5 size-4 shrink-0" /><span><strong class="font-semibold">Delivery needs attention.</strong> {{ $pipelineWarning }}</span></div>@endif
-        <div class="relative flex min-h-0 flex-1">
+        @if($pipelineWarning)<div class="mx-auto mt-3 flex w-[min(92vw,720px)] shrink-0 items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] leading-5 text-amber-950 shadow-lg"><x-icon name="alert" class="mt-0.5 size-4 shrink-0" /><span><strong class="font-semibold">Delivery needs attention.</strong> {{ $pipelineWarning }}</span></div>@endif
+        {{-- Below `lg` the side panels sit off-canvas via translate-x-full. A transform
+             moves them visually but still counts toward the scroll area, so clip it here
+             or every narrow viewport scrolls sideways by the panel width. --}}
+        <div class="relative flex min-h-0 flex-1 overflow-hidden">
             <button type="button" class="absolute inset-0 z-40 hidden bg-slate-950/45 lg:hidden" data-panel-scrim aria-label="Close panel"></button>
 
             <aside class="studio-side-panel studio-left-panel" data-panel="certificates">
