@@ -1,0 +1,194 @@
+# Render Blueprint for the webinar platform.
+#
+# ONE web service runs nginx, php-fpm, both queue workers, and the scheduler
+# (RUN_WORKERS=true). Render's free tier has no Background Worker type, so this
+# combined layout is what makes a free/low-cost deployment possible at all.
+#
+# To split them later on a paid plan: set RUN_WORKERS=false here and add worker
+# services using the same image with RUN_WORKERS=true and no HTTP port.
+#
+# Render's Blueprint schema changes over time. Check this against the current
+# docs at https://render.com/docs/blueprint-spec before your first deploy —
+# `runtime:` was previously `env:`, and the Key Value type has been renamed.
+
+services:
+  - type: web
+    name: webinar-platform
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /up
+    envVars:
+      # --- Identity -----------------------------------------------------
+      - key: APP_NAME
+        value: Webinar Platform
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: "false"
+      # Generate with `php artisan key:generate --show` and paste into the
+      # Render dashboard. NEVER rotate it after go-live: every encrypted
+      # column, magic-link digest, and audit fingerprint is derived from it.
+      - key: APP_KEY
+        sync: false
+      # Set to your real Render URL once assigned, e.g.
+      # https://webinar-platform.onrender.com
+      - key: APP_URL
+        sync: false
+
+      # --- Behind Render's edge ----------------------------------------
+      # Render terminates TLS and forwards over HTTP. Without this the app
+      # sees an insecure request and stops sending HSTS. See the note in
+      # deploy/README.md — the preflight requires an exact proxy allowlist,
+      # which is the one place this app and Render do not fit cleanly.
+      - key: SECURITY_BEHIND_PROXY
+        sync: false
+      - key: APP_TRUSTED_PROXIES
+        sync: false
+      - key: SESSION_SECURE_COOKIE
+        value: "true"
+
+      # --- Database -----------------------------------------------------
+      - key: DB_CONNECTION
+        value: pgsql
+      - key: DB_URL
+        fromDatabase:
+          name: webinar-platform-db
+          property: connectionString
+      - key: MANAGED_POSTGRES
+        value: "true"
+      # Render provides a CA bundle for verified TLS. Until you install it and
+      # point DB_SSLROOTCERT at it, the preflight will fail this check.
+      - key: DB_SSLMODE
+        sync: false
+      - key: DB_SSLROOTCERT
+        sync: false
+
+      # --- Redis --------------------------------------------------------
+      # Three separate instances, because the app requires cache, sessions,
+      # and queues to be isolated and managed Redis usually pins you to
+      # database 0. One shared instance will fail the isolation check.
+      - key: REDIS_CLIENT
+        value: phpredis
+      - key: REDIS_CACHE_URL
+        fromService:
+          name: webinar-platform-cache
+          type: redis
+          property: connectionString
+      - key: REDIS_SESSION_URL
+        fromService:
+          name: webinar-platform-sessions
+          type: redis
+          property: connectionString
+      - key: REDIS_QUEUE_URL
+        fromService:
+          name: webinar-platform-queue
+          type: redis
+          property: connectionString
+
+      - key: CACHE_STORE
+        value: redis
+      - key: SESSION_DRIVER
+        value: redis
+      - key: SESSION_CONNECTION
+        value: session
+      - key: QUEUE_CONNECTION
+        value: redis
+      - key: EMAIL_QUEUE_CONNECTION
+        value: redis-emails
+
+      # --- Sessions and security ---------------------------------------
+      - key: SESSION_LIFETIME
+        value: "30"
+      - key: SESSION_ENCRYPT
+        value: "true"
+      - key: SESSION_SAME_SITE
+        value: strict
+      - key: SESSION_EXPIRE_ON_CLOSE
+        value: "true"
+      - key: SECURITY_REQUIRE_ADMIN_TWO_FACTOR
+        value: "true"
+      - key: SECURITY_ALLOW_ADMIN_REMEMBER_ME
+        value: "false"
+      - key: SECURITY_REQUIRE_SENSITIVE_ACTION_PASSWORD_CONFIRMATION
+        value: "true"
+      - key: SECURITY_CSP_REPORT_ONLY
+        value: "false"
+
+      # --- Certificate storage -----------------------------------------
+      # MUST be s3. Render's filesystem is ephemeral: with the local disk,
+      # every issued certificate PDF is destroyed on each deploy and restart
+      # while its database row still reads "issued".
+      - key: CERTIFICATE_DISK
+        value: s3
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_BUCKET
+        sync: false
+      - key: AWS_DEFAULT_REGION
+        sync: false
+      - key: AWS_ENDPOINT
+        sync: false
+      - key: AWS_USE_PATH_STYLE_ENDPOINT
+        value: "false"
+
+      # --- Email --------------------------------------------------------
+      - key: TRANSACTIONAL_EMAIL_PROVIDER
+        value: brevo
+      - key: BREVO_API_KEY
+        sync: false
+      - key: BREVO_API_URL
+        value: https://api.brevo.com/v3
+      - key: MAIL_FROM_ADDRESS
+        sync: false
+      - key: MAIL_FROM_NAME
+        value: Webinar Platform
+
+      # --- Queue timing -------------------------------------------------
+      - key: REDIS_QUEUE_RETRY_AFTER
+        value: "2100"
+      - key: EMAIL_QUEUE_RETRY_AFTER
+        value: "120"
+      - key: QUEUE_FAILED_DRIVER
+        value: database-uuids
+
+      # --- Container behaviour ------------------------------------------
+      - key: RUN_WORKERS
+        value: "true"
+      # Single instance only. With more than one, migrate from a pre-deploy
+      # step instead so two containers cannot migrate simultaneously.
+      - key: RUN_MIGRATIONS
+        value: "true"
+
+      # --- Logging ------------------------------------------------------
+      - key: LOG_CHANNEL
+        value: stack
+      - key: LOG_STACK
+        value: daily
+      - key: LOG_LEVEL
+        value: warning
+
+  # Managed Redis. Three instances keep cache, sessions, and queues isolated,
+  # so an emergency session flush cannot delete queued certificate jobs.
+  - type: redis
+    name: webinar-platform-cache
+    plan: free
+    ipAllowList: []
+
+  - type: redis
+    name: webinar-platform-sessions
+    plan: free
+    ipAllowList: []
+
+  - type: redis
+    name: webinar-platform-queue
+    plan: free
+    ipAllowList: []
+
+databases:
+  - name: webinar-platform-db
+    databaseName: webinar_platform
+    user: webinar_platform
+    plan: free

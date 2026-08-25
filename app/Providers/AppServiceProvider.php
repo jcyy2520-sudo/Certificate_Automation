@@ -113,15 +113,15 @@ class AppServiceProvider extends ServiceProvider
             return [
                 Limit::perMinute(3)->by("participant-access:pair:{$emailKey}:{$ipKey}"),
                 Limit::perMinute(10)->by("participant-access:email:{$emailKey}"),
-                Limit::perHour(12)->by("participant-access:email-hour:{$emailKey}"),
-                Limit::perDay(30)->by("participant-access:email-day:{$emailKey}"),
+                Limit::perHour((int) config('security.rate_limits.participant_access_email_per_hour'))->by("participant-access:email-hour:{$emailKey}"),
+                Limit::perDay((int) config('security.rate_limits.participant_access_email_per_day'))->by("participant-access:email-day:{$emailKey}"),
                 Limit::perMinute((int) config('security.rate_limits.participant_access_ip_per_minute'))->by("participant-access:ip:{$ipKey}"),
                 // Provider-budget circuit breakers limit distributed address
                 // spraying even when every request uses a new email and origin.
                 Limit::perMinute((int) config('security.rate_limits.participant_access_global_per_minute'))->by('participant-access:global-minute'),
-                Limit::perHour(2000)->by('participant-access:global-hour'),
-                Limit::perDay(10000)->by('participant-access:global-day'),
-                Limit::perHour(1000)->by("participant-access:form-hour:{$formKey}"),
+                Limit::perHour((int) config('security.rate_limits.participant_access_global_per_hour'))->by('participant-access:global-hour'),
+                Limit::perDay((int) config('security.rate_limits.participant_access_global_per_day'))->by('participant-access:global-day'),
+                Limit::perHour((int) config('security.rate_limits.participant_access_form_per_hour'))->by("participant-access:form-hour:{$formKey}"),
             ];
         });
 

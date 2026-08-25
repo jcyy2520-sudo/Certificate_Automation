@@ -1,0 +1,60 @@
+# Secrets must never enter an image layer. Configuration is injected as
+# environment variables by the platform at runtime.
+.env
+.env.*
+!.env.example
+auth.json
+*.pem
+*.key
+
+# Rebuilt inside the image. Copying the local trees in would overwrite the
+# --no-dev vendor directory and the freshly compiled assets.
+vendor
+node_modules
+public/build
+public/hot
+public/storage
+
+# Local state that must not leak into a release.
+storage/app/private
+storage/app/public
+storage/framework/cache
+storage/framework/sessions
+storage/framework/views
+storage/logs
+bootstrap/cache
+database/*.sqlite
+database/*.sqlite-journal
+
+# Throwaway visual-review snapshots. These render admin pages to static HTML
+# and have no place in a production image.
+public/_preview
+
+# Tests and their artefacts.
+tests
+test-results
+playwright-report
+blob-report
+.playwright
+.phpunit.cache
+.phpunit.result.cache
+phpunit.xml
+playwright.config.js
+vitest.config.js
+
+# Repository and editor metadata.
+.git
+.gitignore
+.gitattributes
+.github
+.claude
+.idea
+.vscode
+.zed
+.fleet
+.nova
+.editorconfig
+
+# Documentation is not needed at runtime.
+*.md
+!deploy/README.md

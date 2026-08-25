@@ -18,6 +18,16 @@ return [
         'participant_access_ip_per_minute' => (int) env('PARTICIPANT_ACCESS_IP_PER_MINUTE', 600),
         'participant_access_global_per_minute' => (int) env('PARTICIPANT_ACCESS_GLOBAL_PER_MINUTE', 500),
         'participant_access_confirm_ip_per_minute' => (int) env('PARTICIPANT_ACCESS_CONFIRM_IP_PER_MINUTE', 600),
+
+        // Longer-window budgets for participant access links. The defaults are
+        // sized for routine events; a single large webinar can legitimately
+        // exceed the per-form hourly budget, so raise these deliberately rather
+        // than letting real attendees collect HTTP 429 at the door.
+        'participant_access_form_per_hour' => (int) env('PARTICIPANT_ACCESS_FORM_PER_HOUR', 1000),
+        'participant_access_global_per_hour' => (int) env('PARTICIPANT_ACCESS_GLOBAL_PER_HOUR', 2000),
+        'participant_access_global_per_day' => (int) env('PARTICIPANT_ACCESS_GLOBAL_PER_DAY', 10000),
+        'participant_access_email_per_hour' => (int) env('PARTICIPANT_ACCESS_EMAIL_PER_HOUR', 12),
+        'participant_access_email_per_day' => (int) env('PARTICIPANT_ACCESS_EMAIL_PER_DAY', 30),
     ],
 
     'require_admin_two_factor' => (bool) env('SECURITY_REQUIRE_ADMIN_TWO_FACTOR', true),
