@@ -32,7 +32,7 @@
     </x-slot:meta>
     <x-slot:actions>
         <a class="button-secondary" target="_blank" rel="noopener" href="{{ route('admin.certification.preview', $webinar) }}"><x-icon name="external" class="size-4" />Preview PDF</a>
-        <a class="button-primary" href="{{ route('admin.certificates.studio', $webinar) }}"><x-icon name="send" class="size-4" />Send certificates</a>
+        <a class="button-success" href="{{ route('admin.certificates.studio', $webinar) }}"><x-icon name="send" class="size-4" />Send certificates</a>
     </x-slot:actions>
 </x-page-header>
 

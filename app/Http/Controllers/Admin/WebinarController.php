@@ -71,11 +71,13 @@ class WebinarController extends Controller
                 ['type' => 'evaluation', 'title' => 'Event evaluation', 'status' => 'draft'],
             ])->each(fn (array $form) => $webinar->forms()->create($form));
 
-            EligibilityRule::query()->create([
-                'webinar_id' => $webinar->id,
-                'requirement' => 'registration',
-                'is_required' => true,
-            ]);
+            collect(['pretest', 'posttest', 'evaluation'])->each(function (string $requirement) use ($webinar): void {
+                EligibilityRule::query()->create([
+                    'webinar_id' => $webinar->id,
+                    'requirement' => $requirement,
+                    'is_required' => true,
+                ]);
+            });
 
             CertificateTemplate::query()->create([
                 'webinar_id' => $webinar->id,

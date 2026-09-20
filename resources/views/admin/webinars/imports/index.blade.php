@@ -115,7 +115,7 @@
                     @if($issue->issue_type === \App\Models\ImportIssue::TYPE_UNMATCHED_EMAIL)
                         <form method="POST" action="{{ route('admin.webinars.import-issues.promote', [$webinar, $issue]) }}">
                             @csrf
-                            <button class="button-primary !py-1.5 text-[12px]"><x-icon name="check" class="size-3.5" />Add participant &amp; attach</button>
+                            <button class="button-success !py-1.5 text-[12px]"><x-icon name="check" class="size-3.5" />Add participant &amp; attach</button>
                         </form>
                     @endif
                     <form method="POST" action="{{ route('admin.webinars.import-issues.dismiss', [$webinar, $issue]) }}"

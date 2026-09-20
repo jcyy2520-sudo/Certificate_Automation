@@ -7,10 +7,10 @@
     <meta name="robots" content="noindex, nofollow, noarchive">
     <title>@yield('title', config('app.name'))</title>
     {{-- Applied before paint so the rail never flashes at the wrong width. --}}
-    <script nonce="{{ $cspNonce }}">try{if(localStorage.getItem('rail')==='open'){document.documentElement.classList.add('rail-open')}}catch(e){}</script>
+    <script nonce="{{ $cspNonce }}">try{if(localStorage.getItem('rail')==='open'){document.documentElement.classList.add('rail-open')}}catch(e){}try{var t=localStorage.getItem('theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark')}else{document.documentElement.classList.remove('dark')}}catch(e){}</script>
     @vite('resources/css/app.css')
 </head>
-<body class="bg-transparent text-slate-900">
+<body class="bg-transparent text-slate-900 dark:text-slate-100">
 <div class="flex min-h-screen">
 
     @include('partials.admin-rail')

@@ -85,6 +85,10 @@
                     @endforeach
                 </select>
             </label>
+            <button type="button" class="studio-icon-button ml-1 hidden sm:inline-flex" data-theme-toggle title="Toggle theme" aria-label="Toggle theme">
+                <x-icon name="sun" class="size-4 hidden dark:block text-amber-400" />
+                <x-icon name="moon" class="size-4 block dark:hidden" />
+            </button>
         </div>
 
         <div class="flex flex-1 items-center justify-end gap-1.5 sm:gap-2">
@@ -92,7 +96,7 @@
                 <form method="POST" action="{{ route('admin.certificates.batch', $webinar) }}"
                       class="hidden sm:inline-flex"
                       data-confirm="Queue certificate generation and email delivery for every ready participant ({{ $bulkReadyCount }} total)? The template's default style is used — per-recipient style adjustments made here are not applied to a bulk send."
-                      data-confirm-tone="neutral"
+                      data-confirm-tone="success"
                       data-confirm-action="Send to all ready"
                       data-confirm-title="Send to all ready participants">
                     @csrf
@@ -104,7 +108,7 @@
                 </form>
             @endif
             <a class="studio-button-secondary hidden sm:inline-flex" target="_blank" rel="noopener" href="{{ route('admin.certification.preview', $webinar, ['name' => $firstName]) }}" data-preview-pdf><x-icon name="download" class="size-4" />Preview PDF</a>
-            <button type="button" class="studio-button-primary" data-open-send-confirm disabled><x-icon name="send" class="size-4" /><span class="hidden sm:inline" data-send-label>Send certificates</span><span class="sm:hidden">Send</span></button>
+            <button type="button" class="studio-button-success" data-open-send-confirm disabled><x-icon name="send" class="size-4" /><span class="hidden sm:inline" data-send-label>Send certificates</span><span class="sm:hidden">Send</span></button>
             <button type="button" class="studio-mobile-panel-button lg:hidden" data-toggle-panel="people" aria-label="Open recipients"><x-icon name="users" class="size-4" /></button>
             <button type="button" class="studio-mobile-panel-button lg:hidden" data-toggle-panel="editor" aria-label="Open editor"><x-icon name="type" class="size-4" /></button>
         </div>
@@ -368,5 +372,5 @@
     </form>
 </div>
 
-<div class="fixed inset-0 z-[100] hidden items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm" data-send-confirm hidden role="dialog" aria-modal="true" aria-labelledby="send-confirm-title"><div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"><div class="flex size-11 items-center justify-center rounded-full bg-amber-100 text-amber-900"><x-icon name="send" class="size-5" /></div><h2 class="mt-4 text-lg font-semibold" id="send-confirm-title">Send certificates?</h2><p class="mt-1 text-[13px] leading-5 text-slate-500">You are about to queue certificate delivery to <strong class="text-slate-900" data-confirm-count>0 participants</strong>.</p><dl class="mt-5 divide-y divide-slate-100 rounded-xl border border-slate-200 px-4 text-[12px]"><div class="flex justify-between py-3"><dt class="text-slate-500">Total certificates</dt><dd class="font-semibold tabular-nums" data-confirm-total>0</dd></div><div class="flex justify-between py-3"><dt class="text-slate-500">Valid email addresses</dt><dd class="font-semibold tabular-nums" data-confirm-valid>{{ $validEmailCount }}</dd></div><div class="flex justify-between py-3"><dt class="text-slate-500">Already sent</dt><dd class="font-semibold tabular-nums">{{ $sentCount }}</dd></div><div class="flex justify-between py-3"><dt class="text-slate-500">Certificates skipped</dt><dd class="font-semibold tabular-nums" data-confirm-skipped>0</dd></div></dl><p class="mt-4 rounded-lg bg-amber-50/60 p-3 text-[11px] leading-5 text-slate-600">After confirmation, the certificate first enters the generation queue, then the email queue. This studio shows each stage until the email provider accepts it.</p><div class="mt-6 flex justify-end gap-2"><button type="button" class="button-secondary" data-cancel-send>Cancel</button><button type="button" class="button-primary" data-confirm-send><x-icon name="send" class="size-4" />Confirm &amp; queue</button></div></div></div>
+<div class="fixed inset-0 z-[100] hidden items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm" data-send-confirm hidden role="dialog" aria-modal="true" aria-labelledby="send-confirm-title"><div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"><div class="flex size-11 items-center justify-center rounded-full bg-amber-100 text-amber-900"><x-icon name="send" class="size-5" /></div><h2 class="mt-4 text-lg font-semibold" id="send-confirm-title">Send certificates?</h2><p class="mt-1 text-[13px] leading-5 text-slate-500">You are about to queue certificate delivery to <strong class="text-slate-900" data-confirm-count>0 participants</strong>.</p><dl class="mt-5 divide-y divide-slate-100 rounded-xl border border-slate-200 px-4 text-[12px]"><div class="flex justify-between py-3"><dt class="text-slate-500">Total certificates</dt><dd class="font-semibold tabular-nums" data-confirm-total>0</dd></div><div class="flex justify-between py-3"><dt class="text-slate-500">Valid email addresses</dt><dd class="font-semibold tabular-nums" data-confirm-valid>{{ $validEmailCount }}</dd></div><div class="flex justify-between py-3"><dt class="text-slate-500">Already sent</dt><dd class="font-semibold tabular-nums">{{ $sentCount }}</dd></div><div class="flex justify-between py-3"><dt class="text-slate-500">Certificates skipped</dt><dd class="font-semibold tabular-nums" data-confirm-skipped>0</dd></div></dl><p class="mt-4 rounded-lg bg-amber-50/60 p-3 text-[11px] leading-5 text-slate-600">After confirmation, the certificate first enters the generation queue, then the email queue. This studio shows each stage until the email provider accepts it.</p><div class="mt-6 flex justify-end gap-2"><button type="button" class="button-secondary" data-cancel-send>Cancel</button><button type="button" class="button-success" data-confirm-send><x-icon name="send" class="size-4" />Confirm &amp; queue</button></div></div></div>
 @endsection

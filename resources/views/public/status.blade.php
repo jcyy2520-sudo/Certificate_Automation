@@ -57,7 +57,7 @@
             @endif
         </div>
         @if($certificate)
-            <a class="button-primary shrink-0" href="{{ route('forms.public.status.certificate.download', [$form->public_token, $certificate->public_id]) }}">Download certificate</a>
+            <a class="button-success shrink-0" href="{{ route('forms.public.status.certificate.download', [$form->public_token, $certificate->public_id]) }}">Download certificate</a>
         @else
             <span class="badge badge-slate shrink-0">Not available</span>
         @endif

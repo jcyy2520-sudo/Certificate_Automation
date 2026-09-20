@@ -37,8 +37,10 @@ class AppServiceProvider extends ServiceProvider
         // Resolve this from cached configuration, not directly from .env. The
         // middleware is part of Laravel's default global stack; this sets its
         // exact IP/CIDR allowlist before the first request is handled.
-        if (config('security.behind_proxy') && config('app.trusted_proxies') !== []) {
-            TrustProxies::at(config('app.trusted_proxies'));
+        $trustedProxies = config('app.trusted_proxies', []);
+
+        if (config('security.behind_proxy') && is_array($trustedProxies) && $trustedProxies !== []) {
+            TrustProxies::at($trustedProxies);
         }
 
         RateLimiter::for('public-form-view', fn (Request $request): Limit => Limit::perMinute(

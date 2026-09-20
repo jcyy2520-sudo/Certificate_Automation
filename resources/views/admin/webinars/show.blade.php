@@ -18,7 +18,7 @@
     </x-slot:meta>
     <x-slot:actions>
         <a class="button-secondary" href="{{ route('admin.webinars.reports', $webinar) }}"><x-icon name="bar-chart" class="size-4" />Reports</a>
-        <a class="button-primary" href="{{ route('admin.webinars.edit', $webinar) }}"><x-icon name="settings" class="size-4" />Settings</a>
+        <a class="button-secondary" href="{{ route('admin.webinars.edit', $webinar) }}"><x-icon name="settings" class="size-4" />Settings</a>
     </x-slot:actions>
 </x-page-header>
 
@@ -80,7 +80,7 @@
                 <input id="registration-link" class="field mt-0 flex-1 font-mono text-[13px]" value="{{ $registrationForm->shareUrl() }}" readonly data-select-on-click aria-label="Registration link">
                 <div class="flex gap-2">
                     <button type="button" class="button-secondary shrink-0" data-copy-target="#registration-link" data-copy-label="Copy link" data-copy-success="Link copied"><x-icon name="copy" class="size-4" />Copy link</button>
-                    <a class="button-primary shrink-0" target="_blank" rel="noopener" href="{{ $registrationForm->shareUrl() }}"><x-icon name="external" class="size-4" />Open registration page</a>
+                    <a class="button-secondary shrink-0" target="_blank" rel="noopener" href="{{ $registrationForm->shareUrl() }}"><x-icon name="external" class="size-4" />Open registration page</a>
                 </div>
             </div>
 

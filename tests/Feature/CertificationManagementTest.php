@@ -54,7 +54,11 @@ class CertificationManagementTest extends TestCase
             ['registration', 'pretest', 'posttest', 'evaluation'],
             $webinar->forms->pluck('type')->all(),
         );
-        $this->assertSame(1, $webinar->eligibilityRules()->where('requirement', 'registration')->count());
+        $this->assertSame(0, $webinar->eligibilityRules()->where('requirement', 'registration')->count());
+        $this->assertEqualsCanonicalizing(
+            ['pretest', 'posttest', 'evaluation'],
+            $webinar->eligibilityRules()->where('is_required', true)->pluck('requirement')->all(),
+        );
         $this->assertSame(1, $webinar->certificateTemplates()->where('is_active', true)->count());
     }
 

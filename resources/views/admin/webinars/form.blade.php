@@ -43,7 +43,7 @@
 <x-page-header :title="$webinar->exists ? 'Webinar settings' : 'New webinar'" :crumbs="$crumbs"
                :subtitle="$webinar->exists ? null : 'Creating a webinar also sets up its four forms, a default requirement, and a certificate template.'" />
 
-<form method="POST" action="{{ $webinar->exists ? route('admin.webinars.update', $webinar) : route('admin.webinars.store') }}" class="max-w-2xl">
+<form method="POST" action="{{ $webinar->exists ? route('admin.webinars.update', $webinar) : route('admin.webinars.store') }}" class="w-full max-w-5xl">
     @csrf
     @if($webinar->exists)@method('PUT')@endif
 

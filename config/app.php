@@ -1,5 +1,7 @@
 <?php
 
+use App\Support\TrustedProxyConfiguration;
+
 return [
 
     /*
@@ -53,6 +55,15 @@ return [
     */
 
     'url' => env('APP_URL', 'http://localhost'),
+
+    // Forwarded headers are accepted only when SECURITY_BEHIND_PROXY is enabled
+    // and this resolves to a non-empty exact IP/CIDR allowlist. Do not use
+    // Laravel's *, REMOTE_ADDR, or any /0 catch-all proxy shortcuts here.
+    'trusted_proxies' => TrustedProxyConfiguration::proxies((string) env('APP_TRUSTED_PROXIES', '')),
+
+    // Additional exact host aliases for the host-header allowlist. The APP_URL
+    // host is added separately during middleware bootstrap.
+    'trusted_hosts' => TrustedProxyConfiguration::hosts((string) env('APP_TRUSTED_HOSTS', '')),
 
     /*
     |--------------------------------------------------------------------------

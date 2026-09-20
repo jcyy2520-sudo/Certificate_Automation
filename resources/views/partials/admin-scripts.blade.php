@@ -164,8 +164,11 @@
             var iconWrap = confirmModal.querySelector('[data-confirm-icon]');
             var accept = confirmModal.querySelector('[data-confirm-accept]');
             if (tone === 'danger') {
-                iconWrap.className = 'modal-icon bg-red-50 text-red-600';
+                iconWrap.className = 'modal-icon bg-rose-50 text-rose-600';
                 accept.className = 'button-danger-solid sm:min-w-24';
+            } else if (tone === 'success') {
+                iconWrap.className = 'modal-icon bg-emerald-50 text-emerald-600';
+                accept.className = 'button-success sm:min-w-24';
             } else {
                 iconWrap.className = 'modal-icon bg-accent-50 text-accent-600';
                 accept.className = 'button-primary sm:min-w-24';
@@ -342,6 +345,17 @@
             group.addEventListener('toggle', function () {
                 try { localStorage.setItem(key, group.open ? 'open' : 'closed'); } catch (e) {}
             });
+        });
+
+        // Global theme toggle persistence
+        document.addEventListener('click', function (e) {
+            var btn = e.target.closest('[data-theme-toggle]');
+            if (btn) {
+                var isDark = document.documentElement.classList.toggle('dark');
+                try {
+                    localStorage.setItem('theme', isDark ? 'dark' : 'light');
+                } catch (e) {}
+            }
         });
     })();
 </script>

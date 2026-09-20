@@ -128,7 +128,7 @@
     </section>
 
     <div class="mt-6 flex items-center gap-3">
-        <button class="button-primary"><x-icon name="check" class="size-4" />Import responses</button>
+        <button class="button-success"><x-icon name="check" class="size-4" />Import responses</button>
         <button class="button-secondary" type="submit" formmethod="POST" formaction="{{ route('admin.webinars.imports.dry-run', [$webinar, $import]) }}"><x-icon name="eye" class="size-4" />Run dry check</button>
         <a class="button-secondary" href="{{ route('admin.webinars.imports.index', $webinar) }}">Not now</a>
     </div>

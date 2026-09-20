@@ -18,7 +18,7 @@
         <form method="POST" action="{{ route('admin.participants.attendance', [$webinar, $participant]) }}">@csrf
             <button class="button-secondary"><x-icon name="check-circle" class="size-4" />{{ $participant->checked_in_at ? 'Remove attendance' : 'Mark present' }}</button>
         </form>
-        <a class="button-primary" href="{{ route('admin.certificates.studio', ['webinar' => $webinar, 'manual' => $participant->public_id]) }}">
+        <a class="button-success" href="{{ route('admin.certificates.studio', ['webinar' => $webinar, 'manual' => $participant->public_id]) }}">
             <x-icon name="award" class="size-4" />Send certificate
         </a>
     </x-slot:actions>

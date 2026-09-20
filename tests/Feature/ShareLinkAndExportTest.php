@@ -91,6 +91,15 @@ class ShareLinkAndExportTest extends TestCase
         $registration = $this->webinar->forms->firstWhere('type', 'registration');
 
         $this->post($registration->shareUrl(), ['full_name' => 'Done Dana', 'email' => 'dana@example.com', 'privacy_acknowledged' => '1']);
+        $dana = Participant::query()->where('email_normalized', 'dana@example.com')->firstOrFail();
+        foreach (['pretest', 'posttest', 'evaluation'] as $type) {
+            $this->webinar->forms->firstWhere('type', $type)->submissions()->create([
+                'participant_id' => $dana->id,
+                'attempt_number' => 1,
+                'status' => 'submitted',
+                'submitted_at' => now(),
+            ]);
+        }
         Participant::query()->create([
             'webinar_id' => $this->webinar->id, 'full_name' => 'Missing Marco', 'email' => 'marco@example.com',
         ]);
@@ -126,6 +135,15 @@ class ShareLinkAndExportTest extends TestCase
             'full_name' => 'Done Dana', 'email' => 'dana@example.com',
             'organization' => 'City Health', 'privacy_acknowledged' => '1',
         ]);
+        $dana = Participant::query()->where('email_normalized', 'dana@example.com')->firstOrFail();
+        foreach (['pretest', 'posttest', 'evaluation'] as $type) {
+            $this->webinar->forms->firstWhere('type', $type)->submissions()->create([
+                'participant_id' => $dana->id,
+                'attempt_number' => 1,
+                'status' => 'submitted',
+                'submitted_at' => now(),
+            ]);
+        }
         Participant::query()->create([
             'webinar_id' => $this->webinar->id, 'full_name' => 'Missing Marco', 'email' => 'marco@example.com',
         ]);

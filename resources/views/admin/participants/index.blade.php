@@ -71,9 +71,9 @@
 </p>
 
 <form method="GET" action="{{ route('admin.certificates.studio', $webinar) }}" data-participant-certificate-selection>
-<div class="mb-3 flex flex-col gap-3 rounded-2xl border border-amber-200/70 bg-amber-50/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+<div class="mb-3 flex flex-col gap-3 rounded-2xl border border-indigo-100 bg-indigo-50/40 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
     <div><p class="text-[13px] font-semibold text-slate-900">Certificate sending</p><p class="text-[11px] text-slate-500">Select eligible participants, then review every certificate in the full-screen studio.</p></div>
-    <button class="button-primary" disabled data-open-certificate-studio><x-icon name="send" class="size-4" />Send certificates <span class="rounded bg-white/15 px-1.5 py-0.5 text-[10px]" data-participant-selection-count>0</span></button>
+    <button class="button-success" disabled data-open-certificate-studio><x-icon name="send" class="size-4" />Send certificates <span class="rounded bg-white/15 px-1.5 py-0.5 text-[10px]" data-participant-selection-count>0</span></button>
 </div>
 <div class="panel overflow-hidden">
     <div class="overflow-x-auto">

@@ -59,6 +59,8 @@
         'align-top' => '<path d="M4 4h16"/><rect x="7" y="8" width="4" height="11" rx="1"/><rect x="13.5" y="8" width="4" height="7" rx="1"/>',
         'align-middle' => '<path d="M4 12h16"/><rect x="7" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="8" width="4" height="8" rx="1"/>',
         'align-bottom' => '<path d="M4 20h16"/><rect x="7" y="5" width="4" height="11" rx="1"/><rect x="13.5" y="9" width="4" height="7" rx="1"/>',
+        'sun' => '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
+        'moon' => '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
     ];
 @endphp
 <svg {{ $attributes->merge(['class' => 'size-5', 'aria-hidden' => 'true']) }}

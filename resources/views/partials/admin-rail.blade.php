@@ -9,10 +9,9 @@
         ['route' => 'admin.two-factor.show', 'icon' => 'shield', 'label' => 'Security', 'active' => request()->routeIs('admin.two-factor.*')],
     ];
 @endphp
-<aside class="rail sticky top-0 z-30 flex h-screen shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-white">
-    <div class="flex h-[76px] shrink-0 items-center gap-3 px-[18px]">
-        <span class="grid size-10 shrink-0 place-items-center rounded-xl bg-slate-950 text-[15px] font-bold text-white shadow-sm">W</span>
-        <span class="rail-label truncate text-[13px] font-semibold text-slate-900">{{ config('app.name') }}</span>
+<aside class="rail sticky top-0 z-30 flex h-screen shrink-0 flex-col overflow-hidden border-r border-slate-800/80 bg-slate-950 text-slate-300">
+    <div class="flex h-[76px] shrink-0 items-center px-5">
+        <span class="rail-label truncate text-[14px] font-bold tracking-tight text-white">{{ config('app.name') }}</span>
     </div>
 
     <nav class="mt-2 flex flex-1 flex-col gap-1 px-3.5">
@@ -26,18 +25,27 @@
             </a>
         @endforeach
 
-        <button type="button" class="rail-item mt-auto mb-1" data-rail-toggle aria-expanded="false" aria-label="Toggle sidebar">
+        <button type="button" class="rail-item mt-auto" data-theme-toggle aria-label="Toggle theme" title="Toggle theme">
+            <x-icon name="sun" class="hidden dark:block text-amber-400" />
+            <x-icon name="moon" class="block dark:hidden" />
+            <span class="rail-label">
+                <span class="block dark:hidden">Dark mode</span>
+                <span class="hidden dark:block">Light mode</span>
+            </span>
+        </button>
+
+        <button type="button" class="rail-item mb-1" data-rail-toggle aria-expanded="false" aria-label="Toggle sidebar">
             <x-icon name="panel-left" />
             <span class="rail-label">Collapse</span>
         </button>
     </nav>
 
-    <div class="shrink-0 border-t border-slate-100 p-3.5">
+    <div class="shrink-0 border-t border-slate-800/80 p-3.5">
         <div class="flex items-center gap-3 px-[3px]">
-            <span class="grid size-9 shrink-0 place-items-center rounded-full bg-slate-100 text-[13px] font-semibold text-slate-700">
+            <span class="grid size-9 shrink-0 place-items-center rounded-full bg-slate-800 text-[13px] font-semibold text-slate-200">
                 {{ Str::upper(Str::substr(auth()->user()->name, 0, 1)) }}
             </span>
-            <span class="rail-label min-w-0 text-[13px] font-medium leading-4 text-slate-900">
+            <span class="rail-label min-w-0 text-[13px] font-medium leading-4 text-white">
                 {{ Str::limit(auth()->user()->name, 18) }}
                 <span class="block truncate text-[11px] font-normal text-slate-400">{{ Str::limit(auth()->user()->email, 22) }}</span>
             </span>
