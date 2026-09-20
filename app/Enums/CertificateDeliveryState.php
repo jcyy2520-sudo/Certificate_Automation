@@ -22,8 +22,7 @@ enum CertificateDeliveryState
         ?EmailDelivery $d,
         bool $hasEmail = true,
         bool $eligible = true,
-    ): self
-    {
+    ): self {
         return match (true) {
             $c === null && ! $hasEmail => self::MissingEmail,
             $c === null && ! $eligible => self::NotSent,

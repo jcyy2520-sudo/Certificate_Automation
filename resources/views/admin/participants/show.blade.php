@@ -81,7 +81,7 @@
             <form method="POST" action="{{ route('admin.participants.name', [$webinar, $participant]) }}" class="mt-4 flex items-end gap-2">
                 @csrf @method('PUT')
                 <label class="field-label min-w-0 flex-1">Full name
-                    <input class="field" name="full_name" value="{{ $participant->full_name }}" required maxlength="120">
+                    <input class="field" name="full_name" value="{{ $participant->full_name }}" required maxlength="180">
                 </label>
                 <button class="button-secondary shrink-0">Correct name</button>
             </form>

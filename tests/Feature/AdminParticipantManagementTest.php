@@ -2,8 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Models\EligibilityRule;
 use App\Models\EligibilityOverride;
+use App\Models\EligibilityRule;
 use App\Models\Participant;
 use App\Models\User;
 use App\Models\Webinar;

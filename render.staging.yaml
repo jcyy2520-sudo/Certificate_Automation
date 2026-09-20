@@ -1,0 +1,117 @@
+# Isolated Render Blueprint for private staging tests.
+#
+# Import this file as a separate Blueprint; do not sync it onto an existing
+# production service. It deliberately uses the log mail provider so test forms,
+# MFA journeys, and certificate actions cannot contact real recipients.
+services:
+  - type: web
+    name: webinar-platform-staging
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /up
+    envVars:
+      - key: APP_NAME
+        value: Webinar Platform Staging
+      - key: APP_ENV
+        value: staging
+      - key: APP_DEBUG
+        value: "false"
+      - key: APP_KEY
+        sync: false
+      - key: APP_URL
+        sync: false
+
+      # Configure only Render's current documented proxy CIDRs here. Leave
+      # both unset until they are known; never use a wildcard allowlist.
+      - key: SECURITY_BEHIND_PROXY
+        sync: false
+      - key: APP_TRUSTED_PROXIES
+        sync: false
+      - key: SESSION_SECURE_COOKIE
+        value: "true"
+      - key: SESSION_ENCRYPT
+        value: "true"
+      - key: SESSION_SAME_SITE
+        value: strict
+      - key: SESSION_LIFETIME
+        value: "30"
+      - key: SECURITY_REQUIRE_ADMIN_TWO_FACTOR
+        value: "true"
+      - key: SECURITY_ALLOW_ADMIN_REMEMBER_ME
+        value: "false"
+      - key: SECURITY_REQUIRE_SENSITIVE_ACTION_PASSWORD_CONFIRMATION
+        value: "true"
+      - key: SECURITY_CSP_ENABLED
+        value: "true"
+      - key: SECURITY_CSP_REPORT_ONLY
+        value: "false"
+
+      - key: DB_CONNECTION
+        value: pgsql
+      - key: DB_URL
+        fromDatabase:
+          name: webinar-platform-staging-db
+          property: connectionString
+      - key: MANAGED_POSTGRES
+        value: "true"
+
+      # A one-instance staging service uses database-backed state. Do not
+      # scale it horizontally; production must use isolated Redis connections.
+      - key: CACHE_STORE
+        value: database
+      - key: SESSION_DRIVER
+        value: database
+      - key: QUEUE_CONNECTION
+        value: database
+      - key: EMAIL_QUEUE_CONNECTION
+        value: database-emails
+      - key: DB_QUEUE_RETRY_AFTER
+        value: "2100"
+      - key: EMAIL_QUEUE_RETRY_AFTER
+        value: "120"
+      - key: QUEUE_FAILED_DRIVER
+        value: database-uuids
+
+      # Test-only: no email leaves staging. Inspect the Email Logs screen or
+      # the platform logs while exercising participant and MFA mail flows.
+      - key: TRANSACTIONAL_EMAIL_PROVIDER
+        value: log
+      - key: MAIL_FROM_ADDRESS
+        value: staging@example.invalid
+      - key: MAIL_FROM_NAME
+        value: Webinar Platform Staging
+
+      # Render filesystems are ephemeral. Use a distinct private staging
+      # bucket so certificate restart/persistence tests are meaningful.
+      - key: CERTIFICATE_DISK
+        value: s3
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_BUCKET
+        sync: false
+      - key: AWS_DEFAULT_REGION
+        sync: false
+      - key: AWS_ENDPOINT
+        sync: false
+      - key: AWS_USE_PATH_STYLE_ENDPOINT
+        value: "false"
+
+      - key: RUN_WORKERS
+        value: "true"
+      - key: RUN_MIGRATIONS
+        value: "true"
+      - key: LOG_CHANNEL
+        value: stack
+      - key: LOG_STACK
+        value: daily
+      - key: LOG_LEVEL
+        value: warning
+
+databases:
+  - name: webinar-platform-staging-db
+    databaseName: webinar_platform_staging
+    user: webinar_platform_staging
+    plan: free

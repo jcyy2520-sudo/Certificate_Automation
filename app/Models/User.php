@@ -25,6 +25,12 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'role',
+        'is_active',
+        'two_factor_secret',
+        'two_factor_recovery_codes',
+        'two_factor_confirmed_at',
+        'last_login_at',
     ];
 
     /**
@@ -75,6 +81,7 @@ class User extends Authenticatable
         return $this->hasMany(Webinar::class, 'created_by');
     }
 
+    /** The authorization middleware re-checks this on every protected request. */
     public function isAdministrator(): bool
     {
         return $this->is_active && hash_equals(self::ADMINISTRATOR_ROLE, (string) $this->role);

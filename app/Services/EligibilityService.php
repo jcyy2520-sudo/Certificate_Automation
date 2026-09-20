@@ -14,13 +14,6 @@ use Illuminate\Support\Collection;
 class EligibilityService
 {
     /**
-     * Decide whether a participant has met the webinar's certificate requirements.
-     *
-     * Pass $rules when evaluating many participants of the same webinar so the rule
-     * set is fetched once rather than once per participant. When the participant's
-     * `submissions.form` and `eligibilityOverrides` relations are already loaded this
-     * runs entirely in memory and issues no queries at all.
-     *
      * @param  Collection<int, EligibilityRule>|null  $rules
      * @return array{eligible: bool, overridden: bool, requirements: array<string, bool>}
      */
@@ -55,12 +48,7 @@ class EligibilityService
         ];
     }
 
-    /**
-     * Attach an `eligibility` attribute to each participant, loading what the
-     * evaluation needs in a fixed number of queries rather than one set per row.
-     *
-     * @param  Collection<int, Participant>  $participants
-     */
+    /** @param Collection<int, Participant> $participants */
     public function attachTo(Collection $participants, Webinar $webinar): void
     {
         if ($participants->isEmpty()) {
@@ -82,14 +70,7 @@ class EligibilityService
         }
     }
 
-    /**
-     * The ids of every participant of this webinar who currently meets its requirements.
-     *
-     * Kept for batch callers that need ids. Paginated screens should compose the
-     * query below directly so they never materialize an event-sized array.
-     *
-     * @return array<int, int>
-     */
+    /** @return array<int, int> */
     public function eligibleParticipantIds(Webinar $webinar): array
     {
         return $this->eligibleParticipantsQuery($webinar)
@@ -98,13 +79,7 @@ class EligibilityService
             ->all();
     }
 
-    /**
-     * A database-native eligibility query that can be counted or nested directly
-     * inside a paginated participant query. No participant ids are hydrated in PHP,
-     * so list navigation stays bounded as an event grows.
-     *
-     * @return Builder<Participant>
-     */
+    /** @return Builder<Participant> */
     public function eligibleParticipantsQuery(Webinar $webinar): Builder
     {
         $required = $this->rulesFor($webinar)->where('is_required', true);
@@ -114,10 +89,8 @@ class EligibilityService
             ->select('participants.id')
             ->where('participants.webinar_id', $webinar->id)
             ->where(function (Builder $eligible) use ($at, $required, $webinar): void {
-                // A current administrator decision wins over the automatic rules.
                 $eligible->where($this->latestActiveOverrideDecision($at), 'eligible')
                     ->orWhere(function (Builder $automatic) use ($at, $required, $webinar): void {
-                        // Automatic rules apply only when there is no current override.
                         $automatic->whereNotExists(function ($overrides) use ($at): void {
                             $overrides->selectRaw('1')
                                 ->from('eligibility_overrides')
@@ -133,7 +106,6 @@ class EligibilityService
 
                                 continue;
                             }
-
                             if ($rule->requirement === 'attendance') {
                                 $automatic->whereNotNull('participants.checked_in_at');
 
@@ -148,15 +120,13 @@ class EligibilityService
                                     ->where('forms.webinar_id', $webinar->id)
                                     ->where('forms.type', $rule->requirement)
                                     ->where('submissions.status', 'submitted')
-                                    ->when($rule->minimum_score !== null, fn ($query) => $query
-                                        ->where('submissions.score', '>=', (float) $rule->minimum_score));
+                                    ->when($rule->minimum_score !== null, fn ($query) => $query->where('submissions.score', '>=', (float) $rule->minimum_score));
                             });
                         }
                     });
             });
     }
 
-    /** A correlated scalar subquery containing the latest current override. */
     private function latestActiveOverrideDecision(CarbonInterface $at): Closure
     {
         return fn ($overrides) => $overrides
@@ -179,10 +149,6 @@ class EligibilityService
         return $webinar->eligibilityRules;
     }
 
-    /**
-     * The override in force, preferring the already-loaded relation so a batch
-     * evaluation does not fire one query per participant.
-     */
     private function activeOverride(Participant $participant): ?EligibilityOverride
     {
         $unexpired = fn (EligibilityOverride $override) => $override->expires_at === null || $override->expires_at->isFuture();
@@ -190,10 +156,7 @@ class EligibilityService
         if ($participant->relationLoaded('eligibilityOverrides')) {
             return $participant->eligibilityOverrides
                 ->filter($unexpired)
-                ->sortBy([
-                    ['created_at', 'desc'],
-                    ['id', 'desc'],
-                ])
+                ->sortBy([['created_at', 'desc'], ['id', 'desc']])
                 ->first();
         }
 

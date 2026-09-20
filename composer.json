@@ -3,10 +3,7 @@
     "name": "laravel/laravel",
     "type": "project",
     "description": "The skeleton application for the Laravel framework.",
-    "keywords": [
-        "laravel",
-        "framework"
-    ],
+    "keywords": ["laravel", "framework"],
     "license": "MIT",
     "require": {
         "php": "^8.3",
@@ -15,8 +12,8 @@
         "laravel/framework": "^12.0",
         "laravel/tinker": "^2.10.1",
         "league/flysystem-aws-s3-v3": "^3.35",
-        "pragmarx/google2fa-laravel": "^3.0",
-        "predis/predis": "^3.6"
+        "livewire/livewire": "^4.4",
+        "pragmarx/google2fa-laravel": "^3.0"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
@@ -57,27 +54,7 @@
         ],
         "dev": [
             "Composer\\Config::disableProcessTimeout",
-            "@php artisan optimize:clear --ansi",
-            "npx concurrently -c \"#93c5fd,#fbbf24,#c4b5fd,#fdba74\" \"php artisan serve\" \"php artisan queue:work database-emails --queue=emails --sleep=1 --tries=3\" \"php artisan queue:work --sleep=1 --tries=1\" \"npm run dev\" --names=server,email,queue,vite"
-        ],
-        "test": [
-            "@php artisan optimize:clear --ansi",
-            "@php artisan test"
-        ],
-        "reset": [
-            "@php artisan system:reset"
-        ],
-        "optimize": [
-            "composer dump-autoload --optimize",
-            "@php artisan optimize"
-        ],
-        "optimize:clear": [
-            "@php artisan optimize:clear"
-        ],
-        "serve:optimized": [
-            "Composer\\Config::disableProcessTimeout",
-            "@php artisan optimize --ansi",
-            "@php artisan serve --no-reload"
+            "npx concurrently -c \"#93c5fd,#c4b5fd,#fb7185,#fdba74\" \"php artisan serve\" \"php artisan queue:listen --tries=1\" \"php artisan pail --timeout=0\" \"npm run dev\" --names=server,queue,logs,vite"
         ]
     },
     "extra": {

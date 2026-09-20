@@ -18,8 +18,7 @@ class Certificate extends Model
     {
         static::saving(function (Certificate $certificate): void {
             if ($certificate->isDirty('verification_code')) {
-                $code = Str::upper($certificate->verification_code);
-
+                $code = Str::upper((string) $certificate->verification_code);
                 $certificate->verification_code = $code;
                 $certificate->verification_code_hash = self::verificationCodeHash($code);
             }

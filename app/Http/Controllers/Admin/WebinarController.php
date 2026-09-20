@@ -81,7 +81,6 @@ class WebinarController extends Controller
                 'webinar_id' => $webinar->id,
                 'name' => 'Classic certificate',
                 'storage_disk' => config('webinar.certificate_disk'),
-                'template_path' => 'generated/classic',
                 'layout' => ['accent' => '#1d4ed8'],
                 'is_active' => true,
             ]);
@@ -358,10 +357,17 @@ class WebinarController extends Controller
             'timezone' => ['sometimes', 'nullable', 'timezone'],
             'data_retention_days' => ['required', 'integer', 'min:1', 'max:3650'],
             'requires_verification' => ['sometimes', 'boolean'],
+            'certificate_email_subject' => ['nullable', 'string', 'max:120'],
+            'certificate_email_message' => ['nullable', 'string', 'max:2000'],
         ]);
 
         unset($data['is_open']);
         $data['status'] = $resolvedStatus;
+
+        // Blank overrides mean "use the built-in wording", not an empty subject.
+        foreach (['certificate_email_subject', 'certificate_email_message'] as $optionalText) {
+            $data[$optionalText] = filled($data[$optionalText] ?? null) ? trim((string) $data[$optionalText]) : null;
+        }
 
         $data['timezone'] = filled($data['timezone'] ?? null)
             ? $data['timezone']

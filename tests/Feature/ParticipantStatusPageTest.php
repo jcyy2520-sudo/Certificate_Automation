@@ -263,7 +263,6 @@ class ParticipantStatusPageTest extends TestCase
             'webinar_id' => $this->webinar->id,
             'name' => 'Status certificate',
             'storage_disk' => 'local',
-            'template_path' => 'uploaded',
             'layout' => [],
             'is_active' => true,
         ]);

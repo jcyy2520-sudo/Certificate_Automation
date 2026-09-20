@@ -43,8 +43,7 @@ class AppServiceProvider extends ServiceProvider
 
         RateLimiter::for('public-form-view', fn (Request $request): Limit => Limit::perMinute(
             (int) config('security.rate_limits.public_form_view_ip_per_minute'),
-        )
-            ->by('public-form-view:'.hash_hmac('sha256', (string) $request->ip(), (string) config('app.key'))));
+        )->by('public-form-view:'.hash_hmac('sha256', (string) $request->ip(), (string) config('app.key'))));
 
         RateLimiter::for('public-form-submit', function (Request $request): array {
             $key = (string) config('app.key');
@@ -53,19 +52,15 @@ class AppServiceProvider extends ServiceProvider
             $ipKey = hash_hmac('sha256', (string) $request->ip(), $key);
 
             return [
-                Limit::perMinute((int) config('security.rate_limits.public_form_submit_identity_per_minute'))
-                    ->by("public-form-submit:identity:{$formKey}:{$emailKey}"),
-                Limit::perMinute((int) config('security.rate_limits.public_form_submit_ip_per_minute'))
-                    ->by("public-form-submit:ip:{$ipKey}"),
-                Limit::perMinute((int) config('security.rate_limits.public_form_submit_form_per_minute'))
-                    ->by("public-form-submit:form:{$formKey}"),
+                Limit::perMinute((int) config('security.rate_limits.public_form_submit_identity_per_minute'))->by("public-form-submit:identity:{$formKey}:{$emailKey}"),
+                Limit::perMinute((int) config('security.rate_limits.public_form_submit_ip_per_minute'))->by("public-form-submit:ip:{$ipKey}"),
+                Limit::perMinute((int) config('security.rate_limits.public_form_submit_form_per_minute'))->by("public-form-submit:form:{$formKey}"),
             ];
         });
 
         RateLimiter::for('public-form-thanks', fn (Request $request): Limit => Limit::perMinute(
             (int) config('security.rate_limits.public_form_thanks_ip_per_minute'),
-        )
-            ->by('public-form-thanks:'.hash_hmac('sha256', (string) $request->ip(), (string) config('app.key'))));
+        )->by('public-form-thanks:'.hash_hmac('sha256', (string) $request->ip(), (string) config('app.key'))));
 
         RateLimiter::for('admin-login', function (Request $request): array {
             $email = Str::lower(trim((string) $request->input('email')));
@@ -73,10 +68,7 @@ class AppServiceProvider extends ServiceProvider
             $ipKey = hash('sha256', (string) $request->ip());
 
             return [
-                // A tight credential-and-origin limit stops repeated guessing.
                 Limit::perMinute(5)->by("admin-login:pair:{$emailKey}:{$ipKey}"),
-                // These wider limits also resist distributed attacks and one
-                // origin spraying passwords across many administrator names.
                 Limit::perMinute(20)->by("admin-login:email:{$emailKey}"),
                 Limit::perMinute(50)->by("admin-login:ip:{$ipKey}"),
             ];
@@ -116,8 +108,6 @@ class AppServiceProvider extends ServiceProvider
                 Limit::perHour((int) config('security.rate_limits.participant_access_email_per_hour'))->by("participant-access:email-hour:{$emailKey}"),
                 Limit::perDay((int) config('security.rate_limits.participant_access_email_per_day'))->by("participant-access:email-day:{$emailKey}"),
                 Limit::perMinute((int) config('security.rate_limits.participant_access_ip_per_minute'))->by("participant-access:ip:{$ipKey}"),
-                // Provider-budget circuit breakers limit distributed address
-                // spraying even when every request uses a new email and origin.
                 Limit::perMinute((int) config('security.rate_limits.participant_access_global_per_minute'))->by('participant-access:global-minute'),
                 Limit::perHour((int) config('security.rate_limits.participant_access_global_per_hour'))->by('participant-access:global-hour'),
                 Limit::perDay((int) config('security.rate_limits.participant_access_global_per_day'))->by('participant-access:global-day'),

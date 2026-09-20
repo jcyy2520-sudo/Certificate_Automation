@@ -44,7 +44,6 @@ class SensitiveDataEncryptionTest extends TestCase
         ]);
         $template = $webinar->certificateTemplates()->create([
             'name' => 'Private template',
-            'template_path' => 'generated/private',
             'storage_disk' => 'local',
             'layout' => [],
         ]);

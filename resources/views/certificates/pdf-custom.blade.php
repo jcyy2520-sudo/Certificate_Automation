@@ -26,13 +26,16 @@
     <title>{{ $certificate->verification_code }}</title>
     <style>
         @page { margin: 0; }
-        body { margin: 0; padding: 0; }
-        .sheet { position: relative; width: 100%; height: {{ $sheetHeight }}px; }
+        html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; }
+        /* setPaper() uses PDF points. Keep the reference canvas and every
+           reference-sized overlay in points too: 595px is only 446.25pt in
+           dompdf and would squash the design into the top 75% of the page. */
+        .sheet { position: relative; width: 100%; height: {{ $sheetHeight }}pt; overflow: hidden; }
         .background { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
         .recipient-name {
             position: absolute; top: {{ $nameTop }}%; left: {{ $nameLeft }}%;
             width: 94%; margin-left: -47%;
-            text-align: {{ $align }}; font-weight: {{ $weight }}; font-style: {{ $style }}; font-size: {{ $fontSize }}px;
+            text-align: {{ $align }}; font-weight: {{ $weight }}; font-style: {{ $style }}; font-size: {{ $fontSize }}pt;
             font-family: {{ $fontPdf }};
             color: {{ $color }};
         }

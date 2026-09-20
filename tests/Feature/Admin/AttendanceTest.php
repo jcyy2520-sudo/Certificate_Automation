@@ -79,7 +79,7 @@ class AttendanceTest extends TestCase
             ->post(route('admin.participants.attendance', [$this->webinar, $this->participant]));
 
         $this->assertTrue($service->evaluate($this->participant->fresh())['eligible']);
-        $this->assertSame([$this->participant->id], $service->eligibleParticipantIds($this->webinar->fresh()));
+        $this->assertSame([$this->participant->id], $service->eligibleParticipantsQuery($this->webinar->fresh())->pluck('participants.id')->map(fn ($id) => (int) $id)->all());
     }
 
     public function test_attendance_rule_keeps_single_and_set_based_eligibility_consistent(): void
@@ -92,18 +92,18 @@ class AttendanceTest extends TestCase
         $service = app(EligibilityService::class);
 
         $this->assertFalse($service->evaluate($this->participant->fresh())['eligible']);
-        $this->assertSame([], $service->eligibleParticipantIds($this->webinar->fresh()));
+        $this->assertSame([], $service->eligibleParticipantsQuery($this->webinar->fresh())->pluck('participants.id')->map(fn ($id) => (int) $id)->all());
 
         $route = route('admin.participants.attendance', [$this->webinar, $this->participant]);
         $this->actingAs($this->administrator)->post($route);
 
         $this->assertTrue($service->evaluate($this->participant->fresh())['eligible']);
-        $this->assertSame([$this->participant->id], $service->eligibleParticipantIds($this->webinar->fresh()));
+        $this->assertSame([$this->participant->id], $service->eligibleParticipantsQuery($this->webinar->fresh())->pluck('participants.id')->map(fn ($id) => (int) $id)->all());
 
         $this->actingAs($this->administrator)->post($route);
 
         $this->assertFalse($service->evaluate($this->participant->fresh())['eligible']);
-        $this->assertSame([], $service->eligibleParticipantIds($this->webinar->fresh()));
+        $this->assertSame([], $service->eligibleParticipantsQuery($this->webinar->fresh())->pluck('participants.id')->map(fn ($id) => (int) $id)->all());
     }
 
     public function test_attendance_is_opt_in_on_the_existing_requirements_screen(): void

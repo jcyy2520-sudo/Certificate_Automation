@@ -40,6 +40,11 @@
     };
     $isOpen = $form->isOpen();
     $isLive = $form->acceptsResponses();
+    // Once a closing deadline passes, the form is effectively closed even
+    // though its legacy manual status remains published. Show the switch as
+    // Closed so one On action can clear that deadline; do not require Off/On.
+    $canReopenExpiredDeadline = $form->canReopenByClearingExpiredDeadline();
+    $switchOn = $isOpen && ! $canReopenExpiredDeadline;
     // When the form is set open but responses still aren't accepted, explain why
     // and point to exactly where to fix it.
     $blockedByWebinar = $isOpen && ! $isLive && ! $webinar->isOpen();
@@ -61,7 +66,7 @@
             <p class="mt-1 flex items-center gap-2 text-[13px]">
                 <span class="inline-flex items-center gap-1.5 font-medium {{ $isLive ? 'text-emerald-700' : 'text-slate-500' }}" data-availability-state>
                     <span class="size-1.5 rounded-full {{ $isLive ? 'bg-emerald-500' : 'bg-slate-400' }}" data-availability-dot></span>
-                    <span data-availability-state-text>{{ $isLive ? 'Open — accepting responses now' : ($isOpen ? 'Open, but responses are currently blocked' : 'Closed — not accepting responses') }}</span>
+                    <span data-availability-state-text>{{ $isLive ? 'Open — accepting responses now' : ($canReopenExpiredDeadline ? 'Closed — deadline passed' : ($isOpen ? 'Open, but responses are currently blocked' : 'Closed — not accepting responses')) }}</span>
                 </span>
             </p>
         </div>
@@ -72,10 +77,10 @@
             <label class="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5">
                 <span class="text-right">
                     <span class="block text-[13px] font-medium text-slate-900">{{ $availabilityLabel }}</span>
-                    <span class="block text-[12px] {{ $isOpen ? 'text-emerald-700' : 'text-slate-500' }}" data-availability-label>{{ $isOpen ? 'Open' : 'Closed' }}</span>
+                    <span class="block text-[12px] {{ $switchOn ? 'text-emerald-700' : 'text-slate-500' }}" data-availability-label>{{ $switchOn ? 'Open' : 'Closed' }}</span>
                 </span>
                 <span class="switch">
-                    <input type="checkbox" name="is_open" value="1" role="switch" aria-label="Open {{ Str::lower($availabilityLabel) }}" data-availability-switch @checked($isOpen)>
+                    <input type="checkbox" name="is_open" value="1" role="switch" aria-label="Open {{ Str::lower($availabilityLabel) }}" data-availability-switch @checked($switchOn)>
                 </span>
             </label>
             <p class="mt-1 hidden max-w-64 text-right text-[12px] text-red-600" role="alert" data-availability-error></p>
@@ -85,7 +90,9 @@
         <div class="mt-4 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] leading-5 text-amber-900 {{ $isLive ? 'hidden' : '' }}" data-availability-notice>
             <x-icon name="info" class="mt-0.5 size-4 shrink-0" />
             <span data-availability-message>
-                @if($blockedByWebinar)
+                @if($canReopenExpiredDeadline)
+                    The closing deadline has passed. Turn on <strong>{{ $availabilityLabel }}</strong> to reopen it now and clear the expired deadline.
+                @elseif($blockedByWebinar)
                     This {{ Str::lower($noun) }} is switched on, but the webinar itself is closed, so nobody can respond yet. Open the webinar in <a class="font-medium underline" href="{{ route('admin.webinars.edit', $webinar) }}">Webinar settings</a>.
                 @elseif(! $isOpen)
                     Turn on the <strong>{{ $availabilityLabel }}</strong> switch above to start accepting responses.

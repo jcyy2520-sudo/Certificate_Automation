@@ -37,21 +37,6 @@ class Webinar extends Model
         return $this->requires_verification !== false;
     }
 
-    /** The organizer-facing manual availability state. */
-    public function isOpen(): bool
-    {
-        return $this->status === 'published'
-            && $this->archived_at === null
-            && $this->deletion_started_at === null;
-    }
-
-    public function availabilityLabel(): string
-    {
-        return $this->archived_at !== null || $this->status === 'archived'
-            ? 'Archived'
-            : ($this->isOpen() ? 'Open' : 'Closed');
-    }
-
     protected function casts(): array
     {
         return [
@@ -125,6 +110,48 @@ class Webinar extends Model
         return $value === null ? null : CarbonImmutable::parse((string) $value);
     }
 
+    /** The workspace navigation needs the authoritative organizer-facing state. */
+    public function isOpen(): bool
+    {
+        return $this->status === 'published'
+            && $this->archived_at === null
+            && $this->deletion_started_at === null;
+    }
+
+    public function availabilityLabel(): string
+    {
+        return $this->archived_at !== null || $this->status === 'archived'
+            ? 'Archived'
+            : ($this->isOpen() ? 'Open' : 'Closed');
+    }
+
+    /** Resolve the optional organizer copy without trusting raw template text at send time. */
+    public function certificateEmailSubject(?string $participantName = null): string
+    {
+        $subject = trim((string) ($this->certificate_email_subject ?? ''));
+
+        return $this->replaceCertificateEmailPlaceholders(
+            $subject !== '' ? $subject : 'Your certificate for {webinar}',
+            $participantName,
+        );
+    }
+
+    public function certificateEmailMessage(?string $participantName = null): ?string
+    {
+        $message = trim((string) ($this->certificate_email_message ?? ''));
+
+        return $message === '' ? null : $this->replaceCertificateEmailPlaceholders($message, $participantName);
+    }
+
+    private function replaceCertificateEmailPlaceholders(string $copy, ?string $participantName): string
+    {
+        return str_replace(
+            ['{participant}', '{webinar}'],
+            [trim((string) $participantName), (string) $this->title],
+            $copy,
+        );
+    }
+
     public function creator()
     {
         return $this->belongsTo(User::class, 'created_by');
@@ -155,6 +182,7 @@ class Webinar extends Model
         return $this->hasMany(CertificateBatch::class);
     }
 
+    /** Import routes use scoped binding so an upload can never cross webinars. */
     public function imports()
     {
         return $this->hasMany(Import::class);
@@ -163,6 +191,11 @@ class Webinar extends Model
     public function importIssues()
     {
         return $this->hasMany(ImportIssue::class);
+    }
+
+    public function emailDeliveries()
+    {
+        return $this->hasMany(EmailDelivery::class);
     }
 
     public function certificates()

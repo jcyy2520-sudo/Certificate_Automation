@@ -118,7 +118,6 @@ class WebinarPrivacyLifecycleTest extends TestCase
         $template = CertificateTemplate::query()->create([
             'webinar_id' => $webinar->id,
             'name' => 'Default',
-            'template_path' => 'templates/default.png',
             'layout' => [],
         ]);
         $blocked = Participant::query()->create([
@@ -165,7 +164,6 @@ class WebinarPrivacyLifecycleTest extends TestCase
         $template = CertificateTemplate::query()->create([
             'webinar_id' => $webinar->id,
             'name' => 'Default',
-            'template_path' => 'templates/default.png',
             'layout' => [],
         ]);
         $participant = Participant::query()->create([

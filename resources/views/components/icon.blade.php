@@ -49,6 +49,16 @@
         'eye' => '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.8"/>',
         'chevron-up' => '<path d="m6 14.5 6-6 6 6"/>',
         'unlock' => '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/>',
+        'undo' => '<path d="m9 6-4 4 4 4"/><path d="M5 10h9a5 5 0 0 1 5 5v3"/>',
+        'redo' => '<path d="m15 6 4 4-4 4"/><path d="M19 10h-9a5 5 0 0 0-5 5v3"/>',
+        // Six placement icons for the studio's Align row: a fixed edge plus two
+        // bars showing what the name snaps to.
+        'align-h-left' => '<path d="M4 4v16"/><rect x="8" y="7" width="11" height="4" rx="1"/><rect x="8" y="13.5" width="7" height="4" rx="1"/>',
+        'align-h-center' => '<path d="M12 4v16"/><rect x="5" y="7" width="14" height="4" rx="1"/><rect x="8" y="13.5" width="8" height="4" rx="1"/>',
+        'align-h-right' => '<path d="M20 4v16"/><rect x="5" y="7" width="11" height="4" rx="1"/><rect x="9" y="13.5" width="7" height="4" rx="1"/>',
+        'align-top' => '<path d="M4 4h16"/><rect x="7" y="8" width="4" height="11" rx="1"/><rect x="13.5" y="8" width="4" height="7" rx="1"/>',
+        'align-middle' => '<path d="M4 12h16"/><rect x="7" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="8" width="4" height="8" rx="1"/>',
+        'align-bottom' => '<path d="M4 20h16"/><rect x="7" y="5" width="4" height="11" rx="1"/><rect x="13.5" y="9" width="4" height="7" rx="1"/>',
     ];
 @endphp
 <svg {{ $attributes->merge(['class' => 'size-5', 'aria-hidden' => 'true']) }}

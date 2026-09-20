@@ -27,7 +27,7 @@
     <form method="POST" action="{{ route('admin.participants.store', $webinar) }}" class="grid gap-4 border-t border-slate-100 bg-stone-50/70 px-5 py-5 md:grid-cols-[1fr_1fr_0.8fr_auto] md:items-start">
         @csrf
         <label class="field-label">Full name
-            <input class="field @error('full_name') field-invalid @enderror" name="full_name" value="{{ old('full_name') }}" required maxlength="120" autocomplete="name" placeholder="Full participant name">
+            <input class="field @error('full_name') field-invalid @enderror" name="full_name" value="{{ old('full_name') }}" required maxlength="180" autocomplete="name" placeholder="Full participant name">
             @error('full_name')<span class="field-error">{{ $message }}</span>@enderror
         </label>
         <label class="field-label">Email address

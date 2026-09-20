@@ -116,6 +116,15 @@ class CertificationManagementTest extends TestCase
         $this->assertSame(58, (int) $template->layout['name_top']);
         $this->assertSame('serif', $template->layout['name_font_family']);
 
+        // The studio's "use for every recipient" action saves the same style
+        // but returns straight back to the studio instead of the template page.
+        $this->actingAs($this->administrator)->put(route('admin.certification.design', $this->webinar), [
+            'name_top' => 30, 'name_left' => 50, 'name_font_size' => 48,
+            'name_font_family' => 'serif', 'accent' => '#7c3aed', 'studio' => '1',
+        ])->assertRedirect(route('admin.certificates.studio', $this->webinar));
+        $template->refresh();
+        $this->assertSame(30, (int) $template->layout['name_top']);
+
         $response = $this->actingAs($this->administrator)->get(route('admin.certification.preview', $this->webinar));
         $response->assertOk()->assertHeader('Content-Type', 'application/pdf');
         $this->assertStringStartsWith('%PDF', $response->getContent());
@@ -272,15 +281,14 @@ class CertificationManagementTest extends TestCase
         $this->assertSame('Wei Chen', $eligible->fresh()->full_name);
         $this->assertSame('Wei Chen', $certificate->recipient_name);
         $this->assertSame('issued', $certificate->status);
-        // The certificate email carries no link back into the application. Both
-        // the verification and status URLs are built from APP_URL at issue time
-        // and are baked into mail that has already been delivered, so an issued
-        // certificate would be permanently tied to whatever host was configured
-        // when it was sent. The verification code stays, as text, for support.
+        // Decision update (F-1): the certificate email now links to the
+        // participant status page for self-service. The link is still built
+        // from APP_URL at issue time and baked into delivered mail, so the
+        // deployment host remains a long-term commitment; the verification
+        // code stays in the email as text for support.
         $html = (string) EmailDelivery::query()->where('certificate_id', $certificate->id)->sole()->payload['html'];
         $this->assertStringContainsString($certificate->verification_code, $html);
-        $this->assertStringNotContainsString(route('forms.public.status', $registration->public_token), $html);
-        $this->assertStringNotContainsString(url('/'), $html);
+        $this->assertStringContainsString(route('forms.public.status', $registration->public_token), $html);
 
         EmailDelivery::query()->where('certificate_id', $certificate->id)->delete();
         $certificate->update(['sent_at' => null]);
@@ -468,7 +476,7 @@ class CertificationManagementTest extends TestCase
         EligibilityRule::query()->create(['webinar_id' => $this->webinar->id, 'requirement' => 'registration', 'is_required' => true]);
         // A default template exists but carries no uploaded design.
         $this->webinar->certificateTemplates()->create([
-            'name' => 'Empty', 'storage_disk' => 'local', 'template_path' => 'uploaded',
+            'name' => 'Empty', 'storage_disk' => 'local',
             'layout' => ['accent' => '#1d4ed8'], 'is_active' => true,
         ]);
         $participant = Participant::query()->create([
@@ -577,11 +585,58 @@ class CertificationManagementTest extends TestCase
         return $this->webinar->certificateTemplates()->create([
             'name' => 'Uploaded certificate',
             'storage_disk' => 'local',
-            'template_path' => 'uploaded',
             'background_path' => 'certificate-backgrounds/test.png',
             'layout' => ['accent' => '#1d4ed8', 'name_top' => 62, 'name_font_size' => 42],
             'is_active' => true,
         ]);
+    }
+
+    public function test_delivered_certificates_are_separated_from_the_studio_working_list(): void
+    {
+        Storage::fake('local');
+        $template = $this->uploadedTemplate();
+
+        $waiting = $this->webinar->participants()->create([
+            'email' => 'waiting@example.com', 'full_name' => 'Waiting Person', 'verified_at' => now(),
+        ]);
+        $done = $this->webinar->participants()->create([
+            'email' => 'done@example.com', 'full_name' => 'Done Person', 'verified_at' => now(),
+        ]);
+
+        // Both carry an administrator eligibility decision, so both qualify;
+        // only one has actually been delivered a certificate.
+        foreach ([$waiting, $done] as $participant) {
+            EligibilityOverride::query()->create([
+                'participant_id' => $participant->id,
+                'decision' => 'eligible',
+                'reason' => 'Studio separation fixture',
+                'overridden_by' => $this->administrator->id,
+            ]);
+        }
+
+        Certificate::query()->create([
+            'verification_code' => 'CERT-SEPARATED-0001',
+            'webinar_id' => $this->webinar->id,
+            'participant_id' => $done->id,
+            'certificate_template_id' => $template->id,
+            'recipient_name' => 'Done Person',
+            'storage_disk' => 'local',
+            'status' => 'issued',
+            'issued_at' => now(),
+            'sent_at' => now(),
+        ]);
+
+        $response = $this->actingAs($this->administrator)
+            ->get(route('admin.certificates.studio', $this->webinar));
+
+        $response->assertOk();
+        // The delivered recipient is gone from the selectable working list…
+        $response->assertDontSee('data-queue-check="'.$done->public_id.'"', false);
+        // …and lives behind the separated Sent tab instead.
+        $response->assertSee('data-recipient-tab="sent"', false);
+        $response->assertSee('done@example.com');
+        // The still-waiting participant stays exactly where the organizer works.
+        $response->assertSee('data-queue-check="'.$waiting->public_id.'"', false);
     }
 
     private function confirmAdministratorPassword(): void

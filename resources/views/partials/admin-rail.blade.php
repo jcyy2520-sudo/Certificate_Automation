@@ -5,6 +5,7 @@
     $railNav = [
         ['route' => 'admin.dashboard', 'icon' => 'home', 'label' => 'Dashboard', 'active' => request()->routeIs('admin.dashboard')],
         ['route' => 'admin.webinars.index', 'icon' => 'layers', 'label' => 'Webinars', 'active' => $inWebinars],
+        ['route' => 'admin.email-logs.index', 'icon' => 'mail', 'label' => 'Email logs', 'active' => request()->routeIs('admin.email-logs.*', 'admin.webinars.email-logs.*')],
         ['route' => 'admin.two-factor.show', 'icon' => 'shield', 'label' => 'Security', 'active' => request()->routeIs('admin.two-factor.*')],
     ];
 @endphp

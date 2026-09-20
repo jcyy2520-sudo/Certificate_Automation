@@ -18,7 +18,6 @@ class SecurityHeaders
         View::share('cspNonce', $nonce);
 
         $response = $next($request);
-
         // Dynamic pages include administrator and participant information. Do
         // not let browsers, proxies, or shared machines retain those responses.
         $response->headers->remove('ETag');
@@ -26,7 +25,6 @@ class SecurityHeaders
         $response->headers->set('Cache-Control', 'no-store, private, max-age=0, must-revalidate');
         $response->headers->set('Pragma', 'no-cache');
         $response->headers->set('Expires', 'Thu, 01 Jan 1970 00:00:00 GMT');
-
         $response->headers->set('X-Content-Type-Options', 'nosniff');
         $response->headers->set('X-Frame-Options', 'DENY');
         $response->headers->set('X-XSS-Protection', '0');

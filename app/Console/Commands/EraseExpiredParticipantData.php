@@ -4,7 +4,6 @@ namespace App\Console\Commands;
 
 use App\Models\AuditLog;
 use App\Models\ImportIssue;
-use App\Models\Participant;
 use App\Models\Webinar;
 use App\Services\ParticipantPrivacyService;
 use Illuminate\Console\Command;
@@ -77,9 +76,6 @@ class EraseExpiredParticipantData extends Command
                         }
                     });
 
-                // Rows an import could not attach to a participant have no
-                // participant to be erased through, so the sweep above cannot
-                // reach them. Purge them at the same deadline.
                 if ($this->option('dry-run')) {
                     $purgedImportIssues += ImportIssue::query()
                         ->where('webinar_id', $webinar->id)
@@ -91,8 +87,6 @@ class EraseExpiredParticipantData extends Command
 
         if (! $this->option('dry-run')) {
             foreach ($erasedByWebinar as $webinarId => $count) {
-                // Aggregate evidence proves the retention run occurred without
-                // recreating the participant identifier erased moments earlier.
                 AuditLog::query()->create([
                     'action' => 'privacy.retention_erasure_completed',
                     'metadata' => ['webinar_id' => $webinarId, 'erased_count' => $count],

@@ -37,12 +37,9 @@ return [
             'database' => env('DB_DATABASE', database_path('database.sqlite')),
             'prefix' => '',
             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
-            // Write-ahead logging lets the web request read while the queue
-            // worker writes, instead of the two blocking each other on the
-            // single database file. The busy timeout absorbs the rest.
-            'busy_timeout' => env('DB_BUSY_TIMEOUT', 5000),
-            'journal_mode' => env('DB_JOURNAL_MODE', 'WAL'),
-            'synchronous' => env('DB_SYNCHRONOUS', 'NORMAL'),
+            'busy_timeout' => null,
+            'journal_mode' => null,
+            'synchronous' => null,
         ],
 
         'mysql' => [
@@ -60,7 +57,6 @@ return [
             'prefix_indexes' => true,
             'strict' => true,
             'engine' => null,
-            'ssl_ca' => env('MYSQL_ATTR_SSL_CA'),
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
             ]) : [],
@@ -81,7 +77,6 @@ return [
             'prefix_indexes' => true,
             'strict' => true,
             'engine' => null,
-            'ssl_ca' => env('MYSQL_ATTR_SSL_CA'),
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
             ]) : [],
@@ -99,7 +94,7 @@ return [
             'prefix' => '',
             'prefix_indexes' => true,
             'search_path' => 'public',
-            'sslmode' => env('DB_SSLMODE', 'verify-full'),
+            'sslmode' => env('DB_SSLMODE', 'prefer'),
             'sslrootcert' => env('DB_SSLROOTCERT'),
         ],
 
@@ -114,8 +109,8 @@ return [
             'charset' => env('DB_CHARSET', 'utf8'),
             'prefix' => '',
             'prefix_indexes' => true,
-            'encrypt' => env('DB_ENCRYPT', 'yes'),
-            'trust_server_certificate' => env('DB_TRUST_SERVER_CERTIFICATE', 'false'),
+            // 'encrypt' => env('DB_ENCRYPT', 'yes'),
+            // 'trust_server_certificate' => env('DB_TRUST_SERVER_CERTIFICATE', 'false'),
         ],
 
     ],
@@ -158,8 +153,7 @@ return [
         ],
 
         'default' => [
-            'url' => env('REDIS_DEFAULT_URL', env('REDIS_URL')),
-            'scheme' => env('REDIS_SCHEME'),
+            'url' => env('REDIS_URL'),
             'host' => env('REDIS_HOST', '127.0.0.1'),
             'username' => env('REDIS_USERNAME'),
             'password' => env('REDIS_PASSWORD'),
@@ -169,7 +163,6 @@ return [
 
         'cache' => [
             'url' => env('REDIS_CACHE_URL', env('REDIS_URL')),
-            'scheme' => env('REDIS_SCHEME'),
             'host' => env('REDIS_HOST', '127.0.0.1'),
             'username' => env('REDIS_USERNAME'),
             'password' => env('REDIS_PASSWORD'),
@@ -177,27 +170,21 @@ return [
             'database' => env('REDIS_CACHE_DB', '1'),
         ],
 
-        // A dedicated Redis database allows an incident-response session purge
-        // without flushing application cache or queued work.
         'session' => [
-            'url' => env('REDIS_SESSION_URL', env('REDIS_URL')),
-            'scheme' => env('REDIS_SCHEME'),
-            'host' => env('REDIS_HOST', '127.0.0.1'),
-            'username' => env('REDIS_USERNAME'),
-            'password' => env('REDIS_PASSWORD'),
-            'port' => env('REDIS_PORT', '6379'),
+            'url' => env('REDIS_SESSION_URL'),
+            'host' => env('REDIS_SESSION_HOST', env('REDIS_HOST', '127.0.0.1')),
+            'username' => env('REDIS_SESSION_USERNAME', env('REDIS_USERNAME')),
+            'password' => env('REDIS_SESSION_PASSWORD', env('REDIS_PASSWORD')),
+            'port' => env('REDIS_SESSION_PORT', env('REDIS_PORT', '6379')),
             'database' => env('REDIS_SESSION_DB', '2'),
         ],
 
-        // Queue data is isolated from both cache and sessions. This keeps a
-        // cache flush or emergency session invalidation from deleting jobs.
         'queue' => [
-            'url' => env('REDIS_QUEUE_URL', env('REDIS_URL')),
-            'scheme' => env('REDIS_SCHEME'),
-            'host' => env('REDIS_HOST', '127.0.0.1'),
-            'username' => env('REDIS_USERNAME'),
-            'password' => env('REDIS_PASSWORD'),
-            'port' => env('REDIS_PORT', '6379'),
+            'url' => env('REDIS_QUEUE_URL'),
+            'host' => env('REDIS_QUEUE_HOST', env('REDIS_HOST', '127.0.0.1')),
+            'username' => env('REDIS_QUEUE_USERNAME', env('REDIS_USERNAME')),
+            'password' => env('REDIS_QUEUE_PASSWORD', env('REDIS_PASSWORD')),
+            'port' => env('REDIS_QUEUE_PORT', env('REDIS_PORT', '6379')),
             'database' => env('REDIS_QUEUE_DB', '3'),
         ],
 

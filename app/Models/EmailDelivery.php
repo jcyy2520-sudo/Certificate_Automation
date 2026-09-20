@@ -24,10 +24,15 @@ class EmailDelivery extends Model
     protected function casts(): array
     {
         return [
-            'recipient_email' => 'encrypted', 'subject' => 'encrypted',
-            'payload' => 'encrypted:array', 'last_error' => 'encrypted',
-            'scheduled_at' => 'datetime', 'processing_at' => 'datetime',
-            'expires_at' => 'datetime', 'sent_at' => 'datetime', 'failed_at' => 'datetime',
+            'recipient_email' => 'encrypted',
+            'subject' => 'encrypted',
+            'payload' => 'encrypted:array',
+            'last_error' => 'encrypted',
+            'scheduled_at' => 'datetime',
+            'processing_at' => 'datetime',
+            'expires_at' => 'datetime',
+            'sent_at' => 'datetime',
+            'failed_at' => 'datetime',
         ];
     }
 

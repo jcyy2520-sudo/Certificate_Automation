@@ -3,7 +3,8 @@
 @section('content')
 @php
     $backgroundUrl = $hasBackground ? route('admin.certification.background', $webinar) : null;
-    $firstParticipant = $participants->first();
+    $list = $participants->getCollection();
+    $firstParticipant = $list->first();
     $firstName = $firstParticipant?->full_name ?: 'Participant';
     $fontKey = $layout['name_font_family'] ?? 'sans';
     $sizeVal = (float) ($layout['name_font_size'] ?? 42);
@@ -13,12 +14,9 @@
     $weightVal = $layout['name_font_weight'] ?? 'bold';
     $styleVal = $layout['name_font_style'] ?? 'regular';
     $alignVal = $layout['name_text_align'] ?? 'center';
-    $readyCount = $participants->where('cert_status', 'ready')->count();
-    $queuedCount = $participants->where('cert_status', 'queued')->count();
-    $sendingCount = $participants->where('cert_status', 'sending')->count();
-    $sentCount = $participants->where('cert_status', 'sent')->count();
-    $failedCount = $participants->where('cert_status', 'failed')->count();
-    $validEmailCount = $participants->filter(fn ($p) => filled($p->email))->count();
+    // Delivered recipients are separated out of the working list, so the page
+    // count and email coverage describe only people still awaiting a send.
+    $validEmailCount = $list->filter(fn ($p) => filled($p->email))->count();
 @endphp
 
 <div class="hidden" data-design-state>
@@ -31,24 +29,84 @@
     @csrf <input type="hidden" name="preview_confirmed" value="1"><input type="hidden" name="designs_json" value="{}" data-designs-json>
     @foreach($participants as $participant)
         <input type="checkbox" name="participants[]" value="{{ $participant->public_id }}" data-send-participant="{{ $participant->public_id }}" @checked($selectionScoped && $participant->cert_status === 'ready') @disabled($participant->cert_status !== 'ready')>
+        <span data-email-store="{{ $participant->public_id }}" data-value="{{ $participant->email }}"></span>
         <span data-name-store="{{ $participant->public_id }}" data-value="{{ $participant->full_name }}"></span>
     @endforeach
 </form>
 
-<div class="flex h-dvh min-h-0 flex-col bg-slate-900" data-studio data-initial-participant="{{ $firstParticipant?->public_id }}" data-status-url="{{ $statusUrl }}" data-preview-url="{{ route('admin.certification.preview', $webinar) }}">
-    <header class="z-30 flex h-16 shrink-0 items-center border-b border-slate-200 bg-white px-3 sm:px-5">
+{{-- Applying the style being edited as the template default: the same audited
+     endpoint the Template & requirements page uses, returning to the studio. --}}
+<form id="apply-all-form" class="hidden" method="POST" action="{{ route('admin.certification.design', $webinar) }}"
+      data-confirm="Make this exact style the template for EVERY recipient? Their names will use it unless you adjust them individually."
+      data-confirm-tone="neutral"
+      data-confirm-action="Apply to everyone"
+      data-confirm-title="Apply style to every recipient">
+    @csrf
+    <input type="hidden" name="name_top" data-apply-top>
+    <input type="hidden" name="name_left" data-apply-left>
+    <input type="hidden" name="name_font_size" data-apply-size>
+    <input type="hidden" name="name_font_family" data-apply-font>
+    <input type="hidden" name="accent" data-apply-color>
+    <input type="hidden" name="name_font_weight" data-apply-weight>
+    <input type="hidden" name="name_font_style" data-apply-style>
+    <input type="hidden" name="name_text_align" data-apply-align>
+    <input type="hidden" name="studio" value="1">
+</form>
+
+<div class="flex h-dvh min-h-0 flex-col bg-slate-100" data-studio data-initial-participant="{{ $firstParticipant?->public_id }}" data-status-url="{{ $statusUrl }}" data-preview-url="{{ route('admin.certification.preview', $webinar) }}">
+
+    {{-- ===================== Top bar ===================== --}}
+    <header class="studio-topbar">
         <div class="flex min-w-0 flex-1 items-center gap-2">
-            <a href="{{ $backUrl }}" class="inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-semibold text-slate-600 hover:bg-slate-100 hover:text-slate-950"><x-icon name="arrow-left" class="size-4" />Back</a>
-            <button type="button" class="studio-mobile-panel-button lg:hidden" data-toggle-panel="certificates" aria-label="Open certificates"><x-icon name="files" class="size-4" /></button>
+            <a href="{{ $backUrl }}" class="studio-brand" title="Back to participants" aria-label="Back to participants"><x-icon name="award" class="size-[18px]" /></a>
+            <nav class="hidden min-w-0 items-center gap-1 md:flex" aria-label="Breadcrumb">
+                <a href="{{ route('admin.webinars.index') }}" class="studio-crumb">Webinars</a>
+                <x-icon name="chevron-right" class="size-3.5 shrink-0 text-slate-300" />
+                <a href="{{ route('admin.webinars.show', $webinar) }}" class="studio-crumb max-w-[150px] truncate">{{ $webinar->title }}</a>
+                <x-icon name="chevron-right" class="size-3.5 shrink-0 text-slate-300" />
+                <span class="shrink-0 text-[13px] font-semibold text-slate-900">Certificate studio</span>
+            </nav>
+            {{-- Honest state: nothing here is persisted until the send is confirmed. --}}
+            <span class="studio-state-pill" data-adjust-indicator title="Adjustments made here are applied to the selected recipients when you send.">
+                <span class="size-2 shrink-0 rounded-full bg-slate-300" data-adjust-dot></span>
+                <span data-adjust-label>Template style</span>
+            </span>
         </div>
-        <div class="min-w-0 px-2 text-center">
-            <div class="flex items-center justify-center gap-2"><h1 class="truncate text-sm font-semibold text-slate-950">Certificate studio</h1><span class="hidden rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-amber-800 sm:inline-flex">{{ $participants->count() === 1 ? 'Single certificate mode' : 'Bulk sending mode' }}</span></div>
-            <p class="max-w-[42vw] truncate text-[11px] text-slate-500">{{ $webinar->title }}@if($participants->count() > 1) · {{ $participants->count() }} certificates @endif</p>
+
+        <div class="flex shrink-0 items-center gap-1">
+            <button type="button" class="studio-icon-button" data-undo title="Undo" aria-label="Undo" disabled><x-icon name="undo" class="size-4" /></button>
+            <button type="button" class="studio-icon-button" data-redo title="Redo" aria-label="Redo" disabled><x-icon name="redo" class="size-4" /></button>
+            <label class="studio-zoom ml-1 hidden sm:flex">
+                <span class="sr-only">Zoom</span>
+                <select data-zoom-select>
+                    <option value="fit">Fit</option>
+                    @foreach([0.5, 0.75, 1, 1.25, 1.5, 2] as $level)
+                        <option value="{{ $level }}" @selected($level === 1)>{{ (int) ($level * 100) }}%</option>
+                    @endforeach
+                </select>
+            </label>
         </div>
+
         <div class="flex flex-1 items-center justify-end gap-1.5 sm:gap-2">
-            <a class="hidden h-9 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 sm:inline-flex" target="_blank" rel="noopener" href="{{ route('admin.certification.preview', $webinar, ['name' => $firstName]) }}" data-preview-pdf><x-icon name="eye" class="size-4" />Preview PDF</a>
-            <button type="button" class="inline-flex h-9 items-center gap-1.5 rounded-lg bg-accent-600 px-3 text-[12px] font-semibold text-white hover:bg-accent-700 disabled:cursor-not-allowed disabled:opacity-40" data-open-send-confirm disabled><x-icon name="send" class="size-4" /><span class="hidden sm:inline" data-send-label>Send certificates</span><span class="sm:hidden">Send</span></button>
-            <button type="button" class="studio-mobile-panel-button lg:hidden" data-toggle-panel="people" aria-label="Open people"><x-icon name="users" class="size-4" /></button>
+            @if($hasBackground && $bulkReadyCount > 0)
+                <form method="POST" action="{{ route('admin.certificates.batch', $webinar) }}"
+                      class="hidden sm:inline-flex"
+                      data-confirm="Queue certificate generation and email delivery for every ready participant ({{ $bulkReadyCount }} total)? The template's default style is used — per-recipient style adjustments made here are not applied to a bulk send."
+                      data-confirm-tone="neutral"
+                      data-confirm-action="Send to all ready"
+                      data-confirm-title="Send to all ready participants">
+                    @csrf
+                    <button type="submit" class="studio-button-secondary">
+                        <x-icon name="users" class="size-4" />
+                        <span class="hidden md:inline">Send to all ready</span><span class="md:hidden">All</span>
+                        <span class="ml-0.5 rounded bg-slate-900/5 px-1.5 py-0.5 text-[10px] font-bold tabular-nums">{{ $bulkReadyCount }}</span>
+                    </button>
+                </form>
+            @endif
+            <a class="studio-button-secondary hidden sm:inline-flex" target="_blank" rel="noopener" href="{{ route('admin.certification.preview', $webinar, ['name' => $firstName]) }}" data-preview-pdf><x-icon name="download" class="size-4" />Preview PDF</a>
+            <button type="button" class="studio-button-primary" data-open-send-confirm disabled><x-icon name="send" class="size-4" /><span class="hidden sm:inline" data-send-label>Send certificates</span><span class="sm:hidden">Send</span></button>
+            <button type="button" class="studio-mobile-panel-button lg:hidden" data-toggle-panel="people" aria-label="Open recipients"><x-icon name="users" class="size-4" /></button>
+            <button type="button" class="studio-mobile-panel-button lg:hidden" data-toggle-panel="editor" aria-label="Open editor"><x-icon name="type" class="size-4" /></button>
         </div>
     </header>
 
@@ -57,59 +115,241 @@
     @elseif($participants->isEmpty())
         <main class="studio-empty"><div><x-icon name="award" class="mx-auto size-10 text-slate-300" /><h2>No eligible certificates to load</h2><p>Add or select recipients from the participant table first. Names and email addresses are managed in one place.</p><a class="button-primary mt-5" href="{{ $backUrl }}#add-participant"><x-icon name="users" class="size-4" />Open participants</a></div></main>
     @else
-        @if($pipelineWarning)<div class="mx-auto mt-3 flex w-[min(92vw,720px)] shrink-0 items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] leading-5 text-amber-950 shadow-lg"><x-icon name="alert" class="mt-0.5 size-4 shrink-0" /><span><strong class="font-semibold">Delivery needs attention.</strong> {{ $pipelineWarning }}</span></div>@endif
         {{-- Below `lg` the side panels sit off-canvas via translate-x-full. A transform
              moves them visually but still counts toward the scroll area, so clip it here
              or every narrow viewport scrolls sideways by the panel width. --}}
         <div class="relative flex min-h-0 flex-1 overflow-hidden">
             <button type="button" class="absolute inset-0 z-40 hidden bg-slate-950/45 lg:hidden" data-panel-scrim aria-label="Close panel"></button>
 
-            <aside class="studio-side-panel studio-left-panel" data-panel="certificates">
-                <div class="border-b border-slate-200 p-4">
-                    <div class="flex items-center justify-between"><div><p class="text-sm font-semibold">Certificates</p><p class="mt-0.5 text-[11px] text-slate-500"><span data-visible-certificate-count>{{ $participants->count() }}</span> in this queue</p></div><label class="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600"><input type="checkbox" class="size-4 rounded border-slate-300 text-accent-700" data-select-all> All ready</label></div>
-                    <label class="studio-search"><x-icon name="search" /><input placeholder="Search certificates" data-certificate-search></label>
+            {{-- ===================== Left: the people ===================== --}}
+            <aside class="studio-side-panel studio-left-panel" data-panel="people">
+                <div class="shrink-0 border-b border-slate-100 p-4 pb-3">
+                    <div class="flex items-baseline justify-between gap-2">
+                        <p class="text-[13px] font-semibold text-slate-900">Recipients</p>
+                        <p class="text-[11px] text-slate-500"><span data-visible-certificate-count>{{ $participants->total() }}</span> shown</p>
+                    </div>
+                    <div class="recipient-tabs mt-2 flex rounded-lg bg-slate-100 p-0.5" role="tablist" aria-label="Recipient lists">
+                        <button type="button" role="tab" aria-selected="true" data-recipient-tab="working" class="is-active">To send<span class="ml-1.5 tabular-nums opacity-60">{{ number_format($participants->total()) }}</span></button>
+                        <button type="button" role="tab" aria-selected="false" data-recipient-tab="sent" class="">Sent<span class="ml-1.5 tabular-nums opacity-60">{{ number_format($sentCount) }}</span></button>
+                    </div>
+                    <label class="studio-search mt-2"><x-icon name="search" /><input placeholder="Search name or email" data-certificate-search aria-label="Search recipients"></label>
                 </div>
-                <div class="min-h-0 flex-1 overflow-y-auto p-2" data-certificate-list>
+
+                {{-- Working set: everyone still awaiting a send, selectable. --}}
+                <div data-tab-panel="working" class="flex min-h-0 flex-1 flex-col">
+                    <label class="flex shrink-0 items-center justify-between gap-2 px-4 pt-1 text-[12px] font-medium text-slate-600">
+                        <span class="flex items-center gap-2"><input type="checkbox" class="size-4 rounded border-slate-300 text-accent-700" data-select-all>Select all ready</span>
+                        <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold tabular-nums text-slate-600" data-selected-count>0</span>
+                    </label>
+                    <div class="min-h-0 flex-1 overflow-y-auto p-2" data-certificate-list>
                     @foreach($participants as $participant)
-                        @php $certificate = $participant->certificate_record; $state = $participant->certificate_delivery_state; $status = $state->slug(); @endphp
-                        <article class="studio-certificate-row" data-certificate-row="{{ $participant->public_id }}" data-search="{{ Str::lower($participant->full_name.' '.$participant->email.' '.$certificate?->verification_code) }}" data-status="{{ $status }}" data-name-update-url="{{ route('admin.participants.name', [$webinar, $participant]) }}">
-                            <label class="mt-1 shrink-0" title="Include this certificate when sending"><input type="checkbox" class="size-4 rounded border-slate-300 text-amber-700" data-queue-check="{{ $participant->public_id }}" @checked($selectionScoped && $status === 'ready') @disabled($status !== 'ready')></label>
-                            <button type="button" class="min-w-0 flex-1 text-left" data-preview-select="{{ $participant->public_id }}">
-                                <span class="flex items-start gap-2"><span class="mt-0.5 flex h-10 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-100"><img src="{{ $backgroundUrl }}" alt="" class="h-full w-full object-cover opacity-80"></span><span class="min-w-0 flex-1"><span class="block truncate text-[12px] font-semibold text-slate-900" data-participant-name>{{ $participant->full_name ?: 'Unnamed participant' }}</span><span class="mt-0.5 block truncate text-[11px] text-slate-500">{{ $participant->email ?: 'No email address' }}</span><span class="mt-1 block truncate font-mono text-[9px] uppercase tracking-wide text-slate-400" data-certificate-number>{{ $certificate?->verification_code ?: 'Number assigned on send' }}</span></span></span>
-                                <span class="mt-2 flex items-center justify-between pl-16"><span class="certificate-status certificate-status-{{ $status }}" data-status-badge>{{ $state->label() }}</span>@if($status === 'failed')<span class="text-[10px] font-semibold text-red-600">Retry available</span>@endif</span>
-                            </button>
+                        @php
+                            $certificate = $participant->certificate_record;
+                            $state = $participant->certificate_delivery_state;
+                            $status = $state->slug();
+                            $statusShort = match ($status) {
+                                'ready' => 'Ready',
+                                'queued' => 'Queued',
+                                'sending' => 'Sending',
+                                'sent' => 'Sent',
+                                'failed' => 'Failed',
+                                'missing_email' => 'No email',
+                                default => '—',
+                            };
+                        @endphp
+                        {{-- One row is both the certificate and the person: selecting, previewing,
+                             filtering and live status updates all address the same element. --}}
+                        <article class="studio-person-row" data-certificate-row="{{ $participant->public_id }}" data-person-row="{{ $participant->public_id }}" data-search="{{ Str::lower($participant->full_name.' '.$participant->email) }}" data-status="{{ $status }}" title="{{ $state->label() }}" data-name-update-url="{{ route('admin.participants.name', [$webinar, $participant]) }}">
+                            <div class="flex items-center gap-2.5">
+                                <label class="shrink-0" title="{{ $status === 'ready' ? 'Include this certificate when sending' : $state->label().' — this recipient cannot be selected again' }}"><input type="checkbox" class="size-4 rounded border-slate-300 text-accent-700" data-queue-check="{{ $participant->public_id }}" @checked($selectionScoped && $status === 'ready') @disabled($status !== 'ready')></label>
+                                <button type="button" class="flex min-w-0 flex-1 items-center gap-2.5 text-left" data-preview-select="{{ $participant->public_id }}">
+                                    <span class="studio-avatar">{{ Str::upper(Str::substr($participant->full_name ?: 'P', 0, 1)) }}</span>
+                                    <span class="min-w-0 flex-1">
+                                        <span class="block truncate text-[12px] font-semibold text-slate-900" data-participant-name>{{ $participant->full_name ?: 'Unnamed participant' }}</span>
+                                        <span class="mt-0.5 block truncate text-[11px] text-slate-500">{{ $participant->email ?: 'No email address' }}</span>
+                                    </span>
+                                </button>
+                                {{-- A compact, fixed-width status chip: sighted admins see why a
+                                     box will not tick ("Sent" vs "Failed"), while the full label
+                                     stays on hover and the name/email keep their room. --}}
+                                <span class="studio-status-chip" data-status-badge title="{{ $state->label() }}">{{ $statusShort }}</span>
+                            </div>
+                            @if($certificate?->status === 'issued')
+                                <div class="{{ $status === 'failed' ? '' : 'hidden' }} mt-2 pl-8" data-failure-detail>
+                                    <form method="POST" action="{{ route('admin.certificates.resend', $certificate) }}" data-confirm="Retry this failed certificate delivery?" data-confirm-tone="neutral" data-confirm-action="Retry send" data-confirm-title="Retry certificate">@csrf<button class="text-[10px] font-bold text-red-700 underline">Retry email</button></form>
+                                </div>
+                            @endif
                         </article>
                     @endforeach
                 </div>
-                <div class="flex items-center justify-between border-t border-slate-200 p-3"><button type="button" class="studio-icon-button" data-prev-certificate><x-icon name="chevron-left" class="size-4" /></button><span class="text-[11px] font-medium text-slate-500"><span data-active-index>1</span> / <span data-certificate-total>{{ $participants->count() }}</span></span><button type="button" class="studio-icon-button" data-next-certificate><x-icon name="chevron-right" class="size-4" /></button></div>
+
+                    @if($participants->hasPages())
+                        <div class="shrink-0 border-t border-slate-100 px-4 py-2">
+                            <div class="flex items-center justify-between text-[12px]">
+                                @if($participants->onFirstPage())
+                                    <span class="text-slate-300">Previous</span>
+                                @else
+                                    <a class="font-medium text-accent-700 hover:underline" href="{{ $participants->previousPageUrl() }}" rel="prev">Previous</a>
+                                @endif
+                                <span class="tabular-nums text-slate-500">Page {{ $participants->currentPage() }} of {{ $participants->lastPage() }}</span>
+                                @if($participants->hasMorePages())
+                                    <a class="font-medium text-accent-700 hover:underline" href="{{ $participants->nextPageUrl() }}" rel="next">Next</a>
+                                @else
+                                    <span class="text-slate-300">Next</span>
+                                @endif
+                            </div>
+                            <p class="mt-1 text-[11px] leading-4 text-slate-400">Showing a page of recipients. Use "Send to all ready" above to reach everyone at once.</p>
+                        </div>
+                    @endif
+                </div>
+
+                {{-- Delivered certificates: read-only, separated behind their own tab. --}}
+                <div data-tab-panel="sent" class="hidden min-h-0 flex-1 flex-col overflow-y-auto">
+                    @if($sentRecent->isEmpty())
+                        <p class="px-4 py-10 text-center text-[12px] text-slate-400" data-sent-empty>Nothing sent yet for this webinar.</p>
+                    @else
+                        <ul class="divide-y divide-slate-100">
+                            @foreach($sentRecent as $certificate)
+                                @php
+                                    $sentName = $certificate->recipient_name ?: ($certificate->participant?->full_name ?: 'Unnamed participant');
+                                    $sentEmail = $certificate->participant?->email;
+                                @endphp
+                                <li class="flex items-center gap-2.5 px-3 py-2" data-sent-row data-search="{{ Str::lower($sentName.' '.$sentEmail) }}">
+                                    <span class="grid size-7 shrink-0 place-items-center rounded-md bg-emerald-50 text-[10px] font-bold text-emerald-700">{{ Str::upper(Str::substr($sentName, 0, 1)) }}</span>
+                                    <span class="min-w-0 flex-1">
+                                        <span class="block truncate text-[12px] font-medium text-slate-700">{{ $sentName }}</span>
+                                        <span class="block truncate font-mono text-[11px] text-slate-400">{{ $sentEmail }}</span>
+                                    </span>
+                                    <span class="shrink-0 whitespace-nowrap text-[10px] tabular-nums text-slate-400" title="{{ $certificate->sent_at?->format('M j, Y g:i A') }}">{{ $certificate->sent_at?->diffForHumans(short: true) }}</span>
+                                </li>
+                            @endforeach
+                        </ul>
+                        @if($sentCount > $sentRecent->count())
+                            <p class="px-4 py-2 text-[11px] text-slate-400">{{ \Illuminate\Support\Number::format($sentCount - $sentRecent->count()) }} earlier deliveries not listed here — use the email delivery log for older records.</p>
+                        @endif
+                    @endif
+                </div>
+
+                @if($pipelineWarning)
+                    <div class="shrink-0 border-t border-slate-100 p-3">
+                        <div class="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[11px] leading-4 text-amber-950"><x-icon name="alert" class="mt-px size-3.5 shrink-0" /><span><strong class="font-semibold">Delivery needs attention.</strong> {{ $pipelineWarning }}</span></div>
+                    </div>
+                @endif
             </aside>
 
-            <main class="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[#171923]">
-                <div class="studio-preview-bar"><button type="button" class="studio-dark-button" data-zoom-out><x-icon name="minus" class="size-4" /></button><span class="w-14 text-center text-[11px] font-semibold tabular-nums" data-zoom-readout>100%</span><button type="button" class="studio-dark-button" data-zoom-in><x-icon name="plus" class="size-4" /></button><span class="mx-1 h-4 w-px bg-white/10"></span><button type="button" class="studio-dark-text-button" data-fit-screen>Fit screen</button><span class="mx-1 h-4 w-px bg-white/10"></span><button type="button" class="studio-dark-button" data-prev-certificate><x-icon name="chevron-left" class="size-4" /></button><button type="button" class="studio-dark-button" data-next-certificate><x-icon name="chevron-right" class="size-4" /></button><span class="mx-1 h-4 w-px bg-white/10"></span><button type="button" class="studio-dark-text-button" data-open-name-correction>Correct name</button><button type="button" class="studio-dark-text-button" data-toggle-name-adjustment>Adjust this name</button></div>
-                <div class="relative min-h-0 flex-1 overflow-auto p-5 pb-20 sm:p-8 sm:pb-20" data-preview-viewport><div class="flex min-h-full items-center justify-center"><div class="w-full max-w-[980px] origin-center transition-transform duration-150" data-preview-scale><div class="relative overflow-hidden rounded-md bg-white shadow-2xl shadow-black/40 ring-1 ring-white/10" data-canvas-wrap><x-certificate-preview :name="$firstName" :layout="$layout" :background-url="$backgroundUrl" /><div class="pointer-events-none absolute inset-y-0 left-1/2 hidden w-px -translate-x-1/2 bg-fuchsia-500" data-guide-v></div><div class="pointer-events-none absolute inset-x-0 top-1/2 hidden h-px -translate-y-1/2 bg-fuchsia-500" data-guide-h></div></div><p class="mt-3 text-center text-[11px] text-slate-400">This name comes from the participant record. Correct the participant if the spelling is wrong.</p></div></div></div>
-
-                <div class="studio-toolbar-wrap hidden" data-name-adjustment><div class="studio-toolbar" data-name-toolbar>
-                    <div class="flex items-center gap-2 overflow-x-auto">
-                        <select class="h-9 min-w-36 rounded-lg border border-slate-200 bg-white px-2 text-[12px] font-medium" data-design-font>@foreach($fonts as $key => $font)<option value="{{ $key }}" data-css="{{ $font['css'] }}" @selected($fontKey === $key)>{{ $font['label'] }}</option>@endforeach</select>
-                        <label class="flex h-9 min-w-40 items-center gap-2 rounded-lg border border-slate-200 px-2 text-[11px] font-semibold text-slate-500">Size <input type="range" min="12" max="160" value="{{ (int) $sizeVal }}" class="w-20 accent-violet-600" data-design-size><span class="w-6 tabular-nums text-slate-800" data-size-readout>{{ (int) $sizeVal }}</span></label>
-                        <label class="flex h-9 items-center gap-1 rounded-lg border border-slate-200 px-1.5"><input type="color" value="{{ $accentVal }}" class="size-6 cursor-pointer border-0 bg-transparent p-0" data-design-color><input value="{{ $accentVal }}" maxlength="7" class="w-[66px] text-[11px] font-mono uppercase outline-none" data-design-hex aria-label="Hex color"></label>
-                        <button type="button" class="studio-tool-button {{ $weightVal === 'bold' ? 'is-active' : '' }}" data-toggle-bold><strong>B</strong></button><button type="button" class="studio-tool-button {{ $styleVal === 'italic' ? 'is-active' : '' }}" data-toggle-italic><em>I</em></button><span class="h-6 w-px shrink-0 bg-slate-200"></span>
-                        @foreach(['left', 'center', 'right'] as $alignment)<button type="button" class="studio-tool-button {{ $alignVal === $alignment ? 'is-active' : '' }}" data-align="{{ $alignment }}"><x-icon name="align-{{ $alignment }}" class="size-4" /></button>@endforeach
-                        <span class="h-6 w-px shrink-0 bg-slate-200"></span><div class="grid shrink-0 grid-cols-3 gap-0.5"><span></span><button type="button" class="studio-nudge" data-nudge="up">↑</button><span></span><button type="button" class="studio-nudge" data-nudge="left">←</button><button type="button" class="studio-nudge text-[9px]" data-reset-position>Reset</button><button type="button" class="studio-nudge" data-nudge="right">→</button><span></span><button type="button" class="studio-nudge" data-nudge="down">↓</button><span></span></div>
+            {{-- ===================== Centre: the certificate ===================== --}}
+            <main class="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-slate-100">
+                <div class="relative min-h-0 flex-1 overflow-auto p-6 pb-16 sm:p-10 sm:pb-16" data-preview-viewport>
+                    <div class="flex min-h-full items-center justify-center">
+                        <div class="w-full max-w-[980px] origin-center transition-transform duration-150" data-preview-scale>
+                            <div class="relative overflow-hidden rounded-md bg-white shadow-xl shadow-slate-900/10 ring-1 ring-slate-900/5" data-canvas-wrap>
+                                <x-certificate-preview :name="$firstName" :layout="$layout" :background-url="$backgroundUrl" />
+                                <div class="pointer-events-none absolute inset-y-0 left-1/2 hidden w-px -translate-x-1/2 bg-fuchsia-500" data-guide-v></div>
+                                <div class="pointer-events-none absolute inset-x-0 top-1/2 hidden h-px -translate-y-1/2 bg-fuchsia-500" data-guide-h></div>
+                            </div>
+                            <p class="mt-3 text-center text-[11px] text-slate-500">Drag the name, or use the arrow keys.</p>
+                        </div>
                     </div>
-                    <div class="mt-2 flex items-center justify-between gap-2 border-t border-slate-100 pt-2"><p class="text-[11px] text-slate-500">Exceptional adjustment for <strong class="text-slate-800" data-adjustment-name>{{ $firstName }}</strong> only. The default style is configured on the Template page.</p><button type="button" class="inline-flex h-8 items-center rounded-lg bg-slate-900 px-3 text-[11px] font-semibold text-white" data-close-name-adjustment>Done</button></div>
-                </div></div>
+                </div>
+
+                <div class="studio-pager">
+                    <button type="button" class="studio-icon-button" data-prev-certificate aria-label="Previous certificate"><x-icon name="chevron-left" class="size-4" /></button>
+                    <span class="px-1 text-[11px] font-medium tabular-nums text-slate-600"><span data-active-index>1</span> / <span data-certificate-total>{{ $participants->count() }}</span></span>
+                    <button type="button" class="studio-icon-button" data-next-certificate aria-label="Next certificate"><x-icon name="chevron-right" class="size-4" /></button>
+                </div>
             </main>
 
-            <aside class="studio-side-panel studio-right-panel" data-panel="people">
-                <div class="border-b border-slate-200 p-4"><div class="flex items-center justify-between"><div><p class="text-sm font-semibold">People</p><p class="mt-0.5 text-[11px] text-slate-500">Certificate owners &amp; delivery</p></div><span class="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600"><span data-selected-count>0</span> selected</span></div><label class="studio-search"><x-icon name="search" /><input placeholder="Search name/email" data-people-search></label><div class="mt-2 flex gap-1 overflow-x-auto" data-status-filters>@foreach(['all', 'ready', 'queued', 'sending', 'sent', 'failed'] as $filter)<button type="button" class="studio-filter {{ $filter === 'all' ? 'is-active' : '' }}" data-status-filter="{{ $filter }}">{{ $filter }}</button>@endforeach</div></div>
-                <div class="min-h-0 flex-1 overflow-y-auto p-2" data-people-list>
-                    @foreach($participants as $participant)
-                        @php $certificate = $participant->certificate_record; $meta = $participant->delivery_meta; $state = $participant->certificate_delivery_state; $status = $state->slug(); @endphp
-                        <article class="studio-person-row" data-person-row="{{ $participant->public_id }}" data-search="{{ Str::lower($participant->full_name.' '.$participant->email) }}" data-status="{{ $status }}"><button type="button" class="w-full text-left" data-preview-select="{{ $participant->public_id }}"><span class="flex items-start gap-2.5"><span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-[11px] font-bold text-amber-900">{{ Str::upper(Str::substr($participant->full_name ?: 'P', 0, 1)) }}</span><span class="min-w-0 flex-1"><span class="block truncate text-[12px] font-semibold text-slate-900" data-participant-name>{{ $participant->full_name ?: 'Unnamed participant' }}</span><span class="mt-0.5 block truncate text-[11px] text-slate-500">{{ $participant->email ?: 'No email address' }}</span><span class="mt-1.5 flex items-center gap-1.5"><span class="certificate-status certificate-status-{{ $status }}" data-status-badge>{{ $state->label() }}</span>@if($status === 'failed')<span class="text-[10px] text-slate-400">{{ $meta['retry_count'] ?? 0 }} retries</span>@endif</span><span class="mt-1 block text-[10px] leading-4 text-slate-500" data-status-detail>{{ $state->detail() }}</span></span></span></button><div class="{{ $status === 'failed' ? '' : 'hidden' }} mt-2 rounded-lg border border-red-100 bg-red-50 p-2 text-[10px] leading-4 text-red-800" data-failure-detail><strong>Failed:</strong> <span data-failure-reason>{{ $meta['failed_reason'] ?? 'Certificate generation or email delivery failed' }}</span>@if($certificate?->status === 'issued')<form method="POST" action="{{ route('admin.certificates.resend', $certificate) }}" class="mt-1" data-confirm="Retry this failed certificate delivery?" data-confirm-tone="neutral" data-confirm-action="Retry send" data-confirm-title="Retry certificate">@csrf<button class="font-bold underline">Retry email</button></form>@endif</div></article>
-                    @endforeach
+            {{-- ===================== Right: the editor ===================== --}}
+            <aside class="studio-side-panel studio-right-panel" data-panel="editor" data-name-adjustment>
+                <div class="min-h-0 flex-1 overflow-y-auto" data-name-toolbar>
+
+                    <div class="studio-editor-block">
+                        <p class="studio-editor-title">Align</p>
+                        <div class="studio-editor-row mt-2">
+                            @foreach([
+                                'left' => ['align-h-left', 'Align to the left third'],
+                                'center-h' => ['align-h-center', 'Centre horizontally'],
+                                'right' => ['align-h-right', 'Align to the right third'],
+                                'top' => ['align-top', 'Align to the upper third'],
+                                'middle' => ['align-middle', 'Centre vertically'],
+                                'bottom' => ['align-bottom', 'Align to the lower third'],
+                            ] as $preset => [$icon, $label])
+                                <button type="button" class="studio-tool-button" data-align-preset="{{ $preset }}" title="{{ $label }}" aria-label="{{ $label }}"><x-icon name="{{ $icon }}" class="size-4" /></button>
+                            @endforeach
+                        </div>
+                    </div>
+
+                    <div class="studio-editor-block">
+                        <p class="studio-editor-title">Recipient</p>
+                        <button type="button" class="studio-recipient-box mt-2" data-open-name-correction aria-label="Correct name">
+                            <span class="block truncate text-[13px] font-semibold text-slate-900" data-adjustment-name>{{ $firstName }}</span>
+                            {{-- The address sits beside the name being spell-checked in
+                                 plain, dark type — easy to read, no colour highlight. --}}
+                            <span class="mt-1 block truncate font-mono text-[12px] font-semibold text-slate-900" data-adjustment-email title="{{ $firstParticipant?->email }}">{{ $firstParticipant?->email ?: 'No email address' }}</span>
+                            <span class="mt-1.5 block text-[11px] text-slate-400">Click the name to correct its spelling</span>
+                        </button>
+                    </div>
+
+                    <div class="studio-editor-block">
+                        <p class="studio-editor-title">Text</p>
+
+                        <select class="studio-input mt-2 w-full" data-design-font aria-label="Font">
+                            @foreach($fonts as $key => $font)<option value="{{ $key }}" data-css="{{ $font['css'] }}" @selected($fontKey === $key)>{{ $font['label'] }}</option>@endforeach
+                        </select>
+
+                        <div class="mt-1.5 grid grid-cols-2 gap-1.5">
+                            <select class="studio-input" data-design-weight aria-label="Font weight">
+                                <option value="regular" @selected($weightVal !== 'bold')>Regular</option>
+                                <option value="bold" @selected($weightVal === 'bold')>Bold</option>
+                            </select>
+                            <label class="studio-input-group" title="Font size in points">
+                                <span class="studio-input-affix">Aa</span>
+                                <input type="number" min="12" max="160" step="1" value="{{ (int) $sizeVal }}" data-design-size-number aria-label="Font size">
+                                <span class="studio-input-suffix">pt</span>
+                            </label>
+                        </div>
+
+                        <label class="studio-input-group mt-1.5" title="Name colour">
+                            <input type="color" value="{{ $accentVal }}" class="studio-swatch" data-design-color aria-label="Name colour">
+                            <input value="{{ Str::upper($accentVal) }}" maxlength="7" class="font-mono uppercase" data-design-hex aria-label="Hex colour">
+                        </label>
+
+                        <div class="mt-1.5 grid grid-cols-2 gap-1.5">
+                            <label class="studio-input-group" title="Distance from the top of the page">
+                                <span class="studio-input-affix">Y</span>
+                                <input type="number" min="0" max="100" step="0.5" value="{{ $topVal }}" data-design-top-input aria-label="Vertical position">
+                                <span class="studio-input-suffix">%</span>
+                            </label>
+                            <label class="studio-input-group" title="Distance from the left of the page">
+                                <span class="studio-input-affix">X</span>
+                                <input type="number" min="0" max="100" step="0.5" value="{{ $leftVal }}" data-design-left-input aria-label="Horizontal position">
+                                <span class="studio-input-suffix">%</span>
+                            </label>
+                        </div>
+
+                        <div class="studio-editor-row mt-1.5">
+                            @foreach(['left' => 'Align text left', 'center' => 'Centre text', 'right' => 'Align text right'] as $alignment => $label)
+                                <button type="button" class="studio-tool-button {{ $alignVal === $alignment ? 'is-active' : '' }}" data-align="{{ $alignment }}" title="{{ $label }}" aria-label="{{ $label }}"><x-icon name="align-{{ $alignment }}" class="size-4" /></button>
+                            @endforeach
+                            <span class="mx-0.5 h-6 w-px bg-slate-200"></span>
+                            <button type="button" class="studio-tool-button {{ $weightVal === 'bold' ? 'is-active' : '' }}" data-toggle-bold title="Bold" aria-label="Bold"><strong class="text-[13px]">B</strong></button>
+                            <button type="button" class="studio-tool-button {{ $styleVal === 'italic' ? 'is-active' : '' }}" data-toggle-italic title="Italic" aria-label="Italic"><em class="font-serif text-[13px]">I</em></button>
+                        </div>
+                    </div>
+
+                    <div class="studio-editor-block border-b-0">
+                        <p class="studio-editor-title">Save this style</p>
+                        <div class="mt-2 space-y-1.5">
+                            <button type="button" class="button-primary w-full justify-center" data-apply-to-all><x-icon name="check-circle" class="size-4" />Use for every recipient</button>
+                            <button type="button" class="button-secondary w-full justify-center" data-reset-design><x-icon name="refresh" class="size-4" />Reset this person to template</button>
+                        </div>
+                        <p class="mt-2 text-[11px] leading-4 text-slate-500">
+                            “Use for every recipient” makes this the template style for the whole webinar.
+                            An individual tweak is kept for <strong class="font-semibold text-slate-700" data-adjustment-name>{{ $firstName }}</strong> only
+                            and is applied automatically when you send their certificate.
+                        </p>
+                    </div>
                 </div>
-                <div class="border-t border-slate-200 bg-slate-50 p-4"><p class="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">Sending summary</p><div class="mt-2 grid grid-cols-4 gap-1 text-center"><div><strong class="block text-sm tabular-nums" data-summary-total>{{ $participants->count() }}</strong><span class="text-[9px] text-slate-500">Total</span></div><div><strong class="block text-sm tabular-nums text-emerald-600" data-summary-sent>{{ $sentCount }}</strong><span class="text-[9px] text-slate-500">Sent</span></div><div><strong class="block text-sm tabular-nums text-red-600" data-summary-failed>{{ $failedCount }}</strong><span class="text-[9px] text-slate-500">Failed</span></div><div><strong class="block text-sm tabular-nums text-amber-600" data-summary-pending>{{ $readyCount + $queuedCount + $sendingCount }}</strong><span class="text-[9px] text-slate-500">Pending</span></div></div></div>
             </aside>
         </div>
     @endif
@@ -121,7 +361,7 @@
         <h2 class="text-lg font-semibold" id="name-correction-title">Correct participant name</h2>
         <p class="mt-1 text-[12px] leading-5 text-slate-500">This updates the participant record. The preview and all future certificates will use the corrected name.</p>
         <label class="field-label mt-5 block">Full name
-            <input class="field" name="full_name" required maxlength="120" data-name-correction-input>
+            <input class="field" name="full_name" required maxlength="180" data-name-correction-input>
         </label>
         <p class="mt-2 hidden text-[12px] text-red-600" data-name-correction-error></p>
         <div class="mt-5 flex justify-end gap-2"><button type="button" class="button-secondary" data-cancel-name-correction>Cancel</button><button class="button-primary">Save corrected name</button></div>

@@ -96,7 +96,7 @@ class ParticipantController extends Controller
         abort_if($webinar->deletion_started_at !== null, 409);
 
         $data = $request->validate([
-            'full_name' => ['required', 'string', 'max:120'],
+            'full_name' => ['required', 'string', 'max:180'],
             'email' => ['required', 'email:rfc', 'max:255'],
             'organization' => ['nullable', 'string', 'max:180'],
         ]);
@@ -354,7 +354,7 @@ class ParticipantController extends Controller
         abort_if($participant->privacy_erased_at !== null, 422, 'This participant record is no longer editable.');
 
         $data = $request->validate([
-            'full_name' => ['required', 'string', 'max:120'],
+            'full_name' => ['required', 'string', 'max:180'],
         ]);
         $name = trim($data['full_name']);
 

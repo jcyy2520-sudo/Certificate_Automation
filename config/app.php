@@ -56,28 +56,6 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Additional Trusted Hosts
-    |--------------------------------------------------------------------------
-    |
-    | APP_URL is always trusted. List any additional exact hostnames as a
-    | comma-separated value; wildcard subdomains are deliberately unsupported.
-    |
-    */
-
-    'trusted_hosts' => array_values(array_filter(array_map(
-        'trim',
-        explode(',', (string) env('APP_TRUSTED_HOSTS', '')),
-    ))),
-
-    // Trust forwarded scheme/host data only from explicitly configured proxy
-    // addresses or CIDRs. Never use a wildcard in a public deployment.
-    'trusted_proxies' => array_values(array_filter(array_map(
-        'trim',
-        explode(',', (string) env('APP_TRUSTED_PROXIES', '')),
-    ))),
-
-    /*
-    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |

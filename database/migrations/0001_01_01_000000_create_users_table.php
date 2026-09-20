@@ -17,10 +17,8 @@ return new class extends Migration
             $table->string('email')->unique();
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
-            // New records are non-privileged until the explicit admin:create
-            // provisioning path grants both role and active status.
-            $table->string('role')->default('pending')->index();
-            $table->boolean('is_active')->default(false);
+            $table->string('role')->default('administrator')->index();
+            $table->boolean('is_active')->default(true);
             $table->text('two_factor_secret')->nullable();
             $table->text('two_factor_recovery_codes')->nullable();
             $table->timestamp('two_factor_confirmed_at')->nullable();

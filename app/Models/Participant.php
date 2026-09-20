@@ -16,6 +16,7 @@ class Participant extends Model
 
     protected $hidden = ['email_normalized'];
 
+    /** Keep the one authoritative matching key in sync with every email write. */
     protected static function booted(): void
     {
         static::saving(function (Participant $participant): void {

@@ -166,6 +166,50 @@ class AvailabilityControlsTest extends TestCase
             ->assertDontSee('Registration is not open yet');
     }
 
+    public function test_an_expired_registration_is_shown_closed_and_reopens_with_one_on_action(): void
+    {
+        $administrator = User::factory()->create(['is_active' => true]);
+        $webinar = Webinar::factory()->create([
+            'created_by' => $administrator->id,
+            'status' => 'published',
+            'ends_at' => now()->addDays(2),
+            'registration_closes_at' => now()->subHour(),
+        ]);
+        $form = $webinar->forms()->create([
+            'type' => 'registration',
+            'title' => 'Registration',
+            'status' => 'published',
+            'closes_at' => now()->subHour(),
+        ]);
+
+        $form->setRelation('webinar', $webinar);
+        $this->assertTrue($form->isOpen());
+        $this->assertFalse($form->acceptsResponses());
+        $this->assertTrue($form->canReopenByClearingExpiredDeadline());
+
+        $this->actingAs($administrator)
+            ->get(route('admin.forms.edit', [$webinar, $form]))
+            ->assertOk()
+            ->assertSee('Closed — deadline passed')
+            ->assertSee('data-availability-switch', false)
+            ->assertDontSee('data-availability-switch checked', false);
+
+        $this->actingAs($administrator)
+            ->postJson(route('admin.forms.toggle', [$webinar, $form]), ['is_open' => true])
+            ->assertOk()
+            ->assertJson([
+                'open' => true,
+                'accepts_responses' => true,
+                'state' => 'Open — accepting responses now',
+            ]);
+
+        $form->refresh();
+        $webinar->refresh();
+        $this->assertNull($form->closes_at);
+        $this->assertNull($webinar->registration_closes_at);
+        $this->assertTrue($form->setRelation('webinar', $webinar)->acceptsResponses());
+    }
+
     private function payload(Webinar $webinar, bool $open): array
     {
         return [

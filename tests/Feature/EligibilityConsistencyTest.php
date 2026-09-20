@@ -77,7 +77,8 @@ class EligibilityConsistencyTest extends TestCase
             ->filter(fn (Participant $p) => $service->evaluate($p->fresh())['eligible'])
             ->pluck('id')->sort()->values()->all();
 
-        $actual = collect($service->eligibleParticipantIds($this->webinar->fresh()))->sort()->values()->all();
+        $actual = $service->eligibleParticipantsQuery($this->webinar->fresh())
+            ->pluck('participants.id')->map(fn ($id) => (int) $id)->sort()->values()->all();
 
         $this->assertSame($expected, $actual);
     }
@@ -148,6 +149,10 @@ class EligibilityConsistencyTest extends TestCase
         $service = app(EligibilityService::class);
 
         $this->assertTrue($service->evaluate($participant->fresh())['eligible']);
-        $this->assertSame([$participant->id], $service->eligibleParticipantIds($this->webinar->fresh()));
+        $this->assertSame(
+            [$participant->id],
+            $service->eligibleParticipantsQuery($this->webinar->fresh())
+                ->pluck('participants.id')->map(fn ($id) => (int) $id)->all(),
+        );
     }
 }

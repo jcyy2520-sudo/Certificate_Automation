@@ -49,7 +49,6 @@ class ZzPreviewSnapshotTest extends TestCase
             'webinar_id' => $webinar->id,
             'name' => 'ACLS completion certificate',
             'storage_disk' => config('webinar.certificate_disk'),
-            'template_path' => 'uploaded',
             'background_path' => 'certificate-backgrounds/preview-sample.png',
             'layout' => [
                 'accent' => '#1d4ed8',

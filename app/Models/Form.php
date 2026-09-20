@@ -84,6 +84,15 @@ class Form extends Model
         return $this->status === 'published';
     }
 
+    /** An expired response deadline is intentionally cleared by an explicit reopen. */
+    public function canReopenByClearingExpiredDeadline(): bool
+    {
+        return $this->isOpen() && (
+            $this->closes_at?->isPast()
+            || ($this->type === 'registration' && $this->webinar?->registration_closes_at?->isPast())
+        );
+    }
+
     /** Why the form is not accepting responses, for the closed-form notice. */
     public function closedReason(): string
     {

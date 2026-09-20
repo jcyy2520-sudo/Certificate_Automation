@@ -46,7 +46,6 @@ class ResetSystem extends Command
         'sessions',
         'cache',
         'cache_locks',
-        'password_reset_tokens',
     ];
 
     public function handle(): int

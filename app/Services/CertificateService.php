@@ -206,15 +206,18 @@ class CertificateService
             $lockedCertificate->setRelation('template', $template);
 
             if (filled($participant->email)) {
+                $statusForm = $webinar->forms()->where('type', 'registration')->first(['public_token']);
                 $this->notifications->queue(
                     $webinar,
                     $participant,
                     'certificate',
                     $participant->email,
-                    'Your certificate for '.$webinar->title,
+                    $webinar->certificateEmailSubject($lockedCertificate->recipient_name),
                     view('emails.certificate-issued', [
                         'participant' => $participant,
                         'certificate' => $lockedCertificate,
+                        'customMessage' => $webinar->certificateEmailMessage($lockedCertificate->recipient_name),
+                        'statusUrl' => $statusForm ? route('forms.public.status', $statusForm->public_token) : null,
                     ])->render(),
                     $lockedCertificate,
                     [['name' => 'certificate.pdf', 'content' => base64_encode($contents)]],

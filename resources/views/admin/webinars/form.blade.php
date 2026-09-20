@@ -23,6 +23,7 @@
         'verification' => $isNew || $errors->has('requires_verification'),
         'capacity' => $isNew || $errors->has('registration_capacity'),
         'schedule' => $isNew || $errors->hasAny(['starts_at', 'ends_at', 'registration_closes_at']),
+        'certificate_email' => $isNew || $errors->hasAny(['certificate_email_subject', 'certificate_email_message']),
     ];
 
     $scheduleDates = collect([
@@ -102,6 +103,37 @@
                 <label for="description" class="sr-only">Description</label>
                 <textarea id="description" class="field {{ $errors->has('description') ? 'field-invalid' : '' }}" name="description" rows="4">{{ old('description', $webinar->description) }}</textarea>
                 <x-field-error :error="$errors->first('description')" />
+            </div>
+        </details>
+
+        <details class="group" @if($open['certificate_email']) open @endif>
+            <summary class="flex cursor-pointer list-none items-start justify-between gap-4 px-5 py-4 hover:bg-slate-50">
+                <div class="min-w-0">
+                    <p class="text-[13px] font-medium text-slate-900">Certificate email</p>
+                    <p class="mt-0.5 max-w-[38ch] truncate text-[13px] text-slate-500 group-open:hidden">{{ filled($webinar->certificate_email_subject) || filled($webinar->certificate_email_message) ? 'Custom subject and message are set.' : 'Using the standard wording.' }}</p>
+                </div>
+                <span class="shrink-0 text-[13px] font-medium text-accent-600">
+                    <span class="group-open:hidden">Edit</span><span class="hidden group-open:inline">Close</span>
+                </span>
+            </summary>
+            <div class="space-y-4 px-5 pb-5">
+                <label class="field-label">Subject line <span class="font-normal text-slate-400">optional</span>
+                    <input class="field {{ $errors->has('certificate_email_subject') ? 'field-invalid' : '' }}" name="certificate_email_subject"
+                           value="{{ old('certificate_email_subject', $webinar->certificate_email_subject) }}" maxlength="120"
+                           placeholder="Your certificate for {{ '{webinar}' }}">
+                    <x-field-error :error="$errors->first('certificate_email_subject')" />
+                </label>
+                <label class="field-label">Extra message <span class="font-normal text-slate-400">optional</span>
+                    <textarea class="field {{ $errors->has('certificate_email_message') ? 'field-invalid' : '' }}" name="certificate_email_message" rows="4"
+                              placeholder="Added to every certificate email for this webinar, above the certificate details.">{{ old('certificate_email_message', $webinar->certificate_email_message) }}</textarea>
+                    <x-field-error :error="$errors->first('certificate_email_message')" />
+                </label>
+                <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-[12px] leading-5 text-slate-600">
+                    <span class="flex items-start gap-2">
+                        <x-icon name="mail" class="mt-px size-4 shrink-0 text-slate-400" />
+                        <span>Leave both blank to use the standard wording. Use <code class="rounded bg-white px-1 font-mono text-[11px]">{'{participant}'}</code> and <code class="rounded bg-white px-1 font-mono text-[11px]">{'{webinar}'}</code> in either field — they are replaced with the recipient's name and this webinar's title. The PDF attachment and verification code are always included.</span>
+                    </span>
+                </div>
             </div>
         </details>
 

@@ -9,6 +9,7 @@
     $isSettings = request()->routeIs('admin.webinars.edit');
     $isReports = request()->routeIs('admin.webinars.reports');
     $isParticipants = request()->routeIs('admin.participants.index', 'admin.participants.show');
+    $isImports = request()->routeIs('admin.webinars.imports.*', 'admin.webinars.import-issues.*');
     $isTemplate = request()->routeIs('admin.certification.*');
     $isStudio = request()->routeIs('admin.certificates.studio');
 
@@ -56,6 +57,9 @@
                 @endif
                 <a href="{{ route('admin.participants.index', $webinar) }}" class="wn-item {{ $isParticipants ? 'wn-item-active' : '' }}" @if($isParticipants) aria-current="page" @endif>
                     <x-icon name="grid" class="size-[15px]" /><span class="webinar-nav-label">Registered participants</span>
+                </a>
+                <a href="{{ route('admin.webinars.imports.index', $webinar) }}" class="wn-item {{ $isImports ? 'wn-item-active' : '' }}" @if($isImports) aria-current="page" @endif>
+                    <x-icon name="files" class="size-[15px]" /><span class="webinar-nav-label">CSV imports</span>
                 </a>
             </div>
         </details>
@@ -108,6 +112,9 @@
                 </a>
                 <a href="{{ route('admin.webinars.edit', $webinar) }}" class="wn-item {{ $isSettings ? 'wn-item-active' : '' }}" @if($isSettings) aria-current="page" @endif>
                     <x-icon name="edit" class="size-[15px]" /><span class="webinar-nav-label">Webinar settings</span>
+                </a>
+                <a href="{{ route('admin.webinars.email-logs.index', $webinar) }}" class="wn-item {{ request()->routeIs('admin.webinars.email-logs.*') ? 'wn-item-active' : '' }}" @if(request()->routeIs('admin.webinars.email-logs.*')) aria-current="page" @endif>
+                    <x-icon name="mail" class="size-[15px]" /><span class="webinar-nav-label">Email delivery log</span>
                 </a>
                 <a href="{{ route('admin.participants.export', $webinar) }}" class="wn-item" download>
                     <x-icon name="download" class="size-[15px]" /><span class="webinar-nav-label">Export data (CSV)</span>

@@ -39,16 +39,10 @@ return [
             'connection' => env('DB_QUEUE_CONNECTION'),
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
-            // Must remain greater than IssueCertificateBatch::$timeout. A
-            // shorter visibility window can let two workers issue the same
-            // participant certificate concurrently.
             'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 2100),
             'after_commit' => true,
         ],
 
-        // Transactional email has a short visibility window so every retry
-        // remains within the provider's idempotency TTL. Long certificate
-        // batches stay on the separate default connection above.
         'database-emails' => [
             'driver' => 'database',
             'connection' => env('DB_QUEUE_CONNECTION'),
@@ -89,7 +83,7 @@ return [
 
         'redis-emails' => [
             'driver' => 'redis',
-            'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
+            'connection' => env('REDIS_QUEUE_CONNECTION', 'queue'),
             'queue' => env('EMAIL_QUEUE', 'emails'),
             'retry_after' => (int) env('EMAIL_QUEUE_RETRY_AFTER', 120),
             'block_for' => null,

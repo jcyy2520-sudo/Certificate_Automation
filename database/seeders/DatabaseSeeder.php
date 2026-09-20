@@ -2,7 +2,9 @@
 
 namespace Database\Seeders;
 
+use App\Models\User;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Hash;
 
 class DatabaseSeeder extends Seeder
 {
@@ -11,9 +13,17 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // Production administrators are intentionally never provisioned from
-        // environment variables: a leftover bootstrap value could silently
-        // reset a strong password on a later `db:seed`. Use the hidden,
-        // interactive `php artisan admin:create` prompt instead.
+        if (filled(env('ADMIN_EMAIL')) && filled(env('ADMIN_PASSWORD'))) {
+            User::query()->updateOrCreate(
+                ['email' => env('ADMIN_EMAIL')],
+                [
+                    'name' => env('ADMIN_NAME', 'Administrator'),
+                    'password' => Hash::make(env('ADMIN_PASSWORD')),
+                    'email_verified_at' => now(),
+                    'role' => 'administrator',
+                    'is_active' => true,
+                ],
+            );
+        }
     }
 }

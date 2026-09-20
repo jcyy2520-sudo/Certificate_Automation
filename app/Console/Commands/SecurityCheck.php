@@ -172,8 +172,10 @@ class SecurityCheck extends Command
         return $this->failures === 0 ? self::SUCCESS : self::FAILURE;
     }
 
-    private function check(bool $passed, string $label, string $remediation): void
+    private function check(mixed $passed, string $label, string $remediation): void
     {
+        $passed = $passed === true;
+
         if ($passed) {
             $this->line("<fg=green>PASS</>  {$label}");
 

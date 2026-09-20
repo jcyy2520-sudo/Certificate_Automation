@@ -76,7 +76,9 @@ class CertificationController extends Controller
 
         $audit->record($request, 'eligibility_rules.updated', $webinar, ['requirements' => array_keys(array_filter($data['rules'] ?? [], fn ($rule) => ! empty($rule['enabled'])))]);
 
-        return back()->with('success', 'Certificate requirements saved.');
+        return redirect()
+            ->to(route('admin.certification.edit', $webinar).'#certificate-requirements')
+            ->with('success', 'Certificate requirements saved.');
     }
 
     public function updateTemplate(Request $request, Webinar $webinar, AuditService $audit): RedirectResponse
@@ -127,7 +129,9 @@ class CertificationController extends Controller
 
         $audit->record($request, 'certificate_template.updated', $template);
 
-        return back()->with('success', 'Certificate design saved. New certificates use it immediately.');
+        return redirect()
+            ->to(route('admin.certification.edit', $webinar).'#certificate-artwork')
+            ->with('success', 'Certificate design saved. New certificates use it immediately.');
     }
 
     /**
@@ -166,7 +170,16 @@ class CertificationController extends Controller
 
         $audit->record($request, 'certificate_template.design_updated', $template);
 
-        return back()->with('success', 'Certificate design updated. New certificates use it immediately.');
+        // Do not use back() here. The protected background <img> request can
+        // become Laravel's session previous URL after the settings page loads,
+        // which would redirect the organizer into the browser's raw-image
+        // viewer with no application navigation after saving. The studio's
+        // "use for every recipient" action asks to come back to the studio.
+        return redirect()
+            ->to($request->boolean('studio')
+                ? route('admin.certificates.studio', $webinar)
+                : route('admin.certification.edit', $webinar).'#participant-name-style')
+            ->with('success', 'Certificate design updated. New certificates use it immediately.');
     }
 
     /**
@@ -226,7 +239,6 @@ class CertificationController extends Controller
             ?? $webinar->certificateTemplates()->create([
                 'name' => 'Certificate',
                 'storage_disk' => config('webinar.certificate_disk'),
-                'template_path' => 'uploaded',
                 'layout' => ['accent' => '#1d4ed8', 'name_top' => 62, 'name_font_size' => 42],
                 'is_active' => true,
             ]);

@@ -38,10 +38,20 @@ class ImportIssue extends Model
 
     public const TYPE_INVALID_SCORE = 'invalid_score';
 
+    /** Present but cannot be interpreted without changing its meaning. */
+    public const TYPE_INVALID_TIMESTAMP = 'invalid_timestamp';
+
+    /** A CSV record has a different number of columns than its header. */
+    public const TYPE_INVALID_ROW_STRUCTURE = 'invalid_row_structure';
+
+    /** A value would otherwise be silently truncated before storage. */
+    public const TYPE_VALUE_TOO_LONG = 'value_too_long';
+
     public const TYPE_MISSING_COLUMN = 'missing_column';
 
     public const TYPE_EMPTY_ROW = 'empty_row';
 
+    /** A required registration identity field is blank. */
     public const TYPE_MISSING_NAME = 'missing_name';
 
     protected $guarded = ['id'];

@@ -21,7 +21,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 use RuntimeException;
@@ -43,15 +42,25 @@ class CertificateController extends Controller
         $requestedIds = collect($request->query('participants', []))
             ->filter(fn ($id) => is_string($id) && preg_match('/^[0-9A-HJKMNP-TV-Z]{26}$/', $id))
             ->unique()->take(200)->values();
+
+        // Delivered certificates are kept out of the working list entirely:
+        // they are not selectable, so they only crowd out everyone still
+        // awaiting a send. They remain visible in the collapsed section below.
         $participants = $webinar->participants()
             ->whereIn('participants.id', $eligibleIds)
             ->when($requestedIds->isNotEmpty(), fn ($query) => $query->whereIn('public_id', $requestedIds))
             ->whereNull('privacy_erased_at')
+            ->whereDoesntHave('certificates', fn ($query) => $query
+                ->whereNull('revoked_at')
+                ->whereNotNull('sent_at'))
             ->with(['certificates' => fn ($query) => $query
                 ->select(['id', 'participant_id', 'verification_code', 'issued_at', 'sent_at', 'revoked_at', 'status', 'layout'])])
             ->orderByRaw('full_name is null')
             ->orderBy('full_name')
-            ->get(['id', 'public_id', 'webinar_id', 'full_name', 'email', 'organization', 'created_at', 'verified_at']);
+            // Bounded pages keep the document usable for very large events;
+            // whole-roster sending goes through "Send to all ready" instead.
+            ->paginate(200)
+            ->withQueryString();
 
         // Map each eligible participant to one of the four plain statuses the
         // admin sees: ready (no certificate yet), sending (issued, email in
@@ -77,21 +86,31 @@ class CertificateController extends Controller
             $participant->cert_status_detail = $state->detail();
         }
 
-        // The "sent history" list: every certificate issued for this webinar,
-        // newest first, with its recipient and current delivery status.
-        $history = $webinar->certificates()
-            ->whereNotNull('issued_at')
+        // The separated record of everything already delivered, newest first,
+        // for the rare moment an organizer needs to look one up.
+        $sentCount = $webinar->certificates()
+            ->whereNotNull('sent_at')
+            ->whereNull('revoked_at')
+            ->count();
+        $sentRecent = $webinar->certificates()
+            ->whereNotNull('sent_at')
+            ->whereNull('revoked_at')
             ->with('participant:id,full_name,email')
-            ->latest('issued_at')
-            ->limit(25)
-            ->get(['id', 'participant_id', 'webinar_id', 'recipient_name', 'verification_code', 'status', 'issued_at', 'sent_at', 'revoked_at']);
-        $historyDeliveries = $this->deliveryByCertificate($history->pluck('id'));
-        $historyStatus = $history->mapWithKeys(fn ($certificate) => [
-            $certificate->id => CertificateDeliveryState::from(
-                $certificate,
-                $historyDeliveries->get($certificate->id),
-            )->slug(),
-        ])->all();
+            ->latest('sent_at')
+            ->limit(100)
+            ->get(['id', 'participant_id', 'recipient_name', 'verification_code', 'sent_at']);
+
+        // Everything the bulk "Send to all ready" action would queue: eligible,
+        // reachable by email, and without an active issued certificate.
+        $bulkReadyCount = $webinar->participants()
+            ->whereIn('participants.id', $eligibleIds)
+            ->whereNull('privacy_erased_at')
+            ->whereNotNull('participants.email')
+            ->where('participants.email', '!=', '')
+            ->whereDoesntHave('certificates', fn ($query) => $query
+                ->whereNull('revoked_at')
+                ->whereNotNull('issued_at'))
+            ->count();
 
         // If certificate emails have been waiting to go out for a while, the
         // background email sender is probably not running — warn the admin so
@@ -124,24 +143,44 @@ class CertificateController extends Controller
             'hasBackground' => (bool) $template?->background_path,
             'layout' => $template?->layout ?? [],
             'fonts' => CertificateTemplate::FONTS,
-            'history' => $history,
-            'historyStatus' => $historyStatus,
+            'sentRecent' => $sentRecent,
+            'sentCount' => $sentCount,
             'pipelineWarning' => $pipelineWarning,
+            'bulkReadyCount' => $bulkReadyCount,
             'selectionScoped' => $requestedIds->isNotEmpty(),
             'backUrl' => route('admin.participants.index', $webinar),
             'statusUrl' => route('admin.certificates.studio.status', $webinar),
         ]);
     }
 
-    /** Lightweight polling payload for the studio's live delivery tracker. */
-    public function status(Webinar $webinar): JsonResponse
+    /**
+     * Lightweight polling payload for the studio's live delivery tracker.
+     *
+     * Only participants that actually hold certificate work are returned, and
+     * an ETag lets an unchanged studio receive an empty 304 instead of the
+     * payload — the poll runs every few seconds for minutes at a time.
+     */
+    public function status(Request $request, Webinar $webinar): JsonResponse
     {
+        $fingerprint = collect([
+            $webinar->certificates()->max('updated_at'),
+            $webinar->emailDeliveries()->max('updated_at'),
+        ])->implode('|');
+        $etag = '"'.md5("studio-status|{$webinar->id}|{$fingerprint}").'"';
+
+        if (hash_equals($etag, (string) $request->headers->get('If-None-Match', ''))) {
+            return response('', 304)->setEtag($etag);
+        }
+
         $participants = $webinar->participants()
             ->whereNull('privacy_erased_at')
+            ->whereHas('certificates', fn ($query) => $query
+                ->whereNull('revoked_at')
+                ->whereIn('status', ['processing', 'issued', 'failed']))
             ->with(['certificates' => fn ($query) => $query
                 ->whereNull('revoked_at')->whereIn('status', ['processing', 'issued', 'failed'])
                 ->select(['id', 'participant_id', 'verification_code', 'status', 'issued_at', 'sent_at'])])
-            ->get(['id', 'public_id', 'webinar_id']);
+            ->get(['id', 'public_id']);
         $certificates = $participants->pluck('certificates')->flatten(1);
         $deliveryByCertificate = $this->deliveryByCertificate($certificates->pluck('id'));
 
@@ -163,7 +202,7 @@ class CertificateController extends Controller
                     'failed_at' => $meta['failed_at'] ?? null,
                 ];
             })->values(),
-        ]);
+        ])->setEtag($etag);
     }
 
     /**
@@ -186,15 +225,18 @@ class CertificateController extends Controller
         $disk = Storage::disk((string) $certificate->storage_disk);
         abort_unless($certificate->file_path && $disk->exists($certificate->file_path), 404, 'The stored certificate file is missing.');
 
+        $statusForm = $certificate->webinar->forms()->where('type', 'registration')->first(['public_token']);
         $notifications->queue(
             $certificate->webinar,
             $participant,
             'certificate',
             (string) $participant->email,
-            'Your certificate for '.$certificate->webinar->title,
+            $certificate->webinar->certificateEmailSubject($certificate->recipient_name),
             view('emails.certificate-issued', [
                 'participant' => $participant,
                 'certificate' => $certificate,
+                'customMessage' => $certificate->webinar->certificateEmailMessage($certificate->recipient_name),
+                'statusUrl' => $statusForm ? route('forms.public.status', $statusForm->public_token) : null,
             ])->render(),
             $certificate,
             [['name' => 'certificate.pdf', 'content' => base64_encode($disk->get($certificate->file_path))]],
