@@ -11,16 +11,20 @@
     @vite('resources/css/app.css')
 </head>
 <body class="bg-transparent text-slate-900 dark:text-slate-100">
-<div class="flex min-h-screen">
+<div class="min-h-screen">
+    @include('partials.admin-mobile-header')
 
-    @include('partials.admin-rail')
+    <div class="flex min-h-screen">
 
-    <div class="flex min-w-0 flex-1 flex-col">
-        <main class="mx-auto w-full max-w-[1440px] flex-1 px-6 py-8 lg:px-10 lg:py-10 2xl:px-14 2xl:py-12">
-            @include('partials.admin-flash')
+        @include('partials.admin-rail')
 
-            @yield('content')
-        </main>
+        <div class="flex min-w-0 flex-1 flex-col">
+            <main class="mx-auto w-full max-w-[1440px] flex-1 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10 2xl:px-14 2xl:py-12">
+                @include('partials.admin-flash')
+
+                @yield('content')
+            </main>
+        </div>
     </div>
 </div>
 

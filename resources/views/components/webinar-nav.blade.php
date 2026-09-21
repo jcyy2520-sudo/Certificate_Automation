@@ -18,6 +18,18 @@
         && $currentFormId === $navForms[$type]->id;
 @endphp
 
+<div class="mobile-nav-overlay lg:hidden" data-mobile-webinar-nav-overlay aria-hidden="true"></div>
+<aside id="mobile-webinar-navigation" class="mobile-workspace-drawer lg:hidden" data-mobile-webinar-nav-drawer aria-label="Webinar navigation" aria-hidden="true" inert>
+    <div class="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+        <div class="min-w-0">
+            <p class="text-[12px] font-medium text-slate-500 dark:text-slate-400">Webinar workspace</p>
+            <p class="truncate text-[14px] font-semibold text-slate-900 dark:text-white">{{ $webinar->title }}</p>
+        </div>
+        <button type="button" class="mobile-header-button" data-mobile-webinar-nav-close aria-label="Close webinar navigation"><x-icon name="x" class="size-5" /></button>
+    </div>
+    @include('partials.webinar-mobile-links')
+</aside>
+
 <aside class="webinar-nav sticky top-0 z-20 hidden h-screen shrink-0 flex-col border-r border-slate-200 bg-white lg:flex">
     {{-- Workspace header --}}
     <div class="shrink-0 border-b border-slate-100 px-4 pb-4 pt-5">

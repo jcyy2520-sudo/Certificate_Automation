@@ -315,6 +315,70 @@
             sync();
         });
 
+        // The desktop rails become off-canvas drawers below the lg breakpoint.
+        // Each drawer is inert while closed, closes on its overlay, Escape, or
+        // a navigation link, and returns focus to the control that opened it.
+        var mobileDrawers = [];
+        var syncMobileNavigationState = function () {
+            root.classList.toggle('mobile-navigation-open', mobileDrawers.some(function (drawer) {
+                return drawer.isOpen();
+            }));
+        };
+        var initMobileDrawer = function (name) {
+            var drawer = document.querySelector('[data-mobile-' + name + '-drawer]');
+            var overlay = document.querySelector('[data-mobile-' + name + '-overlay]');
+            var triggers = document.querySelectorAll('[data-mobile-' + name + '-toggle]');
+            var closeButtons = document.querySelectorAll('[data-mobile-' + name + '-close]');
+            var openClass = 'mobile-' + name + '-open';
+            var opener = null;
+
+            if (!drawer || !overlay || !triggers.length) return;
+
+            var setOpen = function (open, trigger) {
+                if (open) {
+                    mobileDrawers.forEach(function (other) {
+                        if (other !== controller) other.setOpen(false);
+                    });
+                    opener = trigger || document.activeElement;
+                }
+
+                root.classList.toggle(openClass, open);
+                drawer.setAttribute('aria-hidden', open ? 'false' : 'true');
+                drawer.inert = !open;
+                triggers.forEach(function (button) { button.setAttribute('aria-expanded', open ? 'true' : 'false'); });
+                syncMobileNavigationState();
+
+                if (open) {
+                    window.requestAnimationFrame(function () {
+                        drawer.querySelector('[data-mobile-' + name + '-close]')?.focus();
+                    });
+                } else if (opener && typeof opener.focus === 'function') {
+                    opener.focus();
+                }
+            };
+            var controller = {
+                isOpen: function () { return root.classList.contains(openClass); },
+                setOpen: setOpen,
+            };
+
+            mobileDrawers.push(controller);
+            triggers.forEach(function (button) {
+                button.addEventListener('click', function () { setOpen(!controller.isOpen(), button); });
+            });
+            closeButtons.forEach(function (button) { button.addEventListener('click', function () { setOpen(false); }); });
+            overlay.addEventListener('click', function () { setOpen(false); });
+            drawer.addEventListener('click', function (event) {
+                if (event.target.closest('a[href]')) setOpen(false);
+            });
+        };
+
+        initMobileDrawer('rail');
+        initMobileDrawer('webinar-nav');
+        document.addEventListener('keydown', function (event) {
+            if (event.key !== 'Escape') return;
+            mobileDrawers.forEach(function (drawer) { drawer.setOpen(false); });
+        });
+
         document.querySelectorAll('[data-webinar-nav-toggle]').forEach(function (button) {
             var sync = function () {
                 var collapsed = root.classList.contains('webinar-nav-collapsed');
