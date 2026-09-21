@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -18,7 +19,7 @@ return new class extends Migration
             return;
         }
 
-        Schema::statement(
+        DB::statement(
             'CREATE INDEX IF NOT EXISTS participants_webinar_active_verified_index '
             .'ON participants (webinar_id) '
             .'WHERE verified_at IS NOT NULL AND privacy_erased_at IS NULL AND deleted_at IS NULL',
@@ -31,6 +32,6 @@ return new class extends Migration
             return;
         }
 
-        Schema::statement('DROP INDEX IF EXISTS participants_webinar_active_verified_index');
+        DB::statement('DROP INDEX IF EXISTS participants_webinar_active_verified_index');
     }
 };
