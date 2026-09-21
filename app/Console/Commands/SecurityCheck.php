@@ -75,9 +75,19 @@ class SecurityCheck extends Command
             $this->check(Str::startsWith($url, 'https://'), 'APP_URL uses HTTPS', 'Set APP_URL to the canonical HTTPS origin.');
             $this->check(! in_array($host, [null, '', 'localhost', '127.0.0.1', '::1'], true), 'APP_URL uses a deployment hostname', 'Replace the local APP_URL hostname.');
             $this->check(config('session.secure'), 'Session cookies are HTTPS-only', 'Set SESSION_SECURE_COOKIE=true after configuring HTTPS.');
-            $this->check($databaseDriver === 'pgsql', 'Production database is PostgreSQL', 'Set DB_CONNECTION=pgsql and use the managed PostgreSQL credentials.');
-            $this->check(config('operations.managed_postgres'), 'PostgreSQL is declared as a managed service', 'Set MANAGED_POSTGRES=true only after provisioning managed PostgreSQL with restricted ingress and provider backups.');
-            $this->check($this->databaseTransportIsVerified($database, $databaseDriver), 'PostgreSQL TLS verifies the server identity', 'Use DB_SSLMODE=verify-full and DB_SSLROOTCERT pointing to the provider CA bundle.');
+            $this->check($databaseDriver === 'pgsql', 'Production database is PostgreSQL', 'Set DB_CONNECTION=pgsql with the selected PostgreSQL deployment profile.');
+            $managedPostgres = config('operations.managed_postgres');
+
+            if ($managedPostgres) {
+                $this->check(true, 'PostgreSQL is declared as a managed service', 'Set MANAGED_POSTGRES=true only after provisioning managed PostgreSQL with restricted ingress and provider backups.');
+                $this->check($this->databaseTransportIsVerified($database, $databaseDriver), 'PostgreSQL TLS verifies the server identity', 'Use DB_SSLMODE=verify-full and DB_SSLROOTCERT pointing to the provider CA bundle.');
+            } else {
+                $this->check(
+                    $this->selfManagedPostgresHostIsLocal($database, $databaseDriver),
+                    'Self-managed PostgreSQL uses a strictly local host',
+                    'Set DB_HOST to 127.0.0.1, localhost, ::1, or an absolute local Unix-socket path; remote PostgreSQL requires MANAGED_POSTGRES=true with verified TLS.',
+                );
+            }
             $this->check(config('session.driver') === 'redis', 'Production sessions use encrypted Redis payloads', 'Use SESSION_DRIVER=redis with a dedicated session connection; database sessions retain raw IP/user-agent columns.');
             $this->check(config('session.connection') === 'session', 'Session storage uses its dedicated Redis connection', 'Set SESSION_CONNECTION=session so emergency invalidation cannot flush queues or cache.');
             $this->check(($cacheStore['driver'] ?? null) === 'redis', 'Production cache uses Redis', 'Set CACHE_STORE=redis.');
@@ -131,7 +141,13 @@ class SecurityCheck extends Command
             $channels = (array) config('logging.channels.stack.channels', []);
             $this->check(config('logging.default') === 'stack' && in_array('daily', $channels, true), 'Logs rotate with bounded retention', 'Use LOG_CHANNEL=stack and LOG_STACK=daily.');
             $this->check($this->hasEnrolledAdministrator(), 'At least one active administrator has MFA enrolled', 'Create an administrator privately, sign in, and enroll MFA before traffic.');
-            $this->check(config('operations.backups_enabled'), 'Managed backups are declared enabled', 'Enable encrypted managed PostgreSQL and private-file backups, then set BACKUPS_ENABLED=true.');
+            $this->check(
+                config('operations.backups_enabled'),
+                $managedPostgres ? 'Managed backups are declared enabled' : 'Self-managed PostgreSQL backups are declared enabled',
+                $managedPostgres
+                    ? 'Enable encrypted managed PostgreSQL and private-file backups, then set BACKUPS_ENABLED=true.'
+                    : 'Configure encrypted, monitored PostgreSQL and private-file backups, then set BACKUPS_ENABLED=true.',
+            );
             $this->check(
                 $this->timestampIsRecent(
                     config('operations.backup_last_restore_at'),
@@ -246,6 +262,38 @@ class SecurityCheck extends Command
         parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
 
         return $query[$option] ?? $configured;
+    }
+
+    private function selfManagedPostgresHostIsLocal(string $connection, string $driver): bool
+    {
+        if ($driver !== 'pgsql') {
+            return false;
+        }
+
+        $host = strtolower(trim($this->postgresHost($connection), "[] \t\n\r\0\x0B"));
+
+        return in_array($host, ['127.0.0.1', 'localhost', '::1'], true)
+            || str_starts_with($host, '/');
+    }
+
+    private function postgresHost(string $connection): string
+    {
+        $configured = (string) config("database.connections.{$connection}.host", '');
+        $url = (string) config("database.connections.{$connection}.url", '');
+
+        if ($url === '') {
+            return $configured;
+        }
+
+        $host = parse_url($url, PHP_URL_HOST);
+
+        if (is_string($host) && $host !== '') {
+            return $host;
+        }
+
+        parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+
+        return (string) ($query['host'] ?? $configured);
     }
 
     /**
