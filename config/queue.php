@@ -74,7 +74,7 @@ return [
 
         'redis' => [
             'driver' => 'redis',
-            'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
+            'connection' => env('REDIS_DEFAULT_QUEUE_CONNECTION', env('REDIS_QUEUE_CONNECTION', 'default')),
             'queue' => env('REDIS_QUEUE', 'default'),
             'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 2100),
             'block_for' => null,
@@ -83,7 +83,7 @@ return [
 
         'redis-emails' => [
             'driver' => 'redis',
-            'connection' => env('REDIS_QUEUE_CONNECTION', 'queue'),
+            'connection' => env('REDIS_EMAIL_QUEUE_CONNECTION', env('REDIS_QUEUE_CONNECTION', 'queue')),
             'queue' => env('EMAIL_QUEUE', 'emails'),
             'retry_after' => (int) env('EMAIL_QUEUE_RETRY_AFTER', 120),
             'block_for' => null,

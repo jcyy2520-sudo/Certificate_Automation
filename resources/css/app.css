@@ -893,6 +893,12 @@
     .studio-certificate-row.is-active,
     .studio-person-row.is-active { @apply border-accent-200 bg-accent-50/80; }
     .studio-person-row { @apply mb-1 rounded-xl border border-transparent p-2.5 transition hover:bg-slate-50; }
+    .studio-status-chip {
+        @apply inline-flex h-5 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full px-1.5 uppercase;
+        font-size: 0.62rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+    }
 
     .certificate-status {
         @apply inline-flex items-center rounded-full px-2 py-0.5 uppercase;

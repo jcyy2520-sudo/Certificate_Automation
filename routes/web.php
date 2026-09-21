@@ -19,6 +19,7 @@ use App\Http\Controllers\TwoFactorController;
 use App\Http\Middleware\EnsureAdministrator;
 use App\Http\Middleware\EnsureRecentPassword;
 use App\Http\Middleware\EnsureTwoFactorEnabled;
+use Illuminate\Routing\RedirectController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/f/{token}', [PublicFormController::class, 'show'])->where('token', '[a-z0-9]{24}')->middleware('throttle:public-form-view')->name('forms.public');
@@ -38,7 +39,10 @@ Route::get('/certificates/verify/{code}', CertificateVerificationController::cla
 
 // The root exposes no webinar inventory or marketing surface; only explicit
 // administrator sign-in and narrowly scoped participant links are public.
-Route::get('/', fn () => redirect()->route('login'))->name('home');
+Route::get('/', RedirectController::class)
+    ->defaults('destination', '/admin/login')
+    ->defaults('status', 302)
+    ->name('home');
 
 Route::middleware('guest')->group(function () {
     Route::get('/admin/login', [AuthController::class, 'create'])->name('login');

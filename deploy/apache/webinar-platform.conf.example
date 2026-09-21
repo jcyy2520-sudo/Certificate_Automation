@@ -1,0 +1,43 @@
+# Replace <NEW_SUBDOMAIN> before enabling this site. This is an HTTP-only
+# bootstrap VirtualHost: keep it enabled while Certbot obtains the first
+# certificate, then let Certbot create the matching HTTPS VirtualHost.
+#
+# Prerequisites: a2enmod proxy_fcgi setenvif rewrite; a2enconf php8.3-fpm
+
+<VirtualHost *:80>
+    ServerName <NEW_SUBDOMAIN>.jeeycee.site
+
+    DocumentRoot /var/www/webinar-platform/current/public
+    DirectoryIndex index.php
+
+    ErrorLog ${APACHE_LOG_DIR}/webinar-platform-error.log
+    CustomLog ${APACHE_LOG_DIR}/webinar-platform-access.log combined
+
+    # Certificate-background uploads accept at most 8 MiB at the application
+    # layer. 9 MiB permits multipart overhead without accepting arbitrary-size
+    # request bodies. Match PHP-FPM upload_max_filesize/post_max_size to this.
+    LimitRequestBody 9437184
+
+    <Directory /var/www/webinar-platform/current/public>
+        Options -Indexes -MultiViews
+        AllowOverride None
+        Require all granted
+
+        RewriteEngine On
+        RewriteCond %{REQUEST_FILENAME} !-f
+        RewriteCond %{REQUEST_FILENAME} !-d
+        RewriteRule ^ index.php [L]
+    </Directory>
+
+    # Only the public front controller is exposed. PHP is handled by the
+    # dedicated PHP 8.3-FPM socket; no mod_php or project .htaccess is needed.
+    <FilesMatch "\.php$">
+        SetHandler "proxy:unix:/run/php/php8.3-fpm.sock|fcgi://localhost/"
+    </FilesMatch>
+</VirtualHost>
+
+# Do not add a :443 VirtualHost or certificate paths by hand. After this
+# host is reachable over DNS-only HTTP, obtain the certificate with Certbot's
+# Apache integration. Certbot creates and maintains the HTTPS VirtualHost and
+# its certificate-file directives. Then add an HTTP-to-HTTPS redirect only
+# after confirming the generated HTTPS host serves the application correctly.

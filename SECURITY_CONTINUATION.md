@@ -78,7 +78,13 @@ Do not accept real participant data until all are complete. Each maps to a line 
 - Build the release from a clean checkout: do not ship `storage/logs`, `storage/framework/sessions`, the local SQLite DB, caches, or test-generated certificates. Purge old local logs/sessions first.
 - Run `php artisan security:check` against the **cached production config** and require zero failures.
 
-## Deployment sequence
+## Historical deployment summary (not a runbook)
+
+Use [`DEPLOYMENT_CHECKLIST.md`](DEPLOYMENT_CHECKLIST.md) as the sole
+authoritative production path. It supersedes the abbreviated historical summary
+below and requires the separate disposable PostgreSQL migration proof before
+any production migration. It also defines the release, systemd, Apache,
+Cloudflare, MFA, production-security-gate, and controlled-testing order.
 
 1. `php artisan optimize:clear`
 2. `vendor/bin/pint` · `php artisan test` · `npm run build` — all green.

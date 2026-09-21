@@ -60,7 +60,8 @@ class LockdownTest extends TestCase
             'status' => 'published', 'timezone' => 'UTC', 'created_by' => $administrator->id,
         ]);
 
-        $this->get('/')->assertRedirect(route('login'));
+        $this->get('/')->assertStatus(302)->assertRedirect(route('login'));
+        $this->post('/')->assertStatus(405);
 
         $response = $this->followingRedirects()->get('/');
 

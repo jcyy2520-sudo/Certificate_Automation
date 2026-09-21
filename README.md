@@ -96,4 +96,23 @@ vendor/bin/pint --test
 npm run build
 ```
 
+### Browser and JavaScript tests
+
+Install the locked frontend dependencies, then run the standalone JavaScript
+unit tests:
+
+```bash
+npm ci
+npm run test:js
+```
+
+The Playwright suite drives Chromium against Laravel-generated preview
+snapshots. On a new machine, install only that browser once for the locked
+Playwright version, then run the suite (which regenerates the snapshots):
+
+```bash
+npx playwright install chromium
+npm run test:e2e
+```
+
 Public certificate checks use `/certificates/verify/{verification-code}` and deliberately exclude participant contact information and test results.
