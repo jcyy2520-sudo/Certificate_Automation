@@ -86,6 +86,11 @@ RUN apk add --no-cache --virtual .build-deps \
 
 WORKDIR /var/www/html
 
+# Supervisor drops the worker UID without changing its inherited environment.
+# libpq probes ~/.postgresql even when an explicit server CA is configured;
+# use the accessible application home rather than root's private directory.
+ENV HOME=/var/www/html
+
 # Application code first, then the build artefacts on top. .dockerignore keeps
 # the local vendor/ and public/build/ out, but this order means the compiled
 # results win even if that file ever drifts.
