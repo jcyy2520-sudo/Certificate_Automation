@@ -1,6 +1,35 @@
 # Security & Deployment Status
 
-Last updated: 2026-08-22 (Asia/Manila)
+> **2026-10-21 discovered-defect remediation:** The owner explicitly authorized a
+> comprehensive audit and targeted fixes. The current source corrects pending
+> MFA credential revocation, raster decode budgets, certificate-selection audit
+> retention, participant-name preview URLs, recoverable import-source deletion,
+> and Redis URL identity checks before session flushing. A fresh independent
+> candidate review identified additional option/alias, commit-failure and cleanup
+> isolation cases; each now has a passing focused regression. See
+> `tests/Feature/SecurityRemediationTest.php` (18 tests).
+> Local gate: 462 PHP tests / 5,108 assertions, full Pint, Vite build, isolated
+> config/route/view cache checks, Composer audit and full/production npm audits
+> pass; 9 Vitest, 33 snapshot Chromium and 8 isolated real-HTTP workflows pass.
+> The HTTP workflow verifies both participant-ID GET PDF previews and CSRF POST
+> typed-name previews. Snapshots use a static-only server on port 8012, never the
+> development application; workflow DB URLs are explicitly pinned to SQLite.
+> Vitest is now the compatible patched 4.1.11 release. Docker account-email
+> routing and the encrypted import-issue TEXT migration are corrected in source.
+> **The older counts and environment claims below are historical.** PostgreSQL
+> rehearsal, live services/provider/host verification and the backed-up approved
+> migration/deployment procedure remain outstanding. No actual participant data
+> was migrated or cleaned during this review; no real issuance or email was sent.
+
+> **2026-10-21 feature boundary update:** The owner explicitly requested approved
+> multi-user accounts and webinar isolation. Those scoped account/authorization
+> changes are implemented and tested locally; see `MULTI_USER_PLATFORM.md`.
+> The historical single-administrator trust-domain description below no longer
+> describes the new source. The security freeze still applies to unrelated
+> speculative hardening. The real database remains unmigrated and production
+> operations gates remain outstanding.
+
+Historical baseline: 2026-08-22 (Asia/Manila); current update above: 2026-10-21.
 
 > This file replaces an earlier mid-work handoff that described interrupted
 > agents and a "not release-ready" tree. That state is obsolete. The security

@@ -9,15 +9,18 @@ use App\Models\EligibilityRule;
 use App\Models\EmailDelivery;
 use App\Models\Form;
 use App\Models\Submission;
+use App\Models\User;
 use App\Models\Webinar;
 use App\Services\AuditService;
 use App\Services\CertificateFileService;
 use App\Services\EligibilityService;
+use App\Services\ParticipantPrivacyService;
 use App\Support\LocalDateTime;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -28,7 +31,11 @@ class WebinarController extends Controller
     public function index(Request $request): View
     {
         $webinars = Webinar::query()
-            ->select(['id', 'title', 'description', 'status', 'starts_at', 'created_at'])
+            ->visibleTo($request->user())
+            ->select(['id', 'created_by', 'title', 'description', 'status', 'starts_at', 'created_at'])
+            ->with('creator:id,name')
+            ->when($request->filled('search'), fn ($q) => $q->whereRaw('LOWER(title) LIKE ?', ['%'.Str::lower(mb_substr((string) $request->query('search'), 0, 180)).'%']))
+            ->when($request->user()->isAdministrator() && $request->filled('owner'), fn ($q) => $q->where('created_by', $request->integer('owner')))
             ->withCount(['participants', 'certificates'])
             ->when($request->filled('availability'), function ($query) use ($request): void {
                 match ($request->string('availability')->value()) {
@@ -45,7 +52,9 @@ class WebinarController extends Controller
             ->paginate(12)
             ->withQueryString();
 
-        return view('admin.webinars.index', compact('webinars'));
+        $owners = $request->user()->isAdministrator() ? User::query()->whereHas('webinars')->orderBy('name')->get(['id', 'name']) : collect();
+
+        return view('admin.webinars.index', compact('webinars', 'owners'));
     }
 
     public function create(): View
@@ -60,6 +69,14 @@ class WebinarController extends Controller
         $data = $this->validated($request);
         $data['slug'] = $this->uniqueSlug($data['title']);
         $data['created_by'] = $request->user()->id;
+        $protection = $request->validate([
+            'password_protected' => ['sometimes', 'boolean'],
+            'webinar_password' => ['exclude_unless:password_protected,1', 'required', 'string', 'min:15', 'max:1024', 'confirmed'],
+        ]);
+        if ($request->boolean('password_protected')) {
+            $data['management_password'] = Hash::make($protection['webinar_password']);
+            $data['management_lock_version'] = (string) Str::uuid();
+        }
 
         $webinar = DB::transaction(function () use ($data): Webinar {
             $webinar = Webinar::query()->create($data);
@@ -81,7 +98,7 @@ class WebinarController extends Controller
 
             CertificateTemplate::query()->create([
                 'webinar_id' => $webinar->id,
-                'name' => 'Classic certificate',
+                'name' => mb_substr($webinar->title.' — Certificate of Participation', 0, 255),
                 'storage_disk' => config('webinar.certificate_disk'),
                 'layout' => ['accent' => '#1d4ed8'],
                 'is_active' => true,
@@ -95,7 +112,7 @@ class WebinarController extends Controller
         return redirect()->route('admin.webinars.show', $webinar)->with('success', 'Webinar created. Open the webinar and registration form when you are ready to accept participants.');
     }
 
-    public function show(Webinar $webinar): View
+    public function show(Webinar $webinar, EligibilityService $eligibility): View
     {
         $webinar->load([
             'forms' => fn ($query) => $query->select([
@@ -121,7 +138,51 @@ class WebinarController extends Controller
             ->whereNotNull('background_path')
             ->exists();
 
-        return view('admin.webinars.show', compact('webinar', 'recentParticipants', 'hasCertificateDesign'));
+        // Release readiness is deliberately derived live rather than stored as
+        // a checkbox. Imports, requirements, names, templates, and delivery
+        // state can all change after an administrator last looked at the page.
+        $requiredRequirements = $webinar->eligibilityRules()
+            ->where('is_required', true)
+            ->pluck('requirement')
+            ->sort()
+            ->values();
+        $defaultCertificateRequirements = collect(['evaluation', 'posttest', 'pretest']);
+        $usesDefaultCertificateRequirements = $requiredRequirements->values()->all()
+            === $defaultCertificateRequirements->values()->all();
+        $unresolvedImportIssues = $webinar->importIssues()->whereNull('resolved_at')->count();
+        $activeBatch = $webinar->certificateBatches()
+            ->whereIn('status', ['pending', 'processing'])
+            ->exists();
+        $eligibleParticipants = $eligibility->eligibleParticipantsQuery($webinar)
+            ->whereNull('participants.privacy_erased_at');
+        $eligibleCount = (clone $eligibleParticipants)->count();
+        $readyRecipientCount = (clone $eligibleParticipants)
+            ->whereNotNull('participants.email')
+            ->where('participants.email', '!=', '')
+            ->whereDoesntHave('certificates', fn ($query) => $query
+                ->whereNull('revoked_at')
+                ->whereNotNull('issued_at'))
+            ->count();
+        $missingEmailCount = max(0, $eligibleCount - (clone $eligibleParticipants)
+            ->whereNotNull('participants.email')
+            ->where('participants.email', '!=', '')
+            ->count());
+        $emailProviderReady = config('webinar.email.provider') !== 'log'
+            && (config('webinar.email.provider') !== 'brevo' || filled(config('services.brevo.key')));
+        $readiness = [
+            'uses_default_requirements' => $usesDefaultCertificateRequirements,
+            'required_requirements' => $requiredRequirements,
+            'has_certificate_design' => $hasCertificateDesign,
+            'unresolved_import_issues' => $unresolvedImportIssues,
+            'eligible_count' => $eligibleCount,
+            'ready_recipient_count' => $readyRecipientCount,
+            'missing_email_count' => $missingEmailCount,
+            'email_provider_ready' => $emailProviderReady,
+            'email_provider' => config('webinar.email.provider'),
+            'active_batch' => $activeBatch,
+        ];
+
+        return view('admin.webinars.show', compact('webinar', 'recentParticipants', 'hasCertificateDesign', 'readiness'));
     }
 
     /**
@@ -137,20 +198,17 @@ class WebinarController extends Controller
         $order = ['registration', 'pretest', 'posttest', 'evaluation'];
         $forms = $webinar->forms->sortBy(fn ($form) => array_search($form->type, $order, true) === false ? 99 : array_search($form->type, $order, true))->values();
 
-        $formStats = $forms->map(function ($form) use ($webinar): array {
-            $submissions = Submission::query()->where('form_id', $form->id)->where('status', 'submitted');
-            $respondents = (clone $submissions)->distinct()->count('participant_id');
+        // One grouped read for every form. The maximum-score average must still
+        // exclude attempts without a score, exactly as the previous query did.
+        $submissionStats = Submission::query()->whereIn('form_id', $forms->pluck('id'))
+            ->where('status', 'submitted')->groupBy('form_id')
+            ->selectRaw('form_id, COUNT(DISTINCT participant_id) as respondents, AVG(score) as avg_score, AVG(CASE WHEN score IS NOT NULL THEN maximum_score END) as avg_max')
+            ->get()->keyBy('form_id');
 
-            $averages = ['avg' => null, 'avgMax' => null];
-            if (in_array($form->type, ['pretest', 'posttest'], true)) {
-                $row = (clone $submissions)->whereNotNull('score')
-                    ->selectRaw('AVG(score) as avg_score, AVG(maximum_score) as avg_max')
-                    ->first();
-                $averages = [
-                    'avg' => $row?->avg_score !== null ? round((float) $row->avg_score, 1) : null,
-                    'avgMax' => $row?->avg_max !== null ? round((float) $row->avg_max, 1) : null,
-                ];
-            }
+        $formStats = $forms->map(function ($form) use ($webinar, $submissionStats): array {
+            $row = $submissionStats->get($form->id);
+            $respondents = (int) ($row?->respondents ?? 0);
+            $scored = in_array($form->type, ['pretest', 'posttest'], true);
 
             $base = max(1, $webinar->participants_count);
 
@@ -159,8 +217,8 @@ class WebinarController extends Controller
                 'title' => $form->title,
                 'respondents' => $respondents,
                 'rate' => (int) round($respondents / $base * 100),
-                'avg' => $averages['avg'],
-                'avgMax' => $averages['avgMax'],
+                'avg' => $scored && $row?->avg_score !== null ? round((float) $row->avg_score, 1) : null,
+                'avgMax' => $scored && $row?->avg_max !== null ? round((float) $row->avg_max, 1) : null,
             ];
         });
 
@@ -255,6 +313,7 @@ class WebinarController extends Controller
         Webinar $webinar,
         AuditService $audit,
         CertificateFileService $certificateFiles,
+        ParticipantPrivacyService $privacy,
     ): RedirectResponse {
         $request->validate(
             ['confirm' => ['required', 'string']],
@@ -287,7 +346,11 @@ class WebinarController extends Controller
             EmailDelivery::query()
                 ->where('webinar_id', $lockedWebinar->id)
                 ->whereNotIn('status', ['sent', 'cancelled'])
-                ->update(['status' => 'cancelled', 'processing_at' => null]);
+                ->update([
+                    'status' => 'cancelled',
+                    'processing_at' => null,
+                    'active_certificate_delivery_key' => null,
+                ]);
 
             // Deliveries intentionally survive relational deletion for operations
             // counts. Remove all message content as soon as deletion begins so a
@@ -316,6 +379,7 @@ class WebinarController extends Controller
         $certificateFiles->delete(
             $webinar->certificates()->select(['id', 'public_id', 'storage_disk', 'file_path'])->cursor(),
         );
+        $privacy->eraseWebinarImports($webinar);
 
         DB::transaction(function () use ($webinar): void {
             $lockedWebinar = Webinar::query()->whereKey($webinar->id)->lockForUpdate()->first();
@@ -368,7 +432,9 @@ class WebinarController extends Controller
 
         // Blank overrides mean "use the built-in wording", not an empty subject.
         foreach (['certificate_email_subject', 'certificate_email_message'] as $optionalText) {
-            $data[$optionalText] = filled($data[$optionalText] ?? null) ? trim((string) $data[$optionalText]) : null;
+            if (array_key_exists($optionalText, $data)) {
+                $data[$optionalText] = filled($data[$optionalText]) ? trim((string) $data[$optionalText]) : null;
+            }
         }
 
         $data['timezone'] = filled($data['timezone'] ?? null)

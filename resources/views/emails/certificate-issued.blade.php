@@ -1,14 +1,17 @@
 @extends('emails.layout')
 @section('content')
+    @if(isset($previewInfo))
+        <div style="margin:0 0 24px;padding:16px;border:1px solid #cbd5e1;background-color:#f8fafc;font-size:13px;line-height:22px;">
+            <strong>Email preview — no email sent</strong><br>
+            Subject: {{ $subject }}<br>Sender: {{ $previewInfo['sender'] }}<br>
+            Participant: {{ $previewInfo['participant'] }}<br>Attachment: {{ $previewInfo['attachment'] }}<br>
+            Close this tab to return to Certificate Setup.
+        </div>
+    @endif
+    @if($isTest ?? false)<p style="margin:0 0 20px;padding:12px;background-color:#fef3c7;color:#78350f;font-weight:700;">TEST EMAIL — sample certificate only. No participant certificate was issued.</p>@endif
     <h1 style="margin:0 0 16px;font-size:22px;line-height:30px;font-weight:700;">Your certificate is ready</h1>
 
-    <p style="margin:0 0 16px;">Congratulations {{ $certificate->recipient_name ?: $participant->full_name }},</p>
-
-    @if(filled($customMessage ?? null))
-        <p style="margin:0 0 24px;">{!! nl2br(e($customMessage)) !!}</p>
-    @endif
-
-    <p style="margin:0 0 24px;">You have completed every requirement for <strong>{{ $participant->webinar->title }}</strong>. Your certificate is attached to this message as a PDF.</p>
+    <p style="margin:0 0 24px;">{!! nl2br(e($customMessage ?? $certificate->webinar->certificateEmailMessage($certificate->recipient_name))) !!}</p>
 
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px;background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;">
         <tr>

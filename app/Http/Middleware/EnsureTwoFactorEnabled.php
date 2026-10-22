@@ -20,7 +20,8 @@ class EnsureTwoFactorEnabled
 
     public function handle(Request $request, Closure $next): Response|RedirectResponse
     {
-        if (! config('security.require_admin_two_factor', true)
+        if (! $request->user()?->isAdministrator()
+            || ! config('security.require_admin_two_factor', true)
             || $request->user()?->two_factor_confirmed_at
             || $request->routeIs(...self::EXEMPT_ROUTES)) {
             return $next($request);

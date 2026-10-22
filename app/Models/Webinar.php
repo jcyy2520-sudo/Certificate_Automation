@@ -8,9 +8,21 @@ use Illuminate\Database\Eloquent\Model;
 
 class Webinar extends Model
 {
+    public function submissions()
+    {
+        return $this->hasManyThrough(Submission::class, Form::class);
+    }
+
     use HasFactory;
 
     protected $guarded = ['id', 'retention_due_at', 'deletion_started_at'];
+
+    protected $hidden = ['management_password', 'management_lock_version'];
+
+    public function scopeVisibleTo($query, User $user)
+    {
+        return $query->when(! $user->isAdministrator(), fn ($q) => $q->where('created_by', $user->id));
+    }
 
     protected static function booted(): void
     {
@@ -27,7 +39,7 @@ class Webinar extends Model
 
     public static function defaultRetentionDays(): int
     {
-        return max(1, min(3650, (int) config('webinar.default_retention_days', 7)));
+        return max(1, min(3650, (int) config('webinar.default_retention_days', 30)));
     }
 
     /** Whether public submissions must prove ownership of their email address. */
@@ -125,31 +137,42 @@ class Webinar extends Model
             : ($this->isOpen() ? 'Open' : 'Closed');
     }
 
-    /** Resolve the optional organizer copy without trusting raw template text at send time. */
+    public const DEFAULT_CERTIFICATE_SUBJECT = '{{certificate_type}} — {{webinar_title}}';
+
+    public const DEFAULT_CERTIFICATE_MESSAGE = "Dear {{participant_name}},\n\nThank you for participating in our webinar, \"{{webinar_title}}\". We appreciate your time and commitment to learning.\n\nPlease find your {{certificate_type}} attached in recognition of your participation.\n\nWe look forward to welcoming you to future activities.\n\nBest regards,\nWebinar Organizing Team";
+
+    /** Resolve organizer copy as plain text; legacy placeholders remain supported. */
     public function certificateEmailSubject(?string $participantName = null): string
     {
         $subject = trim((string) ($this->certificate_email_subject ?? ''));
 
-        return $this->replaceCertificateEmailPlaceholders(
-            $subject !== '' ? $subject : 'Your certificate for {webinar}',
+        return preg_replace('/[\r\n]+/', ' ', $this->replaceCertificateEmailPlaceholders(
+            $subject !== '' ? $subject : self::DEFAULT_CERTIFICATE_SUBJECT,
             $participantName,
-        );
+        )) ?? '';
     }
 
-    public function certificateEmailMessage(?string $participantName = null): ?string
+    public function certificateEmailMessage(?string $participantName = null): string
     {
         $message = trim((string) ($this->certificate_email_message ?? ''));
 
-        return $message === '' ? null : $this->replaceCertificateEmailPlaceholders($message, $participantName);
+        return $this->replaceCertificateEmailPlaceholders($message !== '' ? $message : self::DEFAULT_CERTIFICATE_MESSAGE, $participantName);
+    }
+
+    public function certificateType(): string
+    {
+        $template = $this->certificateTemplates()->where('is_active', true)->first();
+
+        return $template?->certificateType() ?? 'Certificate of Participation';
     }
 
     private function replaceCertificateEmailPlaceholders(string $copy, ?string $participantName): string
     {
-        return str_replace(
-            ['{participant}', '{webinar}'],
-            [trim((string) $participantName), (string) $this->title],
-            $copy,
-        );
+        return strtr($copy, [
+            '{{participant_name}}' => trim((string) $participantName), '{{webinar_title}}' => (string) $this->title,
+            '{{certificate_type}}' => $this->certificateType(),
+            '{participant}' => trim((string) $participantName), '{webinar}' => (string) $this->title,
+        ]);
     }
 
     public function creator()

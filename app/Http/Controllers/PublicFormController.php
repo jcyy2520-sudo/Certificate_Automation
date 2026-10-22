@@ -7,6 +7,7 @@ use App\Models\Participant;
 use App\Models\Submission;
 use App\Models\SubmissionAnswer;
 use App\Models\Webinar;
+use App\Services\FormResponseService;
 use App\Services\ParticipantMagicLinkService;
 use App\Services\PublicFormResolver;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -54,9 +55,16 @@ class PublicFormController extends Controller
             }
 
             if ($form->type !== 'registration' && ! $participant->verified_at) {
+                $registrationForm = $form->webinar->forms()->where('type', 'registration')->first();
+                if ($registrationForm) {
+                    $registrationForm->setRelation('webinar', $form->webinar);
+                }
+                $canRegister = $registrationForm && $registrationForm->acceptsResponses();
+
                 return view('public.registration-required', [
                     'form' => $form,
                     'message' => self::REGISTRATION_REQUIRED_MESSAGE,
+                    'registrationUrl' => $canRegister ? route('forms.public', $registrationForm->public_token) : null,
                 ]);
             }
         }
@@ -241,6 +249,7 @@ class PublicFormController extends Controller
                         'status' => 'submitted',
                         'submitted_at' => now(),
                         'metadata' => [
+                            'response_schema' => app(FormResponseService::class)->nativeColumns($lockedForm),
                             'privacy_notice_version' => self::PRIVACY_NOTICE_VERSION,
                             'privacy_acknowledged_at' => now()->toIso8601String(),
                         ],

@@ -1,0 +1,2 @@
+{{-- One pre-paint preference reader for admin, account, participant and verify pages. --}}
+<script nonce="{{ $cspNonce }}">try{var t=localStorage.getItem('theme');document.documentElement.classList.toggle('dark',t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches));if(localStorage.getItem('rail')==='open')document.documentElement.classList.add('rail-open');if(localStorage.getItem('webinar-nav')==='collapsed')document.documentElement.classList.add('webinar-nav-collapsed')}catch(e){}</script>

@@ -3,8 +3,10 @@
 namespace App\Console\Commands;
 
 use App\Models\User;
+use App\Services\AccountService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 
@@ -61,7 +63,14 @@ class CreateAdministrator extends Command
             'email_verified_at' => now(),
             'role' => User::ADMINISTRATOR_ROLE,
             'is_active' => true,
+            'approval_status' => 'approved',
+            'approved_at' => now(),
+            'password_setup_at' => now(),
+            'remember_token' => Str::random(60),
         ])->save();
+
+        Password::deleteToken($user);
+        app(AccountService::class)->cancelPending($user);
 
         $this->newLine();
         $this->info($existing ? "Password reset for {$user->email}." : "Administrator {$user->email} created.");

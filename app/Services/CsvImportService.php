@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Models\EligibilityOverride;
 use App\Models\Form;
 use App\Models\Import;
 use App\Models\ImportIssue;
@@ -14,6 +13,7 @@ use Carbon\CarbonInterface;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -54,7 +54,9 @@ class CsvImportService
             'email' => 'Email address',
             'full_name' => 'Full name',
             'first_name' => 'First name',
+            'middle_name' => 'Middle name (optional)',
             'last_name' => 'Last name',
+            'suffix' => 'Suffix (optional)',
             'organization' => 'Organization',
             'score' => 'Score',
             'maximum_score' => 'Maximum score',
@@ -72,58 +74,32 @@ class CsvImportService
      */
     public static function suggestMap(array $headers, string $formType): array
     {
-        $candidates = [
-            'email' => ['/e-?mail/i'],
-            'maximum_score' => ['/max(imum)?[\s_-]?score|out\s*of(\s*\d+)?$|total[\s_-]?marks?/i'],
-            'score' => ['/\bscore\b|\bmarks?\b|\bpoints\b|\bgrade\b/i'],
-            'submitted_at' => ['/time[\s_-]?stamp|^timestamp|date[\s_-]?(?:of|received)|^\s*date\b|submitted/i'],
-            'organization' => ['/organi[sz]ation|company|institution|affiliation|\bschool\b|\boffice\b|\bdepartment\b|\bhospital\b/i'],
-            'first_name' => ['/first[\s_-]?name|given[\s_-]?name/i'],
-            'last_name' => ['/last[\s_-]?name|sur[\s_-]?name|family[\s_-]?name/i'],
-            'full_name' => [
-                '/^(?:full[\s_-]*)?name$/i',
-                '/^(?:your|the|complete|participant|attendee|delegate)[\s_-]*name(?![\s_-]*(?:of|for))/i',
-                '/^(?:last[\s_-]*name[,][\s_-]*)?first[\s_-]*name/i',
-            ],
+        $patterns = [
+            'email' => '/e-?mail/i',
+            'maximum_score' => '/^(?:maximum|max|total)[\s_-]*(?:score|marks|points)$|^out of$/i',
+            'score' => '/^(?:(?:quiz|test|total|your|final)[\s_-]+)?(?:score|marks|points)$/i',
+            'submitted_at' => '/^(?:timestamp|time stamp|submitted at|submission time|submission date|date submitted)$/i',
+            'organization' => '/organi[sz]ation|company|institution|affiliation|\bschool\b|\boffice\b|\bdepartment\b|\bhospital\b/i',
+            'first_name' => '/^(?:first|given)[\s_-]*name$/i',
+            'middle_name' => '/^middle[\s_-]*(?:name|initial)$/i',
+            'last_name' => '/^(?:last|sur|family)[\s_-]*name$/i',
+            'suffix' => '/^(?:name[\s_-]*)?suffix$/i',
+            // Google Forms exports use the visible question title as the CSV
+            // header. Accept a clear full-name label followed by an example or
+            // formatting instruction, e.g. "Full Name: (Surname, Firstname,
+            // MI)", but do not broaden this to generic profile/name fields.
+            'full_name' => '/^(?:full[\s_-]*|complete[\s_-]*|your[\s_-]*)?name(?:\s*[:\-–—]\s*.+|\s*\(.+\))?$|(?:what is your|participant|attendee|delegate) (?:full |complete )?name\??$/i',
         ];
-
-        $used = [];
         $map = [];
-
-        foreach ($candidates as $field => $patterns) {
-            foreach ($patterns as $pattern) {
-                foreach ($headers as $index => $header) {
-                    if (in_array($index, $used, true)) {
-                        continue;
-                    }
-
-                    if (preg_match($pattern, trim($header)) === 1) {
-                        $map[$field] = $index;
-                        $used[] = $index;
-
-                        break 2;
-                    }
-                }
+        foreach ($patterns as $field => $pattern) {
+            $matches = array_keys(array_filter($headers, fn ($header) => preg_match($pattern, trim($header)) === 1));
+            // More than one plausible column is a question for the organizer.
+            if (count($matches) === 1 && ! in_array($matches[0], $map, true)) {
+                $map[$field] = $matches[0];
             }
         }
-
-        // A person's name column rarely announces itself cleanly ("What is your
-        // name?"). Fall back to any unclaimed header containing "name" that is
-        // clearly about something else (an organization, event, course…).
-        if (! isset($map['full_name'])) {
-            foreach ($headers as $index => $header) {
-                if (in_array($index, $used, true)) {
-                    continue;
-                }
-
-                if (preg_match('/name/i', $header) === 1
-                    && preg_match('/organi[sz]ation|company|institution|\bschool\b|\boffice\b|department|hospital|event|course|project|webinar|supervisor|emergency/i', $header) === 0) {
-                    $map['full_name'] = $index;
-                    $used[] = $index;
-
-                    break;
-                }
-            }
+        if (isset($map['full_name'])) {
+            unset($map['first_name'], $map['middle_name'], $map['last_name'], $map['suffix']);
         }
 
         return $map;
@@ -159,6 +135,17 @@ class CsvImportService
             throw new RuntimeException('A registration import needs a name column so participants can be created.');
         }
 
+        if (count(array_unique($normalized)) !== count($normalized)) {
+            throw new RuntimeException('A source column cannot be used for more than one field.');
+        }
+        $parts = array_intersect_key($normalized, array_flip(['first_name', 'middle_name', 'last_name', 'suffix']));
+        if (isset($normalized['full_name']) && $parts !== []) {
+            throw new RuntimeException('Choose either the full name column or separate name parts, not both.');
+        }
+        if ($parts !== [] && (! isset($normalized['first_name']) || ! isset($normalized['last_name']))) {
+            throw new RuntimeException('Separate names require both first name and last name columns.');
+        }
+
         return $normalized;
     }
 
@@ -173,6 +160,109 @@ class CsvImportService
         return $format;
     }
 
+    /** Normalize all organizer choices before either a dry check or a commit. */
+    public static function validateOptions(Import $import, array $input, array $map = []): array
+    {
+        $headers = $import->column_map['headers'] ?? [];
+        $required = $input['required_columns'] ?? [];
+        if (! is_array($required)) {
+            throw new RuntimeException('Choose the required answer columns from this file.');
+        }
+        foreach ($required as $index) {
+            if (! ctype_digit((string) $index) || ! array_key_exists((int) $index, $headers)) {
+                throw new RuntimeException('A required answer column is not part of this file.');
+            }
+        }
+        $required = array_values(array_unique(array_map('intval', $required)));
+        sort($required);
+        // The selected map is passed in from both the dry run and final commit.
+        // Do not trust an earlier dry-run map when the administrator has just
+        // changed columns on this request.
+        $scoreEvidence = in_array($import->form->type, ['pretest', 'posttest'], true)
+            && array_key_exists('score', $map !== [] ? $map : ($import->column_map['map'] ?? []));
+        if ($import->form->type !== 'registration' && $required === [] && ! $scoreEvidence) {
+            throw new RuntimeException('Select at least one required answer column for this assessment or evaluation export. Summary-only imports cannot establish certificate completion.');
+        }
+        // Completion must be supported by answers from this file, or by a
+        // mapped Google Quiz score for a pre/post test. An organizer statement
+        // cannot prove that an individual submitted a form and is never used
+        // as a completion signal.
+        // Wrong-form imports are the highest-identity risk: the system cannot
+        // prove a CSV belongs to the selected form. Require the operator to
+        // identify the Google Form source and explicitly confirm the destination.
+        $sourceDescription = trim((string) ($input['source_description'] ?? ''));
+        if (mb_strlen($sourceDescription) < 5 || mb_strlen($sourceDescription) > 200) {
+            throw new RuntimeException('Identify the Google Form source (title/export date or version, 5–200 characters) so the destination can be audited.');
+        }
+        $sourceConfirmed = in_array($input['source_confirmed'] ?? false, [true, 1, '1'], true);
+        if (! $sourceConfirmed) {
+            throw new RuntimeException('Confirm this file is the claimed Google Form export for the selected destination form before importing.');
+        }
+        $mode = $input['score_mode'] ?? 'points';
+        if (! in_array($mode, ['points', 'percentage'], true)) {
+            throw new RuntimeException('Choose points or percentage as the score format.');
+        }
+        $maximumText = trim((string) ($input['default_maximum_score'] ?? ''));
+        $maximum = $maximumText === '' ? null : CsvImportRowParser::decimal($maximumText);
+        if ($maximumText !== '' && ($maximum === null || $maximum <= 0)) {
+            throw new RuntimeException('The declared maximum must be positive with at most two decimal places.');
+        }
+        $timezone = $input['timestamp_timezone'] ?? $import->webinar->timezone;
+        if (! is_string($timezone) || ! in_array($timezone, \DateTimeZone::listIdentifiers(\DateTimeZone::ALL_WITH_BC), true)) {
+            throw new RuntimeException('Choose a valid timezone for timestamps in this export.');
+        }
+
+        $answerMap = $input['answer_map'] ?? [];
+        if (! is_array($answerMap)) {
+            throw new RuntimeException('Choose question columns from this file.');
+        }
+        $columns = app(FormResponseService::class)->nativeColumns($import->form);
+        $answerMap = array_filter($answerMap, fn ($index) => $index !== null && $index !== '');
+        foreach ($answerMap as $key => $index) {
+            if (! isset($columns[$key]) || ! ctype_digit((string) $index) || ! array_key_exists((int) $index, $headers)) {
+                throw new RuntimeException('A mapped question or column does not belong to this form/export.');
+            }
+            $answerMap[$key] = (int) $index;
+        }
+        if (count(array_unique($answerMap)) !== count($answerMap) || array_intersect(array_values($answerMap), array_values($map)) !== []) {
+            throw new RuntimeException('Map each answer column once, separately from participant, score and timestamp columns.');
+        }
+        ksort($answerMap);
+
+        return [
+            'required_columns' => $required,
+            'answer_map' => $answerMap,
+            'source_description' => $sourceDescription,
+            'source_confirmed' => $sourceConfirmed,
+            'score_mode' => $mode,
+            'default_maximum_score' => $maximum,
+            'timestamp_timezone' => $timezone,
+            'allow_import_time' => in_array($input['allow_import_time'] ?? false, [true, 1, '1'], true),
+        ];
+    }
+
+    public static function reviewHash(Import $import, array $map, string $format, array $options): string
+    {
+        ksort($map);
+
+        return hash('sha256', json_encode([$import->id, $import->form_id, $import->file_hash, $map, $format, $options], JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * Stable identity for an export's column layout. Normalized (case,
+     * whitespace) so trivial re-exports match while a changed questionnaire,
+     * a different form, or a reordered export is flagged for review.
+     */
+    public static function headerSignature(array $headers): string
+    {
+        $normalized = array_map(
+            fn ($header) => Str::lower((string) preg_replace('/\s+/u', ' ', trim((string) $header))),
+            $headers
+        );
+
+        return hash('sha256', json_encode(array_values($normalized), JSON_THROW_ON_ERROR));
+    }
+
     /**
      * Persist a pending import plus its temporary file, ready for the mapping
      * confirmation step. The upload lives outside any tracked disk precisely
@@ -180,29 +270,75 @@ class CsvImportService
      */
     public function storePending(Webinar $webinar, Form $form, UploadedFile $file): Import
     {
-        $contents = (string) file_get_contents($file->getRealPath());
+        $contents = app(ResponseFileReader::class)->contents($file);
         $headers = $this->headersFromContents($contents);
 
         if ($headers === []) {
             throw new RuntimeException('The file does not contain a readable CSV header row.');
         }
 
-        /** @var Import $import */
-        $import = Import::query()->create([
-            'webinar_id' => $webinar->id,
-            'form_id' => $form->id,
-            'status' => Import::STATUS_PENDING,
-            'original_filename' => $file->getClientOriginalName(),
-            'file_hash' => Import::hashContents($contents),
-            'file_size' => strlen($contents),
-            'column_map' => [
-                'headers' => $headers,
-                'map' => self::suggestMap($headers, $form->type),
-            ],
-            'imported_by' => auth()->id(),
-        ]);
+        $rows = $this->rowsFromContents($contents);
+        $analysis = app(ImportedResponseSchema::class)->analyze($headers, $rows);
+        $map = self::suggestMap($headers, $form->type);
+        $suggestedAnswers = app(ImportedResponseSchema::class)->suggestAnswers($form, $headers, $map);
+        // Commit the inventory before performing filesystem I/O. A later
+        // storage or database failure must leave a discoverable source path.
+        $import = DB::transaction(function () use ($webinar, $form, $file, $headers, $map, $suggestedAnswers, $analysis, $contents): Import {
+            $lockedWebinar = Webinar::query()->whereKey($webinar->id)->whereNull('deletion_started_at')->lockForUpdate()->firstOrFail();
+            Form::query()->whereKey($form->id)->where('webinar_id', $lockedWebinar->id)->lockForUpdate()->firstOrFail();
+            if ($lockedWebinar->retention_due_at?->isPast()) {
+                throw new RuntimeException('This webinar is past its privacy retention deadline.');
+            }
 
-        Storage::disk('local')->put($this->tmpPath($import), $contents);
+            /** @var Import $import */
+            return Import::query()->create([
+                'webinar_id' => $webinar->id,
+                'form_id' => $form->id,
+                'status' => Import::STATUS_PENDING,
+                'original_filename' => $file->getClientOriginalName(),
+                'file_hash' => hash_file('sha256', $file->getRealPath()),
+                'file_size' => $file->getSize(),
+                'column_map' => [
+                    'headers' => $headers,
+                    'map' => $map,
+                    'suggested_answers' => $suggestedAnswers,
+                    'analysis' => $analysis,
+                    'format' => strtolower($file->getClientOriginalExtension()),
+                    'normalized_hash' => hash('sha256', $contents),
+                ],
+                'imported_by' => auth()->id(),
+            ]);
+        }, attempts: 3);
+
+        $failure = null;
+        DB::transaction(function () use ($import, $contents, &$failure): void {
+            $failure = null;
+            // Serialize writing against webinar deletion. If deletion won the
+            // gap after inventory creation, stop before writing any file.
+            $webinar = Webinar::query()->whereKey($import->webinar_id)->whereNull('deletion_started_at')->lockForUpdate()->firstOrFail();
+            $locked = Import::query()->whereKey($import->id)->lockForUpdate()->firstOrFail();
+            if ($locked->status !== Import::STATUS_PENDING || $webinar->retention_due_at?->isPast()) {
+                throw new RuntimeException('This upload can no longer accept a source file.');
+            }
+            try {
+                if (! Storage::disk('local')->put($this->tmpPath($import), $contents)) {
+                    throw new RuntimeException('The private upload could not be stored. Try again.');
+                }
+            } catch (\Throwable $exception) {
+                $failure = $exception;
+                try {
+                    ImportSourceFile::delete($import->id);
+                    $import->delete();
+                } catch (RuntimeException $cleanupFailure) {
+                    $import->update(['status' => Import::STATUS_FAILED, 'column_map' => array_merge($import->column_map, ['cleanup_pending' => true])]);
+                    $failure = $cleanupFailure;
+                }
+            }
+
+        }, attempts: 3);
+        if ($failure) {
+            throw $failure;
+        }
 
         return $import;
     }
@@ -235,235 +371,151 @@ class CsvImportService
      * @param  array<string, int>  $map  logical field => header index
      * @return array{total:int, valid:int, invalid:int, duplicate:int, unmatched:int}
      */
-    public function process(Import $import, array $map, string $timestampFormat = 'auto', bool $dryRun = false): array
+    public function process(Import $import, array $map, string $timestampFormat = 'auto', bool $dryRun = false, array $options = []): array
     {
+        $map = self::validateMap($import, $map);
+        $timestampFormat = self::validateTimestampFormat($timestampFormat);
+        $options = self::validateOptions($import, $options, $map);
+        if (array_intersect($options['required_columns'], array_values($map)) !== []) {
+            throw new RuntimeException('Required answers must be question columns, separate from identity, score, and timestamp columns.');
+        }
         $path = Storage::disk('local')->path($this->tmpPath($import));
+        if (! is_file($path) || ! hash_equals($import->column_map['normalized_hash'] ?? $import->file_hash, hash_file('sha256', $path))) {
+            throw new RuntimeException('The pending file is missing or changed. Upload the original file again.');
+        }
         $rows = $this->readRows($path);
-        $counted = count($rows);
-
-        if ($counted > self::MAX_ROWS) {
+        if (count($rows) > self::MAX_ROWS) {
             throw new RuntimeException('The file holds more than '.self::MAX_ROWS.' response rows. Split it into smaller files.');
         }
 
         try {
-            $counts = DB::transaction(function () use ($dryRun, $import, $map, $rows, $timestampFormat): array {
-                $lockedWebinar = Webinar::query()
-                    ->whereKey($import->webinar_id)
-                    ->whereNull('deletion_started_at')
-                    ->sharedLock()
-                    ->firstOrFail();
-                $lockedForm = Form::query()
-                    ->whereKey($import->form_id)
-                    ->where('webinar_id', $lockedWebinar->id)
-                    ->sharedLock()
-                    ->firstOrFail();
+            $counts = DB::transaction(function () use ($dryRun, $import, $map, $rows, $timestampFormat, $options): array {
+                $lockedWebinar = Webinar::query()->whereKey($import->webinar_id)->whereNull('deletion_started_at')->sharedLock()->firstOrFail();
+                $lockedForm = Form::query()->whereKey($import->form_id)->where('webinar_id', $lockedWebinar->id)->sharedLock()->firstOrFail();
                 $lockedForm->setRelation('webinar', $lockedWebinar);
-
+                $lockedForm->load(['fields', 'questions.choices']);
+                // Serialize retries of the same upload before creating any participants.
+                $import = Import::query()->whereKey($import->id)->lockForUpdate()->firstOrFail();
+                if ($import->status !== Import::STATUS_PENDING) {
+                    throw new RuntimeException('This upload is no longer pending. Its responses were not imported again.');
+                }
+                $import->setRelation('form', $lockedForm);
+                // Revalidate against the locked, current form after a concurrent edit.
+                self::validateOptions($import, $options, $map);
+                $import->column_map = array_merge($import->column_map ?? [], ['map' => $map]);
+                $nativeColumns = app(FormResponseService::class)->nativeColumns($lockedForm);
+                $responseSchema = app(ImportedResponseSchema::class)->columns($import, $map, $options);
+                $import->column_map = array_merge($import->column_map, [
+                    'response_schema' => $responseSchema,
+                ]);
                 if ($lockedWebinar->retention_due_at !== null && $lockedWebinar->retention_due_at->isPast()) {
-                    throw new RuntimeException('This webinar is past its privacy retention deadline; participant data can no longer be imported.');
+                    throw new RuntimeException('This webinar is past its privacy retention deadline.');
+                }
+                $counts = ['total' => count($rows), 'valid' => 0, 'invalid' => 0, 'duplicate' => 0, 'unmatched' => 0];
+                $headers = $import->column_map['headers'] ?? [];
+                $registration = $lockedForm->type === 'registration';
+                $scoreRequired = $lockedWebinar->eligibilityRules()->where('requirement', $lockedForm->type)->where('is_required', true)->whereNotNull('minimum_score')->exists();
+                $parser = new CsvImportRowParser;
+                $candidates = [];
+                foreach ($rows as $rowNumber => $row) {
+                    $raw = $this->rawDataFor($row, $headers, $map, $options['required_columns'] ?? []);
+                    try {
+                        $parsed = $parser->parse($row, $headers, $map, $options, $timestampFormat, $registration, $scoreRequired);
+                        $this->validateMappedAnswers($nativeColumns, $row, $options);
+                    } catch (CsvImportValidationException $exception) {
+                        $email = isset($map['email'], $row[$map['email']]) ? Str::lower(trim((string) $row[$map['email']])) : null;
+                        $this->issue($import, $rowNumber, $exception->issueType, $exception->getMessage(), $raw, $email);
+                        $counts['invalid']++;
+
+                        continue;
+                    }
+                    $candidates[$parsed['email']][] = ['row' => $rowNumber, 'raw' => $raw, 'parsed' => $parsed];
                 }
 
-                $counts = ['total' => 0, 'valid' => 0, 'invalid' => 0, 'duplicate' => 0, 'unmatched' => 0];
-                $seenEmails = [];
-                $isRegistration = $lockedForm->type === 'registration';
-                $headers = $import->column_map['headers'] ?? [];
-
-                foreach ($rows as $rowNumber => $row) {
-                    $counts['total']++;
-
-                    $raw = $this->rawDataFor($row, $headers);
-                    if (count($row) !== count($headers)) {
-                        $this->issue($import, $rowNumber, ImportIssue::TYPE_INVALID_ROW_STRUCTURE, 'This row has '.count($row).' column(s), but the header has '.count($headers).'. It was not interpreted.', $raw, null);
-                        $counts['invalid']++;
+                foreach ($candidates as $email => $entries) {
+                    $logicalHeaders = array_flip(array_map(fn ($index) => $headers[$index], array_values($map)));
+                    $fingerprints = array_map(fn ($entry) => json_encode([$entry['parsed'], array_diff_key($entry['raw'], $logicalHeaders)], JSON_THROW_ON_ERROR), $entries);
+                    if (count(array_unique($fingerprints)) > 1) {
+                        foreach ($entries as $entry) {
+                            $this->issue($import, $entry['row'], ImportIssue::TYPE_DUPLICATE_IN_FILE, 'Conflicting valid responses share this email. None was selected. Keep the organizer-approved response in a corrected export.', $entry['raw'], $email);
+                            $counts['duplicate']++;
+                        }
 
                         continue;
                     }
-
-                    if ($this->rowIsBlank($row, $map)) {
-                        continue;
-                    }
-
-                    $email = $this->value($row, $map, 'email');
-
-                    if (blank($email)) {
-                        $this->issue($import, $rowNumber, ImportIssue::TYPE_MISSING_EMAIL, 'The row has no email address.', $raw, null);
-                        $counts['invalid']++;
-
-                        continue;
-                    }
-
-                    $email = Str::lower(trim($email));
-
-                    if (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
-                        $this->issue($import, $rowNumber, ImportIssue::TYPE_INVALID_EMAIL, '"'.$email.'" is not a usable email address.', $raw, $email);
-                        $counts['invalid']++;
-
-                        continue;
-                    }
-
-                    if (isset($seenEmails[$email])) {
-                        $this->issue($import, $rowNumber, ImportIssue::TYPE_DUPLICATE_IN_FILE, 'This email address already appeared on row '.$seenEmails[$email].' of this file.', $raw, $email);
+                    $entry = array_shift($entries);
+                    foreach ($entries as $duplicate) {
+                        $this->issue($import, $duplicate['row'], ImportIssue::TYPE_DUPLICATE_IN_FILE, 'Identical response repeated; row '.$entry['row'].' was selected.', $duplicate['raw'], $email);
                         $counts['duplicate']++;
-
-                        continue;
                     }
-                    $seenEmails[$email] = $rowNumber;
-
-                    $score = null;
-                    $maximumScore = null;
-                    $rawScore = trim((string) ($this->value($row, $map, 'score') ?? ''));
-                    if ($rawScore !== '') {
-                        // Google Forms quiz exports frequently carry the score as a
-                        // fraction ("8/10"); preserve both values exactly.
-                        if (preg_match('/^(-?\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/', $rawScore, $fraction) === 1) {
-                            $score = $this->decimal($fraction[1]);
-                            $maximumScore = $this->decimal($fraction[2]);
-                        } elseif (($score = $this->decimal($rawScore)) !== null) {
-                            // decimal() refuses values that storage would round or reinterpret.
-                        } else {
-                            $this->issue($import, $rowNumber, ImportIssue::TYPE_INVALID_SCORE, 'The score "'.$rawScore.'" is not a supported decimal value.', $raw, $email);
-                            $counts['invalid']++;
-
-                            continue;
-                        }
-                    }
-                    $rawMaximumScore = trim((string) ($this->value($row, $map, 'maximum_score') ?? ''));
-                    if ($rawMaximumScore !== '') {
-                        $mappedMaximum = $this->decimal($rawMaximumScore);
-                        if ($mappedMaximum === null) {
-                            $this->issue($import, $rowNumber, ImportIssue::TYPE_INVALID_SCORE, 'The maximum score "'.$rawMaximumScore.'" is not a supported decimal value.', $raw, $email);
-                            $counts['invalid']++;
-
-                            continue;
-                        }
-                        if ($maximumScore !== null && abs($maximumScore - $mappedMaximum) > 0.00001) {
-                            $this->issue($import, $rowNumber, ImportIssue::TYPE_INVALID_SCORE, 'The fraction score and maximum-score column disagree. The row was not guessed.', $raw, $email);
-                            $counts['invalid']++;
-
-                            continue;
-                        }
-                        $maximumScore = $mappedMaximum;
-                    }
-
-                    if (($score !== null && $score < 0)
-                        || ($maximumScore !== null && $maximumScore <= 0)
-                        || ($score !== null && $maximumScore !== null && $score > $maximumScore)) {
-                        $this->issue($import, $rowNumber, ImportIssue::TYPE_INVALID_SCORE, 'The score must be zero or greater and cannot exceed a positive maximum score.', $raw, $email);
-                        $counts['invalid']++;
-
-                        continue;
-                    }
-
-                    try {
-                        $submittedAt = $this->parseDate($this->value($row, $map, 'submitted_at'), $lockedWebinar->timezone, $timestampFormat);
-                    } catch (RuntimeException $exception) {
-                        $this->issue($import, $rowNumber, ImportIssue::TYPE_INVALID_TIMESTAMP, $exception->getMessage(), $raw, $email);
-                        $counts['invalid']++;
-
-                        continue;
-                    }
-                    $fullName = $this->resolveName($row, $map);
-                    $organization = filled($this->value($row, $map, 'organization'))
-                        ? trim((string) $this->value($row, $map, 'organization'))
-                        : null;
-
-                    if ($isRegistration && blank($fullName)) {
-                        $this->issue($import, $rowNumber, ImportIssue::TYPE_MISSING_NAME, 'A registration row needs a participant name. It was not imported.', $raw, $email);
-                        $counts['invalid']++;
-
-                        continue;
-                    }
-
-                    if ((filled($fullName) && mb_strlen($fullName) > 180)
-                        || (filled($organization) && mb_strlen($organization) > 180)) {
-                        $this->issue($import, $rowNumber, ImportIssue::TYPE_VALUE_TOO_LONG, 'A name or organization is longer than the supported 180 characters. It was not truncated or imported.', $raw, $email);
-                        $counts['invalid']++;
-
-                        continue;
-                    }
-
-                    $participant = Participant::withTrashed()
-                        ->where('webinar_id', $lockedWebinar->id)
-                        ->where('email_normalized', $email)
-                        ->lockForUpdate()
-                        ->first();
-
-                    if ($participant === null) {
-                        if ($isRegistration) {
-                            $participant = Participant::query()->create([
-                                'webinar_id' => $lockedWebinar->id,
-                                'email' => $email,
-                                'full_name' => $fullName,
-                                'organization' => $organization,
-                                'verified_at' => now(),
-                            ]);
-                            $this->attachSubmission($lockedForm, $participant, $score, $maximumScore, $submittedAt, $import, $rowNumber);
-                            $counts['valid']++;
-
-                            continue;
-                        }
-
-                        $this->issue(
-                            $import,
-                            $rowNumber,
-                            ImportIssue::TYPE_UNMATCHED_EMAIL,
-                            'Completed this form without a matching registration. Held for your review.',
-                            $this->withResolvedPayload($raw, $score, $maximumScore, $submittedAt, $fullName),
-                            $email,
-                        );
-                        $counts['unmatched']++;
-
-                        continue;
-                    }
-
-                    if ($participant->privacy_erased_at !== null || $participant->trashed()) {
+                    $rowNumber = $entry['row'];
+                    $raw = $entry['raw'];
+                    $data = $entry['parsed'];
+                    $participant = Participant::withTrashed()->where('webinar_id', $lockedWebinar->id)->where('email_normalized', $email)->lockForUpdate()->first();
+                    if ($participant && ($participant->privacy_erased_at !== null || $participant->trashed())) {
                         $this->issue($import, $rowNumber, ImportIssue::TYPE_DUPLICATE_EXISTING, 'An erased or removed record holds this email address; it was left untouched.', $raw, $email);
                         $counts['duplicate']++;
 
                         continue;
                     }
+                    if ($participant && filled($participant->full_name) && filled($data['name']) && CsvImportRowParser::nameKey($participant->full_name) !== CsvImportRowParser::nameKey($data['name'])) {
+                        $this->issue($import, $rowNumber, ImportIssue::TYPE_NAME_CONFLICT, 'This email has a different registered name. Verify the identity and correct the participant or source before uploading again.', $raw, $email);
+                        $counts['invalid']++;
 
-                    $already = Submission::query()
-                        ->where('form_id', $lockedForm->id)
-                        ->where('participant_id', $participant->id)
-                        ->exists();
+                        continue;
+                    }
+                    if (! $participant && filled($data['name']) && $lockedWebinar->participants()->whereRaw('LOWER(full_name) = ?', [CsvImportRowParser::nameKey($data['name'])])->exists()) {
+                        $this->issue($import, $rowNumber, ImportIssue::TYPE_IDENTITY_CONFLICT, 'The same name already exists under another email. Verify whether these are different people; no identities were merged.', $raw, $email);
+                        $counts['invalid']++;
 
-                    if ($already) {
-                        $this->issue($import, $rowNumber, ImportIssue::TYPE_DUPLICATE_EXISTING, 'This participant already has a recorded response for '.$lockedForm->title.'.', $raw, $email);
+                        continue;
+                    }
+                    if (! $participant && ! $registration) {
+                        $resolved = $this->withResolvedPayload($raw, $data['score'], $data['maximum_score'], $data['submitted_at'], $data['name']);
+                        $resolved['_resolved']['organization'] = $data['organization'];
+                        $resolved['_resolved']['options'] = $options;
+                        $this->issue($import, $rowNumber, ImportIssue::TYPE_UNMATCHED_EMAIL, 'No matching participant. Add the confirmed participant or import registration first, then attach this response. Certificate requirements still apply.', $resolved, $email);
+                        $counts['unmatched']++;
+
+                        continue;
+                    }
+                    if ($participant && Submission::query()->where('form_id', $lockedForm->id)->where('participant_id', $participant->id)->exists()) {
+                        $resolved = $this->withResolvedPayload($raw, $data['score'], $data['maximum_score'], $data['submitted_at'], $data['name']);
+                        $resolved['_resolved']['options'] = $options;
+                        $this->issue($import, $rowNumber, ImportIssue::TYPE_DUPLICATE_EXISTING, 'A response is already recorded for this form. It was not overwritten. Review the existing response before any correction.', $resolved, $email);
                         $counts['duplicate']++;
 
                         continue;
                     }
-
-                    if ($isRegistration && $participant->verified_at === null) {
-                        $participant->verified_at = now();
+                    if (! $participant) {
+                        $participant = Participant::query()->create(['webinar_id' => $lockedWebinar->id, 'email' => $email, 'full_name' => $data['name'], 'organization' => $data['organization'], 'verified_at' => now()]);
+                    } else {
+                        if ($registration && $participant->verified_at === null) {
+                            $participant->verified_at = now();
+                        }
+                        if (blank($participant->full_name) && filled($data['name'])) {
+                            $participant->full_name = $data['name'];
+                        }
+                        if (blank($participant->organization) && filled($data['organization'])) {
+                            $participant->organization = $data['organization'];
+                        }
+                        $participant->save();
                     }
-                    if (blank($participant->full_name) && filled($fullName)) {
-                        $participant->full_name = $fullName;
-                    }
-                    if (blank($participant->organization) && filled($organization)) {
-                        $participant->organization = $organization;
-                    }
-                    $participant->save();
-
-                    $this->attachSubmission($lockedForm, $participant, $score, $maximumScore, $submittedAt, $import, $rowNumber);
+                    $this->attachSubmission($lockedForm, $participant, $data['score'], $data['maximum_score'], $data['submitted_at'], $import, $rowNumber, $options, $raw, $nativeColumns, $responseSchema);
                     $counts['valid']++;
                 }
-
                 $import->forceFill([
                     'status' => Import::STATUS_COMMITTED,
-                    'column_map' => array_merge($import->column_map ?? [], ['map' => $map, 'timestamp_format' => $timestampFormat]),
-                    'total_rows' => $counts['total'],
-                    'valid_rows' => $counts['valid'],
-                    'invalid_rows' => $counts['invalid'],
-                    'duplicate_rows' => $counts['duplicate'],
-                    'unmatched_rows' => $counts['unmatched'],
-                    'committed_at' => now(),
+                    'column_map' => array_merge($import->column_map ?? [], ['map' => $map, 'timestamp_format' => $timestampFormat, 'options' => $options, 'cleanup_pending' => true]),
+                    'total_rows' => $counts['total'], 'valid_rows' => $counts['valid'], 'invalid_rows' => $counts['invalid'],
+                    'duplicate_rows' => $counts['duplicate'], 'unmatched_rows' => $counts['unmatched'], 'committed_at' => now(),
                 ])->save();
-
                 if ($dryRun) {
-                    // This deliberately rolls back every participant, submission,
-                    // issue, and import mutation after exercising the same rules.
+                    $counts['details'] = $import->issues()->orderBy('row_number')->limit(100)->get(['row_number', 'issue_type', 'issue_message'])->toArray();
+                    $counts['sample'] = Submission::query()->where('form_id', $lockedForm->id)->where('metadata->import_id', $import->id)->with('participant')->limit(self::PREVIEW_ROWS)->get()->map(fn ($submission) => [
+                        'row' => $submission->metadata['import_row_number'], 'name' => $submission->participant->full_name, 'email' => $submission->participant->email,
+                        'score' => $submission->score, 'maximum_score' => $submission->maximum_score, 'submitted_at' => $submission->submitted_at?->toIso8601String(),
+                    ])->all();
                     throw new CsvImportDryRunComplete($counts);
                 }
 
@@ -472,10 +524,16 @@ class CsvImportService
         } catch (CsvImportDryRunComplete $complete) {
             $counts = $complete->counts;
         }
-
-        // The transient copy of the upload never outlives a finished run.
         if (! $dryRun) {
-            Storage::disk('local')->delete($this->tmpPath($import));
+            try {
+                ImportSourceFile::delete($import->id);
+                $import->refresh()->update(['column_map' => array_merge($import->column_map ?? [], ['cleanup_pending' => false])]);
+            } catch (RuntimeException) {
+                // The response transaction is already committed. Do not report
+                // it as failed or invite a duplicate import. The scheduled
+                // cleanup retries the durable marker independently.
+                $counts['cleanup_pending'] = true;
+            }
         }
 
         return $counts;
@@ -485,13 +543,13 @@ class CsvImportService
      * Act on a held-for-review row: create the participant it describes and
      * attach the response that was waiting for a decision.
      */
-    public function promote(ImportIssue $issue, User $administrator): Participant
+    public function promote(ImportIssue $issue, User $administrator, ?string $confirmedName = null): Participant
     {
         if ($issue->resolved_at !== null || $issue->issue_type !== ImportIssue::TYPE_UNMATCHED_EMAIL) {
             throw new RuntimeException('Only an unresolved unmatched row can be promoted.');
         }
 
-        return DB::transaction(function () use ($issue, $administrator): Participant {
+        return DB::transaction(function () use ($issue, $administrator, $confirmedName): Participant {
             $import = $issue->import()->with('form')->firstOrFail();
             $lockedWebinar = Webinar::query()
                 ->whereKey($issue->webinar_id)
@@ -506,7 +564,13 @@ class CsvImportService
 
             $email = (string) $issue->normalized_email;
             $resolved = $issue->raw_data['_resolved'] ?? [];
-            $name = mb_substr(trim((string) ($resolved['name'] ?? '')), 0, 180) ?: null;
+            $name = trim((string) ($confirmedName ?? $resolved['name'] ?? ''));
+            if ($name === '' || mb_strlen($name) > 180 || preg_match('/[\p{L}]/u', $name) !== 1 || str_contains($name, '@')) {
+                throw new RuntimeException('Confirm a complete certificate name before adding this participant.');
+            }
+            if ($lockedWebinar->retention_due_at?->isPast()) {
+                throw new RuntimeException('This webinar is past its privacy retention deadline.');
+            }
 
             $participant = Participant::withTrashed()
                 ->where('webinar_id', $lockedWebinar->id)
@@ -515,21 +579,26 @@ class CsvImportService
                 ->first();
 
             if ($participant === null) {
+                if ($lockedWebinar->participants()->whereRaw('LOWER(full_name) = ?', [CsvImportRowParser::nameKey($name)])->exists()) {
+                    throw new RuntimeException('This name already exists under another email. Verify the identities in Participants before adding another person.');
+                }
                 $participant = Participant::query()->create([
                     'webinar_id' => $lockedWebinar->id,
                     'email' => $email,
                     'full_name' => $name,
+                    'organization' => $resolved['organization'] ?? null,
                 ]);
 
-                // Promotion is an explicit administrator decision, exactly like
-                // adding an off-platform attendee by hand: this person counts as
-                // eligible regardless of which requirements they never met.
-                EligibilityOverride::query()->create([
-                    'participant_id' => $participant->id,
-                    'decision' => 'eligible',
-                    'reason' => 'Promoted from CSV import review (issue #'.$issue->id.').',
-                    'overridden_by' => $administrator->id,
-                ]);
+            }
+            if ($participant->privacy_erased_at !== null || $participant->trashed()) {
+                throw new RuntimeException('A removed participant cannot be restored by an import.');
+            }
+            if (filled($participant->full_name) && CsvImportRowParser::nameKey($participant->full_name) !== CsvImportRowParser::nameKey($name)) {
+                throw new RuntimeException('The confirmed name conflicts with the existing participant. Correct the identity before attaching the response.');
+            }
+            $issue = ImportIssue::query()->whereKey($issue->id)->lockForUpdate()->firstOrFail();
+            if ($issue->resolved_at !== null) {
+                throw new RuntimeException('This row has already been resolved.');
             }
 
             $already = Submission::query()
@@ -545,6 +614,9 @@ class CsvImportService
                     isset($resolved['maximum_score']) ? (float) $resolved['maximum_score'] : null,
                     isset($resolved['submitted_at']) ? Carbon::parse((string) $resolved['submitted_at']) : null,
                     $import,
+                    $issue->row_number,
+                    $resolved['options'] ?? [],
+                    $issue->raw_data ?? [],
                 );
             }
 
@@ -553,10 +625,46 @@ class CsvImportService
                 'resolved_by' => $administrator->id,
                 'resolution' => $already
                     ? 'Participant already existed; the response was already recorded.'
-                    : 'Promoted: participant '.($name ?? $email).' was added and the response attached.',
+                    : 'Participant '.$name.' was added and the response attached. Normal certificate requirements apply.',
             ])->save();
 
             return $participant;
+        }, attempts: 3);
+    }
+
+    /** Explicit, audited correction; preserve the original response and block stale certificates. */
+    public function replaceResponse(ImportIssue $issue, User $administrator, string $reason): Submission
+    {
+        return DB::transaction(function () use ($issue, $administrator, $reason): Submission {
+            $webinar = Webinar::query()->whereKey($issue->webinar_id)->whereNull('deletion_started_at')->sharedLock()->firstOrFail();
+            if ($webinar->retention_due_at?->isPast()) {
+                throw new RuntimeException('This webinar is past its privacy retention deadline.');
+            }
+            $import = $issue->import;
+            $form = Form::query()->whereKey($import->form_id)->where('webinar_id', $webinar->id)->sharedLock()->firstOrFail();
+            $participant = Participant::query()->where('webinar_id', $webinar->id)->where('email_normalized', $issue->normalized_email)->whereNull('privacy_erased_at')->lockForUpdate()->firstOrFail();
+            $issue = ImportIssue::query()->whereKey($issue->id)->lockForUpdate()->firstOrFail();
+            $data = $issue->raw_data['_resolved'] ?? null;
+            if ($issue->resolved_at !== null || $issue->issue_type !== ImportIssue::TYPE_DUPLICATE_EXISTING || ! is_array($data) || ! isset($data['options'])) {
+                throw new RuntimeException('Only a validated, unresolved imported response can replace an earlier import.');
+            }
+            if (filled($data['name']) && CsvImportRowParser::nameKey($participant->full_name ?? '') !== CsvImportRowParser::nameKey($data['name'])) {
+                throw new RuntimeException('The participant name changed. Verify the identity and upload the correction again.');
+            }
+            if ($participant->certificates()->whereNull('revoked_at')->whereIn('status', ['processing', 'issued'])->exists()) {
+                throw new RuntimeException('Revoke the active certificate before correcting a response, then reissue after checking eligibility.');
+            }
+            $previous = Submission::query()->where('form_id', $form->id)->where('participant_id', $participant->id)->where('status', 'submitted')->lockForUpdate()->get();
+            if ($previous->isEmpty() || $previous->contains(fn ($submission) => ($submission->metadata['source'] ?? null) !== 'csv_import')) {
+                throw new RuntimeException('This action only replaces CSV imports. Live form responses cannot be replaced here.');
+            }
+            foreach ($previous as $submission) {
+                $submission->update(['status' => 'superseded', 'metadata' => array_merge($submission->metadata ?? [], ['superseded_by_import' => $import->id])]);
+            }
+            $submission = $this->attachSubmission($form, $participant, $data['score'], $data['maximum_score'], isset($data['submitted_at']) ? Carbon::parse($data['submitted_at']) : null, $import, $issue->row_number, $data['options'], $issue->raw_data ?? []);
+            $issue->update(['resolved_at' => now(), 'resolved_by' => $administrator->id, 'resolution' => 'Replaced earlier imported response; original preserved. Reason: '.trim($reason)]);
+
+            return $submission;
         }, attempts: 3);
     }
 
@@ -577,27 +685,52 @@ class CsvImportService
     /** Cancel a pending upload and remove its temporary file. */
     public function cancel(Import $import): void
     {
-        if ($import->status !== Import::STATUS_PENDING) {
-            return;
-        }
-
-        $import->forceFill(['status' => Import::STATUS_CANCELLED])->save();
-        Storage::disk('local')->delete($this->tmpPath($import));
+        DB::transaction(function () use ($import): void {
+            Webinar::query()->whereKey($import->webinar_id)->lockForUpdate()->first();
+            $locked = Import::query()->whereKey($import->id)->lockForUpdate()->first();
+            if ($locked?->status !== Import::STATUS_PENDING) {
+                return;
+            }
+            ImportSourceFile::delete($locked->id);
+            $locked->forceFill(['status' => Import::STATUS_CANCELLED])->save();
+        });
     }
 
     /** Pending uploads abandoned for a day are cancelled and their files dropped. */
     public function pruneStalePending(): int
     {
-        $stale = Import::query()
-            ->where('status', Import::STATUS_PENDING)
-            ->where('created_at', '<', now()->subDay())
-            ->get();
-
+        $count = 0;
+        $failed = 0;
+        $stale = Import::query()->where(function ($query): void {
+            $query->where('column_map->cleanup_pending', true)
+                ->orWhere('created_at', '<', now()->subDay());
+        })->cursor();
         foreach ($stale as $import) {
-            $this->cancel($import);
+            try {
+                if ($import->status === Import::STATUS_PENDING) {
+                    // A fresh confirmed import may set its cleanup marker only
+                    // inside a transaction; pending uploads still get a full day.
+                    if ($import->created_at->lt(now()->subDay())) {
+                        $this->cancel($import);
+                        $count++;
+                    }
+
+                    continue;
+                }
+                ImportSourceFile::delete($import->id);
+                if ($import->column_map['cleanup_pending'] ?? false) {
+                    $import->update(['column_map' => array_merge($import->column_map, ['cleanup_pending' => false])]);
+                }
+            } catch (RuntimeException) {
+                $failed++;
+                Log::warning('Private import cleanup requires retry.', ['import_id' => $import->id, 'webinar_id' => $import->webinar_id]);
+            }
+        }
+        if ($failed > 0) {
+            throw new RuntimeException($count.' stale pending import(s) cancelled; '.$failed.' private source cleanup(s) failed and remain tracked for retry.');
         }
 
-        return $stale->count();
+        return $count;
     }
 
     /** Attach one imported response to the participant master list. */
@@ -609,13 +742,36 @@ class CsvImportService
         ?CarbonInterface $submittedAt,
         Import $import,
         ?int $rowNumber = null,
+        array $options = [],
+        array $raw = [],
+        ?array $nativeColumns = null,
+        ?array $responseSchema = null,
     ): Submission {
         $attempt = (int) Submission::query()
             ->where('form_id', $form->id)
             ->where('participant_id', $participant->id)
             ->max('attempt_number');
 
-        return Submission::query()->create([
+        $headers = $import->column_map['headers'] ?? [];
+        $original = [];
+        foreach ($headers as $label) {
+            $original[] = ['label' => $label, 'value' => (string) ($raw[$label] ?? '')];
+        }
+        $mapped = [];
+        $columns = $nativeColumns ?? app(FormResponseService::class)->nativeColumns($form);
+        $storedSchema = $import->column_map['response_schema'] ?? null;
+        foreach ($options['answer_map'] ?? [] as $key => $index) {
+            // A held row may be resolved after an unanswered question was
+            // retired or changed. Never attach its old meaning to a new type.
+            $stored = $storedSchema[$key] ?? null;
+            if (! isset($columns[$key]) || ($stored !== null && ($stored['type'] !== $columns[$key]['type'] || $stored['options'] !== $columns[$key]['options']))) {
+                throw new RuntimeException('A mapped question changed or was removed after this import. Upload the reviewed response again and confirm its current mapping.');
+            }
+            $value = (string) ($raw[$headers[$index]] ?? '');
+            $mapped[$key] = $this->mappedAnswerValues($columns[$key], $value);
+        }
+
+        $submission = Submission::query()->create([
             'form_id' => $form->id,
             'participant_id' => $participant->id,
             'attempt_number' => $attempt + 1,
@@ -623,12 +779,108 @@ class CsvImportService
             'submitted_at' => $submittedAt ?? now(),
             'score' => $score,
             'maximum_score' => $maximumScore,
+            'imported_data' => [
+                'original' => $original, 'mapped' => $mapped,
+                'schema' => $responseSchema ?? $storedSchema ?? app(ImportedResponseSchema::class)->columns($import->setRelation('form', $form), $import->column_map['map'] ?? [], $options),
+            ],
             'metadata' => array_filter([
                 'source' => 'csv_import',
                 'import_id' => $import->id,
                 'import_row_number' => $rowNumber,
+                'timestamp_source' => $submittedAt === null ? 'import_time' : 'source',
+                'completion_check' => ($options['required_columns'] ?? []) !== [] ? 'required_answers' : 'validated_quiz_score',
+                'source_description' => filled($options['source_description'] ?? null) ? mb_substr((string) $options['source_description'], 0, 200) : null,
             ], fn (mixed $value): bool => $value !== null),
         ]);
+        foreach ($mapped as $key => $values) {
+            [$kind, $id] = explode('_', $key, 2);
+            $value = ($columns[$key]['type'] ?? '') === 'checkbox' ? $values : ($values[0] ?? null);
+            if ($kind === 'question' && ($columns[$key]['type'] ?? 'text') !== 'text') {
+                $choice = array_search($value, $columns[$key]['options'], true);
+                $value = $choice === false ? null : $choice;
+            }
+            $submission->answers()->create([
+                'form_field_id' => $kind === 'field' ? (int) $id : null,
+                'question_id' => $kind === 'question' ? (int) $id : null,
+                'value' => [$value], 'is_correct' => null, 'awarded_points' => null,
+            ]);
+        }
+
+        return $submission;
+    }
+
+    private function validateMappedAnswers(array $columns, array $row, array $options): void
+    {
+        foreach ($options['answer_map'] ?? [] as $key => $index) {
+            $this->mappedAnswerValues($columns[$key], (string) ($row[$index] ?? ''));
+        }
+    }
+
+    /** Validation, saved answers and analytics must use the same interpretation. */
+    private function mappedAnswerValues(array $column, string $original): array
+    {
+        $text = trim($original);
+        if ($column['required'] && $text === '') {
+            throw new CsvImportValidationException(ImportIssue::TYPE_INCOMPLETE_RESPONSE, 'Required mapped answer is blank: '.$column['label']);
+        }
+        if (! in_array($column['type'], ['radio', 'select', 'checkbox', 'multiple_choice', 'true_false', 'rating'], true)) {
+            return [$original];
+        }
+        if ($text === '') {
+            return $column['type'] === 'checkbox' ? [] : [''];
+        }
+        $options = array_values(array_unique(array_map('strval', array_values($column['options']))));
+        $values = $column['type'] === 'checkbox' ? $this->checkboxValues($text, $options, $column['label']) : [$text];
+        if ($values === [] || array_diff($values, $options) !== []) {
+            throw new CsvImportValidationException(ImportIssue::TYPE_INCOMPLETE_RESPONSE, 'Unrecognized choice for '.$column['label'].'. Match the form choices exactly or leave this column unmapped for original-only review.');
+        }
+
+        return $values;
+    }
+
+    /** Google Forms joins checkbox labels with commas, which can also occur inside a label. */
+    private function checkboxValues(string $text, array $options, string $label): array
+    {
+        if (! str_contains(implode('', $options), ',')) {
+            return array_map('trim', explode(',', $text));
+        }
+        // Count at most two interpretations per offset. This stays bounded by
+        // cell length and declared choices rather than exploring every partition.
+        $length = strlen($text);
+        $paths = [0 => ['count' => 1]];
+        for ($offset = 0; $offset < $length; $offset++) {
+            if (! isset($paths[$offset])) {
+                continue;
+            }
+            foreach ($options as $option) {
+                $end = $offset + strlen($option);
+                if ($option === '' || $end > $length || substr_compare($text, $option, $offset, strlen($option)) !== 0
+                    || ($end < $length && $text[$end] !== ',')) {
+                    continue;
+                }
+                $next = $end === $length ? $length : $end + 1;
+                while ($next < $length && ctype_space($text[$next])) {
+                    $next++;
+                }
+                if ($end < $length && $next === $length) {
+                    continue;
+                }
+                $paths[$next] = ['count' => min(2, ($paths[$next]['count'] ?? 0) + $paths[$offset]['count']),
+                    'previous' => $offset, 'value' => $option];
+            }
+        }
+        if (($paths[$length]['count'] ?? 0) > 1) {
+            throw new CsvImportValidationException(ImportIssue::TYPE_INCOMPLETE_RESPONSE, 'Ambiguous checkbox selections for '.$label.'. Commas can be part of a choice or separate choices. Leave this column unmapped to preserve the original text for review.');
+        }
+        if (! isset($paths[$length])) {
+            return [];
+        }
+        $values = [];
+        for ($offset = $length; $offset > 0; $offset = $paths[$offset]['previous']) {
+            $values[] = $paths[$offset]['value'];
+        }
+
+        return array_reverse($values);
     }
 
     private function issue(Import $import, int $rowNumber, string $type, string $message, array $raw, ?string $email): void
@@ -654,6 +906,7 @@ class CsvImportService
 
         $rows = [];
         $line = 1;
+        $cellCount = 0;
 
         // The first physical line is the header row; it is never imported.
         if (fgetcsv($handle, 0, ',', '"', '') === false) {
@@ -662,21 +915,59 @@ class CsvImportService
             return [];
         }
 
-        while (($cells = fgetcsv($handle, 0, ',', '"', '')) !== false) {
-            $line++;
+        try {
+            while (($cells = fgetcsv($handle, 0, ',', '"', '')) !== false) {
+                $line++;
 
-            if ($cells === [null]) {
-                continue;
+                $rows[$line] = $cells;
+                $this->assertRowLimits($cells, count($rows));
+                if (($cellCount += count($cells)) > ResponseFileReader::MAX_CELLS) {
+                    throw new RuntimeException('Response files support up to 300,000 cells. Split the file.');
+                }
+                if ($limit !== null && count($rows) >= $limit) {
+                    break;
+                }
             }
-
-            $rows[$line] = $cells;
-            if ($limit !== null && count($rows) >= $limit) {
-                break;
-            }
+        } finally {
+            fclose($handle);
         }
-        fclose($handle);
 
         return $rows;
+    }
+
+    private function rowsFromContents(string $contents): array
+    {
+        $handle = fopen('php://temp', 'w+b');
+        fwrite($handle, $contents);
+        rewind($handle);
+        fgetcsv($handle, 0, ',', '"', '');
+        $rows = [];
+        $cellCount = 0;
+        try {
+            while (($cells = fgetcsv($handle, 0, ',', '"', '')) !== false) {
+                $this->assertRowLimits($cells, count($rows) + 1);
+                if (($cellCount += count($cells)) > ResponseFileReader::MAX_CELLS) {
+                    throw new RuntimeException('Response files support up to 300,000 cells. Split the file.');
+                }
+                $rows[] = $cells;
+            }
+        } finally {
+            fclose($handle);
+        }
+
+        return $rows;
+    }
+
+    private function assertRowLimits(array $cells, int $rows): void
+    {
+        if ($rows > self::MAX_ROWS || count($cells) > ResponseFileReader::MAX_COLUMNS) {
+            throw new RuntimeException('Response files support up to 5,000 rows and 200 columns. Split the file.');
+        }
+        foreach ($cells as $cell) {
+            if (strlen((string) $cell) > ResponseFileReader::MAX_TEXT) {
+                throw new RuntimeException('A response cell exceeds 32 KB. Split or shorten the source value.');
+            }
+        }
     }
 
     /** @return array<int, string> header index => trimmed label */
@@ -705,12 +996,35 @@ class CsvImportService
             return [];
         }
 
+        // Real-world exports are often semicolon/tab-delimited (EU locales,
+        // Excel) or XLSX renamed to .csv. A single-column header with embedded
+        // semicolons/tabs is the tell — fail with a fix, not silent mismatch.
+        if (count($headerRow) === 1) {
+            $only = (string) $headerRow[0];
+            if (str_contains($only, ';') && ! str_contains($only, ',')) {
+                throw new RuntimeException('This file uses semicolons (;) instead of commas. Re-export it as Comma-separated values (.csv) with a comma delimiter, or convert the semicolons to commas before uploading.');
+            }
+            if (str_contains($only, "\t")) {
+                throw new RuntimeException('This file uses tabs instead of commas. Re-export it as Comma-separated values (.csv) with a comma delimiter before uploading.');
+            }
+            if (str_starts_with(ltrim($contents), 'PK')) {
+                throw new RuntimeException('This looks like an Excel (.xlsx) file renamed to .csv. Export it from Google Forms using File → Download → Comma-separated values (.csv).');
+            }
+        }
+
         $headers = collect($headerRow)
             ->map(fn ($label) => trim((string) $label))
             ->all();
 
+        if (count($headers) > ResponseFileReader::MAX_COLUMNS) {
+            throw new RuntimeException('Response files support up to 200 columns. Split the file.');
+        }
+
         $seen = [];
         foreach ($headers as $index => $header) {
+            if (mb_strlen($header) > 2000 || $header === '_resolved') {
+                throw new RuntimeException('Headers must be at most 2,000 characters and cannot use the reserved label _resolved. Rename the source column.');
+            }
             if ($header === '') {
                 throw new RuntimeException('Column '.($index + 1).' has no header. The file was not imported because its columns cannot be identified reliably.');
             }
@@ -730,107 +1044,29 @@ class CsvImportService
         return 'imports-pending/import-'.$import->id.'.csv';
     }
 
-    private function value(array $row, array $map, string $field): ?string
+    /**
+     * @return array<int|string, mixed> the original cells keyed by their header label.
+     *                                  Retains the first 60 columns plus every mapped identity/score/timestamp
+     *                                  column and required answer column, so review evidence never drops the
+     *                                  values that decided the outcome on wide exports.
+     */
+    private function rawDataFor(array $row, array $headers, array $map = [], array $required = []): array
     {
-        $index = $map[$field] ?? null;
-        if ($index === null || ! array_key_exists($index, $row)) {
-            return null;
+        $keep = [];
+        for ($i = 0; $i < count($row); $i++) {
+            $keep[$i] = true;
         }
-
-        $value = trim((string) $row[$index]);
-
-        return $value === '' ? null : $value;
-    }
-
-    private function resolveName(array $row, array $map): ?string
-    {
-        $direct = $this->value($row, $map, 'full_name');
-
-        if (filled($direct)) {
-            return $direct;
-        }
-
-        $first = $this->value($row, $map, 'first_name') ?? '';
-        $last = $this->value($row, $map, 'last_name') ?? '';
-        $combined = trim($first.' '.$last);
-
-        return $combined === '' ? null : $combined;
-    }
-
-    private function parseDate(?string $value, string $timezone, string $format = 'auto'): ?CarbonInterface
-    {
-        if (blank($value)) {
-            return null;
-        }
-
-        $value = trim($value);
-
-        $format = self::validateTimestampFormat($format);
-
-        // A date such as 08/09/2026 has two valid but conflicting meanings.
-        // Do not choose one based on server locale; the uploader must provide
-        // an unambiguous Google Forms timestamp or leave it unmapped.
-        if ($format === 'auto'
-            && preg_match('/^(\d{1,2})\/(\d{1,2})\/\d{4}\s/', $value, $parts) === 1
-            && (int) $parts[1] <= 12 && (int) $parts[2] <= 12) {
-            throw new RuntimeException('The timestamp “'.$value.'” is ambiguous (month/day versus day/month), so it was not guessed. Use an unambiguous timestamp format or leave Submitted at unmapped.');
-        }
-
-        $formats = match ($format) {
-            'month_day_year' => ['n/j/Y G:i:s', 'n/j/Y G:i', 'n/j/Y g:i:s A', 'n/j/Y g:i A'],
-            'day_month_year' => ['d/m/Y G:i:s', 'd/m/Y G:i', 'd/m/Y g:i:s A', 'd/m/Y g:i A'],
-            'iso_8601' => ['Y-m-d\\TH:i:sP', 'Y-m-d\\TH:i:s\\Z', 'Y-m-d H:i:s', 'Y-m-d H:i'],
-            default => [
-                'n/j/Y G:i:s', 'n/j/Y G:i', 'n/j/Y g:i:s A', 'n/j/Y g:i A',
-                'd/m/Y G:i:s', 'd/m/Y G:i', 'd/m/Y g:i:s A', 'd/m/Y g:i A',
-                'Y-m-d H:i:s', 'Y-m-d H:i', 'Y-m-d\\TH:i:sP', 'Y-m-d\\TH:i:s\\Z',
-            ],
-        };
-
-        foreach ($formats as $dateFormat) {
-            try {
-                $date = Carbon::createFromFormat($dateFormat, $value, $timezone);
-            } catch (\Throwable) {
-                continue;
-            }
-            $errors = Carbon::getLastErrors();
-            if ($date !== false && (($errors === false) || ($errors['warning_count'] === 0 && $errors['error_count'] === 0))) {
-                return $date;
+        foreach (array_merge(array_values($map), array_map('intval', (array) $required)) as $index) {
+            if (is_int($index) && $index >= 0 && $index < count($row)) {
+                $keep[$index] = true;
             }
         }
+        ksort($keep);
 
-        throw new RuntimeException('The timestamp “'.$value.'” is not a supported Google Forms date/time value, so it was not replaced with the current time.');
-    }
-
-    /** Return a database-safe two-decimal number, never a rounded approximation. */
-    private function decimal(string $value): ?float
-    {
-        if (preg_match('/^-?\d+(?:\.\d{1,2})?$/', trim($value)) !== 1) {
-            return null;
-        }
-
-        return (float) $value;
-    }
-
-    private function rowIsBlank(array $row, array $map): bool
-    {
-        foreach (array_keys($map) as $field) {
-            if (filled($this->value($row, $map, $field))) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /** @return array<int|string, mixed> the original cells keyed by their header label */
-    private function rawDataFor(array $row, array $headers): array
-    {
         $raw = [];
-
-        foreach (array_slice($row, 0, 60) as $index => $cell) {
+        foreach (array_keys($keep) as $index) {
             $label = trim((string) ($headers[$index] ?? 'column '.((int) $index + 1)));
-            $raw[$label === '' ? 'column '.((int) $index + 1) : $label] = (string) $cell;
+            $raw[$label === '' ? 'column '.((int) $index + 1) : $label] = (string) $row[$index];
         }
 
         return $raw;

@@ -2,10 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Contracts\TransactionalMailer;
 use App\Jobs\SendTransactionalEmail;
 use App\Models\EmailDelivery;
+use App\Models\Participant;
+use App\Models\Webinar;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
+use RuntimeException;
 use Tests\TestCase;
 
 class EmailOutboxRecoveryTest extends TestCase
@@ -81,6 +85,56 @@ class EmailOutboxRecoveryTest extends TestCase
 
         Queue::assertNothingPushed();
         $this->assertNull(EmailDelivery::query()->firstOrFail()->processing_at);
+    }
+
+    /**
+     * A provider that refuses the message must leave a trace on the delivery.
+     *
+     * The failure used to roll back with the transaction, so the row still
+     * looked undispatched: the relay re-queued it every minute, resetting the
+     * attempt budget, and the delivery never settled on "failed" - it sat in
+     * "pending" for ever while the administrator was told nothing.
+     */
+    public function test_a_provider_failure_is_recorded_on_the_delivery_and_stops_the_relay_re_queueing_it(): void
+    {
+        $webinar = Webinar::factory()->create();
+        $participant = Participant::query()->create([
+            'webinar_id' => $webinar->id,
+            'email' => 'participant@example.com',
+        ]);
+        $delivery = EmailDelivery::query()->create([
+            'webinar_id' => $webinar->id,
+            'participant_id' => $participant->id,
+            'type' => 'certificate',
+            'provider' => 'test',
+            'recipient_email' => 'participant@example.com',
+            'subject' => 'Your certificate',
+            'payload' => ['html' => '<p>Your certificate is attached.</p>', 'attachments' => []],
+            'status' => 'pending',
+            'scheduled_at' => now()->subMinutes(10),
+        ]);
+
+        $mailer = \Mockery::mock(TransactionalMailer::class);
+        $mailer->shouldReceive('send')->andThrow(new RuntimeException('Brevo request failed with HTTP 401 (unauthorized).'));
+
+        try {
+            (new SendTransactionalEmail($delivery->id))->handle($mailer);
+            $this->fail('The provider failure should have been rethrown.');
+        } catch (RuntimeException $exception) {
+            $this->assertStringContainsString('401', $exception->getMessage());
+        }
+
+        $delivery->refresh();
+        $this->assertSame(1, (int) $delivery->attempts);
+        $this->assertStringContainsString('401', (string) $delivery->last_error);
+        // Still pending: the job owns the retry, and the claim that stops a
+        // second copy of the same certificate from being sent stays held.
+        $this->assertSame('pending', $delivery->status);
+
+        // The relay must leave an attempted delivery alone.
+        Queue::fake();
+        $this->artisan('security:relay-email-outbox')->assertSuccessful();
+        Queue::assertNothingPushed();
     }
 
     private function pendingDelivery(array $overrides = []): EmailDelivery

@@ -35,4 +35,9 @@ class CertificateBatch extends Model
     {
         return $this->hasMany(Certificate::class);
     }
+
+    public function items()
+    {
+        return $this->hasMany(CertificateBatchItem::class);
+    }
 }

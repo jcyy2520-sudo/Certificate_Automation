@@ -7,5 +7,13 @@
     <div class="mt-8 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-[13px] leading-5 text-amber-900" role="alert">
         {{ $message }}
     </div>
+    @if(! empty($registrationUrl))
+        <div class="mt-6 flex justify-center">
+            <a href="{{ $registrationUrl }}" class="button-primary inline-flex items-center gap-2">
+                <span>Register for this webinar</span>
+                <x-icon name="arrow-right" class="size-4" />
+            </a>
+        </div>
+    @endif
 </header>
 @endsection

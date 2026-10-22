@@ -33,6 +33,7 @@ class AttendanceTest extends TestCase
             'timezone' => 'UTC',
             'created_by' => $this->administrator->id,
         ]);
+        $this->webinar->forms()->create(['type' => 'registration', 'title' => 'Registration', 'status' => 'published']);
         $this->participant = Participant::query()->create([
             'webinar_id' => $this->webinar->id,
             'full_name' => 'Maria Santos',
@@ -114,9 +115,9 @@ class AttendanceTest extends TestCase
         ]);
 
         $this->actingAs($this->administrator)
-            ->get(route('admin.certification.edit', $this->webinar))
+            ->get(route('admin.responses.index', [$this->webinar, 'view' => 'settings']))
             ->assertOk()
-            ->assertSee('Attendance recorded');
+            ->assertSee('Attendance (existing optional requirement)');
 
         $this->actingAs($this->administrator)
             ->put(route('admin.certification.rules', $this->webinar), [

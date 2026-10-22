@@ -12,14 +12,19 @@ use App\Models\EmailDelivery;
 use App\Models\Participant;
 use App\Models\User;
 use App\Models\Webinar;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\MessageBag;
+use Illuminate\Support\ViewErrorBag;
+use Tests\Concerns\ApprovesCertificateFixtures;
 use Tests\TestCase;
 
 class CertificationManagementTest extends TestCase
 {
+    use ApprovesCertificateFixtures;
     use RefreshDatabase;
 
     private User $administrator;
@@ -100,7 +105,7 @@ class CertificationManagementTest extends TestCase
         ])->assertRedirect();
 
         $template = $this->webinar->certificateTemplates()->where('is_active', true)->firstOrFail();
-        $this->assertSame('Formal award', $template->name);
+        $this->assertSame($this->webinar->title.' — Certificate of Participation', $template->name);
         $this->assertNotNull($template->background_path);
         Storage::disk('local')->assertExists($template->background_path);
         // The image's real dimensions are remembered so the PDF preserves the ratio.
@@ -135,11 +140,33 @@ class CertificationManagementTest extends TestCase
 
         // A typed name can be previewed for exact spelling.
         $this->actingAs($this->administrator)
-            ->get(route('admin.certification.preview', $this->webinar, ['name' => 'Corrected Name']))
+            ->post(route('admin.certification.preview', $this->webinar), ['name' => 'Corrected Name'])
             ->assertOk()->assertHeader('Content-Type', 'application/pdf');
 
         // A preview must never persist a certificate.
         $this->assertDatabaseCount('certificates', 0);
+    }
+
+    public function test_the_template_page_accepts_one_page_pdf_artwork_and_raw_pdfs_fail_closed(): void
+    {
+        Storage::fake('local');
+
+        $this->actingAs($this->administrator)
+            ->get(route('admin.certification.edit', $this->webinar))
+            ->assertOk()
+            ->assertSee('PNG, JPG, or one-page PDF')
+            ->assertSee('application/pdf', false)
+            ->assertSee('converted privately in this browser');
+
+        // JavaScript converts the selected PDF to PNG before submission. If
+        // conversion has not finished or was bypassed, the server rejects the
+        // raw PDF rather than storing an unverified document as artwork.
+        $this->actingAs($this->administrator)->put(route('admin.certification.template', $this->webinar), [
+            'name' => 'Formal award',
+            'background' => UploadedFile::fake()->create('certificate.pdf', 256, 'application/pdf'),
+        ])->assertSessionHasErrors('background');
+
+        $this->assertSame(0, $this->webinar->certificateTemplates()->count());
     }
 
     public function test_saving_certificate_style_never_redirects_to_the_raw_background_image(): void
@@ -234,6 +261,7 @@ class CertificationManagementTest extends TestCase
         $this->assertSame('Maria Santos', $participant->fresh()->full_name);
         $this->assertDatabaseHas('audit_logs', ['action' => 'participant.name_corrected']);
 
+        $this->approveCertificateFixtures($this->webinar);
         $this->actingAs($this->administrator)
             ->post(route('admin.certificates.store', [$this->webinar, $participant]), [
                 'recipient_name' => 'Certificate-only overrides are ignored',
@@ -263,6 +291,7 @@ class CertificationManagementTest extends TestCase
         ]);
 
         // The studio lists only eligible participants and stays in the section.
+        $this->approveCertificateFixtures($this->webinar);
         $this->actingAs($this->administrator)->get(route('admin.certificates.studio', $this->webinar))
             ->assertOk()
             ->assertSee('Wrong Spelling')
@@ -273,6 +302,7 @@ class CertificationManagementTest extends TestCase
             ->put(route('admin.participants.name', [$this->webinar, $eligible]), ['full_name' => 'Wei Chen'])
             ->assertRedirect();
 
+        $this->approveCertificateFixtures($this->webinar);
         $this->actingAs($this->administrator)
             ->post(route('admin.certificates.issue-selected', $this->webinar), [
                 'participants' => [$eligible->public_id, $notEligible->public_id],
@@ -300,6 +330,7 @@ class CertificationManagementTest extends TestCase
         $this->get(route('admin.participants.index', $this->webinar))
             ->assertOk()
             ->assertSee('Queued for email');
+        $this->approveCertificateFixtures($this->webinar);
         $this->get(route('admin.certificates.studio', $this->webinar))
             ->assertOk()
             ->assertSee('Queued for email');
@@ -330,6 +361,7 @@ class CertificationManagementTest extends TestCase
             'verified_at' => now(),
         ]);
 
+        $this->approveCertificateFixtures($this->webinar);
         $this->actingAs($this->administrator)
             ->post(route('admin.certificates.issue-selected', $this->webinar), [
                 'participants' => [$participant->public_id],
@@ -360,6 +392,7 @@ class CertificationManagementTest extends TestCase
         ])->assertRedirect();
 
         // Re-opening the editor shows those exact values in its controls.
+        $this->approveCertificateFixtures($this->webinar);
         $this->actingAs($this->administrator)->get(route('admin.certificates.studio', $this->webinar))
             ->assertOk()
             ->assertSee('name="name_top" value="58"', false)
@@ -368,7 +401,189 @@ class CertificationManagementTest extends TestCase
             ->assertSee('value="#123456"', false);
     }
 
-    public function test_an_off_platform_recipient_is_added_and_selected_from_the_participant_table(): void
+    /**
+     * The studio's "use for every recipient" button fills a hidden form and
+     * submits it. A browser sends exactly what that form carries, so the test
+     * reads the form out of the rendered page and submits it the same way. A
+     * method-override field is part of that contract, not an optional extra:
+     * without it the request never reaches the style-saving endpoint.
+     */
+    public function test_the_studio_applies_the_edited_style_to_every_recipient_without_changing_names(): void
+    {
+        Storage::fake('local');
+
+        EligibilityRule::query()->create(['webinar_id' => $this->webinar->id, 'requirement' => 'registration', 'is_required' => true]);
+        $this->uploadedTemplate();
+
+        $edited = $this->webinar->participants()->create([
+            'email' => 'edited@example.com', 'full_name' => 'Edited Person', 'verified_at' => now(),
+        ]);
+        $other = $this->webinar->participants()->create([
+            'email' => 'other@example.com', 'full_name' => 'Other Person', 'verified_at' => now(),
+        ]);
+
+        $this->approveCertificateFixtures($this->webinar);
+        $page = $this->actingAs($this->administrator)
+            ->get(route('admin.certificates.studio', $this->webinar))
+            ->assertOk();
+
+        [$action, $fields] = $this->browserFormSubmission($page->getContent(), 'apply-all-form');
+
+        // The editor fills this form with the style being edited.
+        $fields = array_merge($fields, [
+            'name_top' => '30', 'name_left' => '42.5', 'name_font_size' => '58',
+            'name_font_family' => 'serif', 'accent' => '#7c3aed',
+            'name_font_weight' => 'regular', 'name_font_style' => 'italic',
+            'name_text_align' => 'right', 'studio' => '1',
+        ]);
+
+        $this->actingAs($this->administrator)
+            ->post($action, $fields)
+            ->assertRedirect(route('admin.certificates.studio', $this->webinar))
+            ->assertSessionHas('success');
+
+        // One style now covers the whole webinar.
+        $template = $this->webinar->certificateTemplates()->where('is_active', true)->firstOrFail();
+        $this->assertSame(30.0, (float) $template->layout['name_top']);
+        $this->assertSame(42.5, (float) $template->layout['name_left']);
+        $this->assertSame(58.0, (float) $template->layout['name_font_size']);
+        $this->assertSame('serif', $template->layout['name_font_family']);
+        $this->assertSame('#7c3aed', $template->layout['accent']);
+        $this->assertSame('regular', $template->layout['name_font_weight']);
+        $this->assertSame('italic', $template->layout['name_font_style']);
+        $this->assertSame('right', $template->layout['name_text_align']);
+
+        // Only the formatting moved. The names are exactly as they were.
+        $this->assertSame('Edited Person', $edited->fresh()->full_name);
+        $this->assertSame('Other Person', $other->fresh()->full_name);
+
+        // Both recipients' certificates carry that one style.
+        $this->approveCertificateFixtures($this->webinar);
+        $this->actingAs($this->administrator)
+            ->post(route('admin.certificates.issue-selected', $this->webinar), [
+                'participants' => [$edited->public_id, $other->public_id],
+                'preview_confirmed' => '1',
+            ])
+            ->assertRedirect(route('admin.certificates.studio', $this->webinar));
+
+        foreach ([$edited, $other] as $participant) {
+            $certificate = Certificate::query()->where('participant_id', $participant->id)->sole();
+            $this->assertSame(30.0, (float) $certificate->layout['name_top']);
+            $this->assertSame(42.5, (float) $certificate->layout['name_left']);
+            $this->assertSame('serif', $certificate->layout['name_font_family']);
+            $this->assertSame('#7c3aed', $certificate->layout['accent']);
+            $this->assertSame('right', $certificate->layout['name_text_align']);
+            $this->assertSame($participant->full_name, $certificate->recipient_name);
+        }
+    }
+
+    /**
+     * The participant page's "Send certificate" button must open the studio
+     * with that one person, already selected. It used to be dropped, so the
+     * manual send opened the whole ready list with nothing chosen.
+     */
+    public function test_the_manual_send_button_opens_the_studio_with_that_person_preselected(): void
+    {
+        Storage::fake('local');
+
+        EligibilityRule::query()->create(['webinar_id' => $this->webinar->id, 'requirement' => 'registration', 'is_required' => true]);
+        $this->uploadedTemplate();
+        $manual = $this->webinar->participants()->create([
+            'email' => 'manual@example.com', 'full_name' => 'Manual Person', 'verified_at' => now(),
+        ]);
+        $other = $this->webinar->participants()->create([
+            'email' => 'other@example.com', 'full_name' => 'Other Person', 'verified_at' => now(),
+        ]);
+
+        $this->approveCertificateFixtures($this->webinar);
+        $this->actingAs($this->administrator)
+            ->get(route('admin.participants.show', [$this->webinar, $manual]))
+            ->assertOk()
+            ->assertSee('manual='.$manual->public_id, false);
+
+        $this->approveCertificateFixtures($this->webinar);
+        $this->actingAs($this->administrator)
+            ->get(route('admin.certificates.studio', ['webinar' => $this->webinar, 'manual' => $manual->public_id]))
+            ->assertOk()
+            ->assertSee('data-initial-participant="'.$manual->public_id.'"', false)
+            ->assertSee('data-send-participant="'.$manual->public_id.'" checked', false)
+            // The scope is that person alone, not the whole ready list.
+            ->assertDontSee('data-send-participant="'.$other->public_id.'"', false);
+    }
+
+    /**
+     * A manual send for someone who does not qualify must explain itself
+     * instead of showing a generic empty studio.
+     */
+    public function test_a_manual_send_for_someone_who_is_not_eligible_explains_what_is_missing(): void
+    {
+        Storage::fake('local');
+
+        EligibilityRule::query()->create(['webinar_id' => $this->webinar->id, 'requirement' => 'registration', 'is_required' => true]);
+        EligibilityRule::query()->create(['webinar_id' => $this->webinar->id, 'requirement' => 'posttest', 'is_required' => true]);
+        $this->uploadedTemplate();
+        $blocked = $this->webinar->participants()->create([
+            'email' => 'blocked@example.com', 'full_name' => 'Blocked Person', 'verified_at' => now(),
+        ]);
+
+        $this->approveCertificateFixtures($this->webinar);
+        $this->actingAs($this->administrator)
+            ->get(route('admin.certificates.studio', ['webinar' => $this->webinar, 'manual' => $blocked->public_id]))
+            ->assertOk()
+            ->assertSee('cannot be certified yet')
+            ->assertSee('Missing Posttest')
+            ->assertSee('Use Add Recipient Manually for an authorized certificate exception')
+            ->assertSee(route('admin.participants.show', [$this->webinar, $blocked]), false);
+    }
+
+    /**
+     * A greyed-out selection box must say why, so "it does nothing" never
+     * reads as a broken button.
+     */
+    public function test_the_participant_table_explains_why_a_row_cannot_be_selected(): void
+    {
+        EligibilityRule::query()->create(['webinar_id' => $this->webinar->id, 'requirement' => 'registration', 'is_required' => true]);
+        EligibilityRule::query()->create(['webinar_id' => $this->webinar->id, 'requirement' => 'pretest', 'is_required' => true]);
+        $this->webinar->participants()->create([
+            'email' => 'notmet@example.com', 'full_name' => 'Not Met Person', 'verified_at' => now(),
+        ]);
+
+        $this->actingAs($this->administrator)
+            ->get(route('admin.participants.index', $this->webinar))
+            ->assertOk()
+            ->assertSee('Not eligible')
+            ->assertSee('missing Pretest')
+            ->assertSee('Use Add Recipient Manually in Certificate Studio');
+    }
+
+    /**
+     * Read a rendered form the way a browser would: its own action, method and
+     * fields, including the method-override field when the form carries one.
+     *
+     * @return array{0: string, 1: array<string, string>}
+     */
+    private function browserFormSubmission(string $html, string $formId): array
+    {
+        $document = new \DOMDocument;
+        $this->assertTrue(
+            @$document->loadHTML('<!DOCTYPE html><html><body>'.$html.'</body></html>'),
+            'The rendered page could not be parsed.',
+        );
+
+        $xpath = new \DOMXPath($document);
+        $forms = $xpath->query("//form[@id='".$formId."']");
+        $this->assertGreaterThan(0, $forms->length, "The {$formId} form is missing from the page.");
+        $form = $forms->item(0);
+
+        $fields = [];
+        foreach ($xpath->query('.//input[@name]', $form) as $input) {
+            $fields[$input->getAttribute('name')] = $input->getAttribute('value');
+        }
+
+        return [$form->getAttribute('action'), $fields];
+    }
+
+    public function test_legacy_participant_add_uses_the_same_manual_studio_mechanism(): void
     {
         Storage::fake('local');
 
@@ -383,23 +598,25 @@ class CertificationManagementTest extends TestCase
             ]);
 
         $participant = Participant::query()->where('email', 'off@example.com')->firstOrFail();
-        $addResponse->assertRedirect(route('admin.participants.index', $this->webinar))
-            ->assertSessionHas('success')
-            ->assertSessionHas('new_participant_public_id', $participant->public_id);
+        $addResponse->assertRedirect(route('admin.certificates.studio', [$this->webinar, 'manual' => $participant->public_id]))
+            ->assertSessionHas('success');
         $this->assertSame('Off List Person', $participant->full_name);
-        $this->assertSame('Community Group', $participant->organization);
-        $this->assertSame(1, $participant->eligibilityOverrides()->where('decision', 'eligible')->count());
+        $this->assertNull($participant->organization);
+        $this->assertSame(0, $participant->eligibilityOverrides()->count());
+        $this->assertSame('manual', $participant->certificateApproval->source);
 
         // They are selected in the table, then flow into the normal studio.
         $this->actingAs($this->administrator)->get(route('admin.participants.index', $this->webinar))
             ->assertOk()
             ->assertSee('Off List Person')
-            ->assertSee('data-auto-selected checked', false);
+            ->assertSee('Add Recipient Manually');
+        $this->approveCertificateFixtures($this->webinar);
         $this->actingAs($this->administrator)->get(route('admin.certificates.studio', [
             'webinar' => $this->webinar,
             'participants' => [$participant->public_id],
         ]))->assertOk()->assertSee('data-initial-participant="'.$participant->public_id.'"', false);
 
+        $this->approveCertificateFixtures($this->webinar);
         $this->actingAs($this->administrator)
             ->post(route('admin.certificates.issue-selected', $this->webinar), [
                 'participants' => [$participant->public_id],
@@ -415,16 +632,123 @@ class CertificationManagementTest extends TestCase
         $this->assertNotEmpty($delivery->payload['attachments'][0]['content']);
     }
 
-    public function test_empty_studio_sends_the_administrator_back_to_the_participant_table_and_sending_requires_preview(): void
+    /**
+     * "Issued" says the PDF exists, not that the email left. The participant
+     * page must show the delivery outcome too, or a rejected email reads as a
+     * finished send.
+     */
+    public function test_the_participant_page_reports_a_failed_delivery(): void
+    {
+        Storage::fake('local');
+        $template = $this->uploadedTemplate();
+        $participant = $this->webinar->participants()->create([
+            'email' => 'failed@example.com', 'full_name' => 'Failed Delivery', 'verified_at' => now(),
+        ]);
+        $certificate = Certificate::query()->create([
+            'verification_code' => 'CERT-FAILED-DELIVERY',
+            'webinar_id' => $this->webinar->id,
+            'participant_id' => $participant->id,
+            'certificate_template_id' => $template->id,
+            'recipient_name' => $participant->full_name,
+            'status' => 'issued',
+            'issued_at' => now(),
+        ]);
+        EmailDelivery::query()->create([
+            'webinar_id' => $this->webinar->id,
+            'participant_id' => $participant->id,
+            'certificate_id' => $certificate->id,
+            'type' => 'certificate',
+            'recipient_email' => $participant->email,
+            'subject' => 'Your certificate',
+            'payload' => ['html' => 'Certificate attached'],
+            'status' => 'failed',
+            'failed_at' => now(),
+            'last_error' => 'Brevo request failed with HTTP 401 (unauthorized).',
+        ]);
+
+        $this->actingAs($this->administrator)
+            ->get(route('admin.participants.show', [$this->webinar, $participant]))
+            ->assertOk()
+            ->assertSee('Delivery failed')
+            ->assertSee('HTTP 401');
+    }
+
+    /**
+     * A manual request that resolves to nobody must never open the whole
+     * ready list. Falling back would put every eligible participant one click
+     * away from being sent.
+     */
+    public function test_a_manual_request_that_resolves_to_nobody_never_opens_the_whole_ready_list(): void
+    {
+        Storage::fake('local');
+        $this->uploadedTemplate();
+        foreach (range(1, 3) as $index) {
+            $this->webinar->participants()->create([
+                'email' => "ready{$index}@example.com", 'full_name' => "Ready {$index}", 'verified_at' => now(),
+            ]);
+        }
+
+        $this->approveCertificateFixtures($this->webinar);
+        $this->actingAs($this->administrator)
+            ->get(route('admin.certificates.studio', [
+                'webinar' => $this->webinar, 'manual' => 'not-a-real-identifier',
+            ]))
+            ->assertOk()
+            ->assertSee('That recipient was not found')
+            ->assertDontSee('data-send-participant="', false);
+    }
+
+    /** Public identifiers are upper-case ULIDs; a hand-typed lower-case one is the same identifier. */
+    public function test_the_manual_scope_accepts_a_lower_cased_identifier(): void
+    {
+        Storage::fake('local');
+        $this->uploadedTemplate();
+        $participant = $this->webinar->participants()->create([
+            'email' => 'lower@example.com', 'full_name' => 'Lower Case', 'verified_at' => now(),
+        ]);
+
+        $this->approveCertificateFixtures($this->webinar);
+        $this->actingAs($this->administrator)
+            ->get(route('admin.certificates.studio', [
+                'webinar' => $this->webinar, 'manual' => strtolower($participant->public_id),
+            ]))
+            ->assertOk()
+            ->assertSee('data-send-participant="'.$participant->public_id.'" checked', false)
+            ->assertDontSee('That recipient was not found');
+    }
+
+    /**
+     * A send that fails must say so. The studio is its own layout, and it
+     * used to render neither the validation summary nor any explanation, so a
+     * rejected send looked exactly like a successful one.
+     */
+    public function test_the_studio_explains_a_rejected_send(): void
     {
         Storage::fake('local');
         $this->uploadedTemplate();
 
+        $this->approveCertificateFixtures($this->webinar);
+        $this->actingAs($this->administrator)
+            ->withSession(['errors' => (new ViewErrorBag)->put('default', new MessageBag([
+                'participants' => ['Select at least one participant to send a certificate to.'],
+            ]))])
+            ->get(route('admin.certificates.studio', $this->webinar))
+            ->assertOk()
+            ->assertSee('The certificates were not sent.')
+            ->assertSee('Select at least one participant to send a certificate to.');
+    }
+
+    public function test_empty_studio_allows_manual_additions_and_sending_requires_preview(): void
+    {
+        Storage::fake('local');
+        $this->uploadedTemplate();
+
+        $this->approveCertificateFixtures($this->webinar);
         $this->actingAs($this->administrator)
             ->get(route('admin.certificates.studio', $this->webinar))
             ->assertOk()
-            ->assertSee('Open participants')
-            ->assertDontSee('Add certificate recipient manually')
+            ->assertSee('Add Recipient Manually')
+            ->assertSee('No recipients match this list')
             ->assertDontSee('/certificates/add-recipient', false);
 
         $participant = Participant::query()->create([
@@ -439,6 +763,7 @@ class CertificationManagementTest extends TestCase
             'overridden_by' => $this->administrator->id,
         ]);
 
+        $this->approveCertificateFixtures($this->webinar);
         $this->actingAs($this->administrator)
             ->post(route('admin.certificates.issue-selected', $this->webinar), [
                 'participants' => [$participant->public_id],
@@ -459,6 +784,7 @@ class CertificationManagementTest extends TestCase
             'webinar_id' => $this->webinar->id, 'full_name' => 'Ken Adams', 'email' => 'ken@example.com', 'verified_at' => now(),
         ]);
 
+        $this->approveCertificateFixtures($this->webinar);
         $this->actingAs($this->administrator)
             ->post(route('admin.certificates.store', [$this->webinar, $participant]))
             ->assertRedirect();
@@ -475,6 +801,44 @@ class CertificationManagementTest extends TestCase
         $this->assertGreaterThan($before, EmailDelivery::query()->where('certificate_id', $certificate->id)->count());
     }
 
+    public function test_only_one_active_certificate_delivery_can_claim_a_certificate(): void
+    {
+        $template = CertificateTemplate::query()->create([
+            'webinar_id' => $this->webinar->id,
+            'name' => 'Duplicate guard',
+            'layout' => [],
+        ]);
+        $participant = Participant::query()->create([
+            'webinar_id' => $this->webinar->id,
+            'full_name' => 'Delivery Guard',
+            'email' => 'delivery-guard@example.com',
+        ]);
+        $certificate = Certificate::query()->create([
+            'verification_code' => 'CERT-DELIVERY-GUARD',
+            'webinar_id' => $this->webinar->id,
+            'participant_id' => $participant->id,
+            'certificate_template_id' => $template->id,
+            'recipient_name' => $participant->full_name,
+            'status' => 'issued',
+            'issued_at' => now(),
+        ]);
+
+        $attributes = [
+            'webinar_id' => $this->webinar->id,
+            'participant_id' => $participant->id,
+            'certificate_id' => $certificate->id,
+            'type' => 'certificate',
+            'recipient_email' => $participant->email,
+            'subject' => 'Certificate',
+            'payload' => ['html' => 'Certificate attached'],
+            'status' => 'pending',
+        ];
+        EmailDelivery::query()->create($attributes);
+
+        $this->expectException(QueryException::class);
+        EmailDelivery::query()->create($attributes);
+    }
+
     public function test_issuance_is_refused_until_a_certificate_is_uploaded(): void
     {
         EligibilityRule::query()->create(['webinar_id' => $this->webinar->id, 'requirement' => 'registration', 'is_required' => true]);
@@ -487,6 +851,7 @@ class CertificationManagementTest extends TestCase
             'webinar_id' => $this->webinar->id, 'full_name' => 'Ana Cruz', 'email' => 'ana@example.com', 'verified_at' => now(),
         ]);
 
+        $this->approveCertificateFixtures($this->webinar);
         $this->actingAs($this->administrator)
             ->post(route('admin.certificates.store', [$this->webinar, $participant]))
             ->assertSessionHas('error');
@@ -494,7 +859,7 @@ class CertificationManagementTest extends TestCase
         $this->assertDatabaseCount('certificates', 0);
     }
 
-    public function test_bulk_issuance_certifies_eligible_participants_and_skips_the_rest(): void
+    public function test_bulk_issuance_certifies_only_eligible_participants_and_records_auditable_outcomes(): void
     {
         Storage::fake('local');
 
@@ -502,13 +867,14 @@ class CertificationManagementTest extends TestCase
         $this->uploadedTemplate();
 
         $eligible = collect(['ana@example.com', 'ben@example.com'])->map(fn ($email) => Participant::query()->create([
-            'webinar_id' => $this->webinar->id, 'full_name' => 'Verified '.$email, 'email' => $email, 'verified_at' => now(),
+            'webinar_id' => $this->webinar->id, 'full_name' => 'Verified '.ucfirst(strstr($email, '@', true)), 'email' => $email, 'verified_at' => now(),
         ]));
         $unverified = Participant::query()->create([
             'webinar_id' => $this->webinar->id, 'full_name' => 'Unverified', 'email' => 'carl@example.com',
         ]);
 
         // QUEUE_CONNECTION is sync in tests, so the job runs inline.
+        $this->approveCertificateFixtures($this->webinar);
         $this->actingAs($this->administrator)
             ->post(route('admin.certificates.batch', $this->webinar))
             ->assertRedirect()
@@ -516,9 +882,10 @@ class CertificationManagementTest extends TestCase
 
         $batch = CertificateBatch::query()->firstOrFail();
         $this->assertSame('completed', $batch->status);
-        $this->assertSame(3, $batch->total_count);
+        $this->assertSame(2, $batch->total_count);
         $this->assertSame(2, $batch->completed_count);
-        $this->assertSame(1, $batch->failed_count);
+        $this->assertSame(0, $batch->failed_count);
+        $this->assertSame(2, $batch->items()->where('status', 'issued')->count());
 
         foreach ($eligible as $participant) {
             $certificate = Certificate::query()->where('participant_id', $participant->id)->firstOrFail();
@@ -528,13 +895,23 @@ class CertificationManagementTest extends TestCase
 
         $this->assertSame(0, Certificate::query()->where('participant_id', $unverified->id)->count());
 
+        $this->approveCertificateFixtures($this->webinar);
+        $this->actingAs($this->administrator)
+            ->get(route('admin.certificates.studio', $this->webinar))
+            ->assertOk()
+            ->assertSee('Latest bulk issuance')
+            ->assertSee('Verified Ana')
+            ->assertSee('Issued');
+
         // A second run finds nothing left to do.
+        $this->approveCertificateFixtures($this->webinar);
         $this->actingAs($this->administrator)->post(route('admin.certificates.batch', $this->webinar))->assertRedirect();
         $this->assertSame(2, Certificate::query()->count());
     }
 
     public function test_bulk_issuance_is_refused_without_an_active_template(): void
     {
+        $this->approveCertificateFixtures($this->webinar);
         $this->actingAs($this->administrator)
             ->post(route('admin.certificates.batch', $this->webinar))
             ->assertSessionHas('error');
@@ -552,6 +929,7 @@ class CertificationManagementTest extends TestCase
             'webinar_id' => $this->webinar->id, 'full_name' => 'Ana Cruz', 'email' => 'ana@example.com', 'verified_at' => now(),
         ]);
 
+        $this->approveCertificateFixtures($this->webinar);
         $this->actingAs($this->administrator)->post(route('admin.certificates.store', [$this->webinar, $participant]));
         $certificate = Certificate::query()->firstOrFail();
 
@@ -630,6 +1008,7 @@ class CertificationManagementTest extends TestCase
             'sent_at' => now(),
         ]);
 
+        $this->approveCertificateFixtures($this->webinar);
         $response = $this->actingAs($this->administrator)
             ->get(route('admin.certificates.studio', $this->webinar));
 

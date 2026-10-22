@@ -5,14 +5,14 @@
      success/error survives a normal redirect; the page script animates it in,
      lets it be dismissed, and auto-hides success messages. --}}
 <div class="toast-viewport" data-toast-viewport aria-live="polite" aria-atomic="false">
-    @if(session('success') || session('error'))
-        @php $isSuccess = (bool) session('success'); @endphp
+    @if(session('success') || session('error') || session('warning'))
+        @php $isSuccess = (bool) session('success') && ! session('warning') && ! session('error'); @endphp
         <div class="toast {{ $isSuccess ? 'toast-success' : 'toast-error' }}" role="status"
              data-toast @if($isSuccess) data-toast-autohide="6000" @endif>
             <span class="toast-icon"><x-icon :name="$isSuccess ? 'check-circle' : 'alert'" class="size-5" /></span>
             <div class="toast-body">
                 <p class="toast-title">{{ $isSuccess ? 'Done' : 'Something needs your attention' }}</p>
-                <p class="mt-0.5 text-slate-600">{{ session('success') ?: session('error') }}</p>
+                <p class="mt-0.5 text-slate-600">{{ session('error') ?: session('warning') ?: session('success') }}</p>
             </div>
             <button type="button" class="toast-close" data-toast-close aria-label="Dismiss"><x-icon name="x" class="size-4" /></button>
         </div>

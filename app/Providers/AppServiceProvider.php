@@ -3,9 +3,12 @@
 namespace App\Providers;
 
 use App\Contracts\TransactionalMailer;
+use App\Models\Webinar;
 use App\Services\Email\BrevoTransactionalMailer;
 use App\Services\Email\LogTransactionalMailer;
+use App\Services\PendingSensitiveAction;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Cache\RateLimiting\Unlimited;
 use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
@@ -34,6 +37,17 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        RateLimiter::for('account-request', function (Request $request): array {
+            $email = hash_hmac('sha256', Str::lower(trim((string) $request->input('email'))), (string) config('app.key'));
+
+            return [Limit::perMinute(3)->by('account-ip:'.$request->ip()), Limit::perHour(5)->by('account-email:'.$email), Limit::perDay(20)->by('account-day:'.$email)];
+        });
+        RateLimiter::for('webinar-unlock', function (Request $request): array {
+            $webinar = $request->route('webinar');
+            $id = $webinar instanceof Webinar ? $webinar->id : $webinar;
+
+            return [Limit::perMinute(5)->by('unlock:'.$request->user()?->id.':'.$id), Limit::perMinute(20)->by('unlock-ip:'.$request->ip())];
+        });
         // Resolve this from cached configuration, not directly from .env. The
         // middleware is part of Laravel's default global stack; this sets its
         // exact IP/CIDR allowlist before the first request is handled.
@@ -87,13 +101,33 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
-        RateLimiter::for('admin-sensitive', function (Request $request): array {
+        RateLimiter::for('admin-sensitive', function (Request $request): array|Unlimited {
+            // A replayed action is the action the administrator already
+            // submitted and the password already proved. Charging it a second
+            // time would make one button press cost two of the budget.
+            if ($request->attributes->get(PendingSensitiveAction::REPLAY_ATTRIBUTE)) {
+                return Limit::none();
+            }
+
             $userKey = hash('sha256', (string) ($request->user()?->getAuthIdentifier() ?? 'guest'));
             $ipKey = hash('sha256', (string) $request->ip());
 
             return [
                 Limit::perMinute(5)->by("admin-sensitive:pair:{$userKey}:{$ipKey}"),
                 Limit::perMinute(15)->by("admin-sensitive:user:{$userKey}"),
+            ];
+        });
+
+        // Proving a password is budgeted on its own, so the step-up does not
+        // eat the budget of the action it protects. Password guessing is still
+        // capped at the same rate the sensitive endpoints have always used.
+        RateLimiter::for('admin-password-confirm', function (Request $request): array {
+            $userKey = hash('sha256', (string) ($request->user()?->getAuthIdentifier() ?? 'guest'));
+            $ipKey = hash('sha256', (string) $request->ip());
+
+            return [
+                Limit::perMinute(5)->by("admin-password-confirm:pair:{$userKey}:{$ipKey}"),
+                Limit::perMinute(15)->by("admin-password-confirm:user:{$userKey}"),
             ];
         });
 

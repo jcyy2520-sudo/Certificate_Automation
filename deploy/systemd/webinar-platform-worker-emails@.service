@@ -9,7 +9,7 @@ User=www-data
 Group=www-data
 WorkingDirectory=/var/www/webinar-platform/current
 EnvironmentFile=/etc/webinar-platform/runtime.env
-ExecStart=/usr/bin/php artisan queue:work redis-emails --queue=emails --sleep=1 --tries=3 --timeout=60 --max-time=3600 --memory=192
+ExecStart=/usr/bin/php artisan queue:work redis-emails --queue=account-emails,emails --sleep=1 --tries=3 --timeout=60 --max-time=3600 --memory=192
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM

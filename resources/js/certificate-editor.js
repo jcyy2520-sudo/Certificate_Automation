@@ -9,8 +9,27 @@ export function snap(value, target, tolerance = 1.5) {
         : { value, snapped: false };
 }
 
+/** Keep the preview inside the page; the actual PDF performs its own font-metric check. */
+function fitCertificateName(element, canvas, requestedSize, left, top) {
+    const widthPercent = Math.max(0, Math.min(94, 2 * Math.min(left, 100 - left)));
+    element.style.width = `${widthPercent}%`;
+    const height = canvas.clientHeight;
+    if (!height) return;
+    const baseSize = requestedSize / 595 * height;
+    const context = document.createElement('canvas').getContext('2d');
+    if (!context) return;
+    const style = getComputedStyle(element);
+    context.font = `${style.fontStyle} ${style.fontWeight} ${baseSize}px ${style.fontFamily}`;
+    const measuredWidth = context.measureText(element.textContent.trim()).width;
+    const availableWidth = canvas.clientWidth * widthPercent / 100 * 0.98;
+    const availableHeight = Math.max(0, height * (1 - top / 100) - 4 / 595 * height);
+    const scale = Math.max(0, Math.min(1, availableWidth / Math.max(1, measuredWidth), availableHeight / Math.max(1, baseSize * 1.2)));
+    element.style.fontSize = `calc(${requestedSize * scale} / 595 * 100cqh)`;
+    element.title = requestedSize * scale < 12 ? 'The full name cannot fit legibly. Adjust its position and check the Preview PDF before issuing.' : 'Long names fit automatically. Check the Preview PDF for the final font rendering.';
+}
+
 /** The single authoritative certificate-style editor on the Template page. */
-export function initCertificateTemplateEditor(root = document) {
+export function initCertificateTemplateEditor(root = document, signal) {
     const designer = root.querySelector('[data-template-designer]');
     if (!designer) return;
 
@@ -39,6 +58,7 @@ export function initCertificateTemplateEditor(root = document) {
         nameEl.style.fontStyle = state.style === 'italic' ? 'italic' : 'normal';
         nameEl.style.textAlign = state.align;
         nameEl.style.fontFamily = fields.font.options[fields.font.selectedIndex]?.dataset.css || '';
+        fitCertificateName(nameEl, canvas, state.size, state.left, state.top);
         fields.top.value = state.top.toFixed(2); fields.left.value = state.left.toFixed(2);
         fields.weight.value = state.weight; fields.style.value = state.style; fields.align.value = state.align;
         fields.color.value = state.color; fields.hex.value = state.color.toUpperCase();
@@ -46,6 +66,7 @@ export function initCertificateTemplateEditor(root = document) {
         $('[data-template-bold]').classList.toggle('is-active', state.weight === 'bold');
         $('[data-template-italic]').classList.toggle('is-active', state.style === 'italic');
         $$('[data-template-align]').forEach((button) => button.classList.toggle('is-active', button.dataset.templateAlign === state.align));
+        $$('[data-template-bold], [data-template-italic], [data-template-align]').forEach((button) => button.setAttribute('aria-pressed', String(button.classList.contains('is-active'))));
     }
 
     fields.font.addEventListener('change', () => { state.font = fields.font.value; render(); });
@@ -62,6 +83,8 @@ export function initCertificateTemplateEditor(root = document) {
     function move(top, left) {
         state.top = clamp(state.top + top, 0, 100); state.left = clamp(state.left + left, 0, 100); render();
     }
+    fields.top.addEventListener('change', () => { state.top = clamp(Number(fields.top.value) || 0, 0, 100); render(); });
+    fields.left.addEventListener('change', () => { state.left = clamp(Number(fields.left.value) || 0, 0, 100); render(); });
     $$('[data-template-nudge]').forEach((button) => button.addEventListener('click', () => {
         const moves = { up: [-0.5, 0], down: [0.5, 0], left: [0, -0.5], right: [0, 0.5] };
         move(...moves[button.dataset.templateNudge]);
@@ -95,9 +118,15 @@ export function initCertificateTemplateEditor(root = document) {
         if (moves[event.key]) { move(...moves[event.key]); event.preventDefault(); }
     });
     render();
+    if (typeof ResizeObserver !== 'undefined') {
+        const observer = new ResizeObserver(render); observer.observe(canvas);
+        signal?.addEventListener('abort', () => observer.disconnect(), { once: true });
+    }
+    document.fonts?.ready.then(() => { if (!signal?.aborted) render(); });
+    document.fonts?.addEventListener('loadingdone', render, { signal });
 }
 
-export function initCertificateEditor(root = document) {
+export function initCertificateEditor(root = document, signal) {
     const studio = root.querySelector('[data-studio]');
     if (!studio) return;
 
@@ -111,11 +140,11 @@ export function initCertificateEditor(root = document) {
     // One row in the left rail is both the certificate and the person, so these
     // two lists address the same elements. They stay separate because status
     // polling and selection each speak in their own terms.
-    const certificateRows = $$('[data-certificate-row]');
-    const personRows = $$('[data-person-row]');
-    const queueChecks = $$('[data-queue-check]');
-    const sendChecks = $$('[data-send-participant]');
-    const sentRows = $$('[data-sent-row]');
+    let certificateRows = $$('[data-certificate-row]');
+    let personRows = $$('[data-person-row]');
+    let queueChecks = $$('[data-queue-check]');
+    let sendChecks = $$('[data-send-participant]');
+    let sentRows = $$('[data-sent-row]');
     const names = {};
     const emails = {};
     $$('[data-name-store]').forEach((store) => { names[store.dataset.nameStore] = (store.dataset.value || '').trim() || 'Participant'; });
@@ -187,6 +216,7 @@ export function initCertificateEditor(root = document) {
         designs[entry.id] = { ...entry.design };
         if (entry.id === activeId) renderDesign(designs[entry.id]);
         else setActive(entry.id);
+        document.dispatchEvent(new CustomEvent('app:dirty', { detail: Object.values(designs).some((design) => !matchesTemplate(design)) }));
         renderHistoryButtons();
     }
     $('[data-undo]')?.addEventListener('click', () => restore(undoStack, redoStack));
@@ -194,6 +224,7 @@ export function initCertificateEditor(root = document) {
 
     function writeDesign(patch, updateUi = true) {
         if (activeId) designs[activeId] = { ...designFor(activeId), ...patch };
+        document.dispatchEvent(new CustomEvent('app:dirty', { detail: Object.values(designs).some((design) => !matchesTemplate(design)) }));
         if (updateUi) renderDesign(designFor(activeId));
     }
 
@@ -213,6 +244,7 @@ export function initCertificateEditor(root = document) {
         nameEl.style.textAlign = design.name_text_align;
         const option = Array.from(controls.font?.options || []).find((candidate) => candidate.value === design.name_font_family);
         nameEl.style.fontFamily = option?.dataset.css || '';
+        fitCertificateName(nameEl, canvas, design.name_font_size, design.name_left, design.name_top);
 
         if (controls.font) controls.font.value = design.name_font_family;
         if (controls.sizeNumber && document.activeElement !== controls.sizeNumber) controls.sizeNumber.value = String(Math.round(design.name_font_size));
@@ -225,6 +257,9 @@ export function initCertificateEditor(root = document) {
         controls.bold?.classList.toggle('is-active', design.name_font_weight === 'bold');
         controls.italic?.classList.toggle('is-active', design.name_font_style === 'italic');
         controls.align.forEach((button) => button.classList.toggle('is-active', button.dataset.align === design.name_text_align));
+        controls.bold?.setAttribute('aria-pressed', String(design.name_font_weight === 'bold'));
+        controls.italic?.setAttribute('aria-pressed', String(design.name_font_style === 'italic'));
+        controls.align.forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.align === design.name_text_align)));
 
         const adjusted = !matchesTemplate(design);
         const label = $('[data-adjust-label]');
@@ -242,7 +277,7 @@ export function initCertificateEditor(root = document) {
         if (hidden.align) hidden.align.value = design.name_text_align;
     }
 
-    function setActive(id) {
+    function setActive(id, { scroll = true } = {}) {
         if (!id || !designs[id]) return;
         activeId = id;
         nameEl.textContent = names[id] || 'Participant';
@@ -252,8 +287,9 @@ export function initCertificateEditor(root = document) {
         const visibleRows = certificateRows.filter((row) => !row.hidden);
         const index = visibleRows.findIndex((row) => row.dataset.certificateRow === id);
         $$('[data-active-index]').forEach((el) => { el.textContent = String(Math.max(0, index) + 1); });
-        const previewLink = $('[data-preview-pdf]');
-        if (previewLink) previewLink.href = `${studio.dataset.previewUrl}?name=${encodeURIComponent(names[id] || 'Participant')}`;
+        $$('[data-preview-pdf]').forEach((previewLink) => {
+            previewLink.href = `${studio.dataset.previewUrl}?participant=${encodeURIComponent(id)}`;
+        });
         $$('[data-adjustment-name]').forEach((el) => { el.textContent = names[id] || 'Participant'; });
         $$('[data-adjustment-email]').forEach((el) => {
             el.textContent = emails[id] || 'No email address';
@@ -261,26 +297,35 @@ export function initCertificateEditor(root = document) {
         });
         // Correcting a name only affects certificates that have not been issued.
         const certificateRow = certificateRows.find((row) => row.dataset.certificateRow === id);
-        const correctable = certificateRow?.dataset.status === 'ready';
+        const correctable = certificateRow?.dataset.status === 'ready' && certificateRow?.dataset.manualActive !== '1';
         $$('[data-open-name-correction]').forEach((button) => {
             button.disabled = !correctable;
             button.title = correctable ? 'Correct name' : 'This certificate has already been issued with its current name.';
         });
-        certificateRow?.scrollIntoView({ block: 'nearest' });
+        if (scroll) certificateRow?.scrollIntoView({ block: 'nearest' });
     }
 
-    $$('[data-preview-select]').forEach((button) => button.addEventListener('click', () => setActive(button.dataset.previewSelect)));
+    studio.addEventListener('click', (event) => { const button = event.target.closest('[data-preview-select]'); if (button) setActive(button.dataset.previewSelect); });
 
     const correctionModal = $('[data-name-correction-modal]');
     const correctionForm = $('[data-name-correction-form]');
     const correctionInput = $('[data-name-correction-input]');
     const correctionError = $('[data-name-correction-error]');
+    let correctionSession = null;
+    function setCorrectionBusy(busy) {
+        if (busy) correctionForm?.setAttribute('aria-busy', 'true');
+        else correctionForm?.removeAttribute('aria-busy');
+        correctionForm?.querySelectorAll('button:not([type]), button[type="submit"]').forEach((button) => { button.disabled = busy; });
+    }
     function closeNameCorrection() {
+        correctionSession = null; setCorrectionBusy(false);
         correctionModal?.classList.add('hidden'); correctionModal?.classList.remove('flex'); correctionModal?.setAttribute('hidden', '');
     }
     $$('[data-open-name-correction]').forEach((button) => button.addEventListener('click', () => {
         const row = certificateRows.find((candidate) => candidate.dataset.certificateRow === activeId);
         if (!row || row.dataset.status !== 'ready') return;
+        correctionSession = { participantId: activeId, action: row.dataset.nameUpdateUrl, pending: false };
+        setCorrectionBusy(false);
         correctionForm.action = row.dataset.nameUpdateUrl;
         correctionInput.value = names[activeId] || '';
         correctionError?.classList.add('hidden');
@@ -291,22 +336,31 @@ export function initCertificateEditor(root = document) {
     correctionModal?.addEventListener('click', (event) => { if (event.target === correctionModal) closeNameCorrection(); });
     correctionForm?.addEventListener('submit', async (event) => {
         event.preventDefault();
+        const session = correctionSession;
+        if (!session || session.pending) return;
+        const { participantId, action } = session;
+        session.pending = true; setCorrectionBusy(true);
         correctionError?.classList.add('hidden');
         try {
-            const response = await fetch(correctionForm.action, {
-                method: 'POST', body: new FormData(correctionForm), credentials: 'same-origin', headers: { Accept: 'application/json' },
+            const response = await fetch(action, {
+                method: 'POST', body: new FormData(correctionForm), credentials: 'same-origin', headers: { Accept: 'application/json' }, signal,
             });
             const body = await response.json();
             if (!response.ok) throw new Error(body.message || body.errors?.full_name?.[0] || 'The name could not be updated.');
-            names[activeId] = body.full_name;
-            const store = $(`[data-name-store="${activeId}"]`); if (store) store.dataset.value = body.full_name;
-            const cert = certificateRows.find((row) => row.dataset.certificateRow === activeId);
-            const person = personRows.find((row) => row.dataset.personRow === activeId);
+            if (signal?.aborted) return;
+            names[participantId] = body.full_name;
+            const store = $(`[data-name-store="${participantId}"]`); if (store) store.dataset.value = body.full_name;
+            const cert = certificateRows.find((row) => row.dataset.certificateRow === participantId);
+            const person = personRows.find((row) => row.dataset.personRow === participantId);
             [cert, person].forEach((row) => row?.querySelectorAll('[data-participant-name]').forEach((label) => { label.textContent = body.full_name; }));
-            setActive(activeId); closeNameCorrection();
-            window.notify?.('success', 'Participant name corrected. The certificate preview has been refreshed.', { title: 'Name updated' });
+            if (activeId === participantId) setActive(participantId);
+            if (correctionSession === session) closeNameCorrection();
+            window.notify?.(body.certificate_warning ? 'warning' : 'success', body.certificate_warning || 'Participant name corrected. The certificate preview has been refreshed.', { title: 'Name updated' });
         } catch (error) {
-            if (correctionError) { correctionError.textContent = error.message; correctionError.classList.remove('hidden'); }
+            if (!signal?.aborted && correctionSession === session && correctionError) { correctionError.textContent = error.message; correctionError.classList.remove('hidden'); }
+        } finally {
+            session.pending = false;
+            if (correctionSession === session) setCorrectionBusy(false);
         }
     });
 
@@ -318,15 +372,29 @@ export function initCertificateEditor(root = document) {
         const count = selectedIds().length;
         $$('[data-selected-count]').forEach((el) => { el.textContent = String(count); });
         const sendButton = $('[data-open-send-confirm]');
-        if (sendButton) sendButton.disabled = count === 0;
+        if (sendButton) sendButton.disabled = count === 0 || studio.dataset.hasBackground === '0';
         const sendLabel = $('[data-send-label]');
         if (sendLabel) sendLabel.textContent = count === 1 ? 'Send certificate' : 'Send certificates';
     }
-    queueChecks.forEach((input) => input.addEventListener('change', syncSelection));
+    studio.addEventListener('change', (event) => { if (event.target.matches('[data-queue-check]')) syncSelection(); });
     $('[data-select-all]')?.addEventListener('change', (event) => {
-        queueChecks.forEach((input) => { if (!input.disabled) input.checked = event.target.checked; });
+        queueChecks.forEach((input) => { if (!input.disabled && !input.closest('[data-certificate-row]')?.hidden) input.checked = event.target.checked; });
         syncSelection();
     });
+
+    root.addEventListener('studio:recipients-refreshed', (event) => {
+        sentRows = $$('[data-sent-row]');
+        certificateRows = $$('[data-certificate-row]'); personRows = $$('[data-person-row]');
+        queueChecks = $$('[data-queue-check]'); sendChecks = $$('[data-send-participant]');
+        $$('[data-name-store]').forEach((store) => { names[store.dataset.nameStore] = store.dataset.value; });
+        $$('[data-email-store]').forEach((store) => { emails[store.dataset.emailStore] = store.dataset.value; });
+        certificateRows.forEach((row) => { designs[row.dataset.certificateRow] ??= { ...defaultDesign }; });
+        const next = event.detail?.focusId || activeId;
+        activeId = certificateRows.some((row) => row.dataset.certificateRow === next) ? next : certificateRows[0]?.dataset.certificateRow;
+        if (activeId) setActive(activeId, { scroll: Boolean(event.detail?.focusId) });
+        else { nameEl.textContent = 'Participant'; $$('[data-adjustment-name]').forEach((node) => { node.textContent = 'No recipient selected'; }); }
+        syncSelection(); filterRows();
+    }, { signal });
 
     /* ---- Text controls ---------------------------------------------- */
     controls.font?.addEventListener('change', () => { pushHistory(); writeDesign({ name_font_family: controls.font.value }); });
@@ -348,7 +416,10 @@ export function initCertificateEditor(root = document) {
     controls.italic?.addEventListener('click', () => { pushHistory(); writeDesign({ name_font_style: designFor(activeId).name_font_style === 'italic' ? 'regular' : 'italic' }); });
     controls.align.forEach((button) => button.addEventListener('click', () => { pushHistory(); writeDesign({ name_text_align: button.dataset.align }); }));
 
-    const readPosition = (input, fallback) => clamp(Number(input.value.replace(',', '.')) || fallback, 0, 100);
+    const readPosition = (input, fallback) => {
+        const value = Number(input.value.replace(',', '.'));
+        return clamp(input.value.trim() && Number.isFinite(value) ? value : fallback, 0, 100);
+    };
     controls.topInput?.addEventListener('change', () => { pushHistory(); writeDesign({ name_top: readPosition(controls.topInput, defaultDesign.name_top) }); });
     controls.leftInput?.addEventListener('change', () => { pushHistory(); writeDesign({ name_left: readPosition(controls.leftInput, defaultDesign.name_left) }); });
 
@@ -496,13 +567,14 @@ export function initCertificateEditor(root = document) {
     // Mobile panels collapse into mutually exclusive drawers.
     const scrim = $('[data-panel-scrim]');
     function closePanels() { $$('[data-panel]').forEach((panel) => panel.classList.remove('is-open')); scrim?.classList.add('hidden'); }
+    $$('[data-close-panel]').forEach((button) => button.addEventListener('click', closePanels));
     $$('[data-toggle-panel]').forEach((button) => button.addEventListener('click', () => {
         const panel = $(`[data-panel="${button.dataset.togglePanel}"]`); const opening = !panel?.classList.contains('is-open');
         closePanels(); if (opening) { panel?.classList.add('is-open'); scrim?.classList.remove('hidden'); }
     }));
     scrim?.addEventListener('click', closePanels);
 
-    document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closePanels(); });
+    document.addEventListener('keydown', (event) => { if (event.key === 'Escape') { closePanels(); closeConfirmation(); closeNameCorrection(); } }, { signal });
 
     // Explicit send confirmation with counts; the browser request only queues after acceptance.
     const confirmation = $('[data-send-confirm]');
@@ -518,11 +590,21 @@ export function initCertificateEditor(root = document) {
     function closeConfirmation() { confirmation?.classList.add('hidden'); confirmation?.classList.remove('flex'); confirmation?.setAttribute('hidden', ''); }
     $('[data-cancel-send]')?.addEventListener('click', closeConfirmation);
     confirmation?.addEventListener('click', (event) => { if (event.target === confirmation) closeConfirmation(); });
-    $('[data-confirm-send]')?.addEventListener('click', () => {
+    $('[data-confirm-send]')?.addEventListener('click', (event) => {
+        const button = event.currentTarget;
+        if (button.disabled || sendForm.hasAttribute('data-submitted')) return;
+        button.disabled = true;
         const selected = selectedIds(); const payload = {};
         selected.forEach((id) => { payload[id] = designFor(id); });
         $('[data-designs-json]').value = JSON.stringify(payload);
-        closeConfirmation(); sendForm.requestSubmit();
+        closeConfirmation();
+        // Do not mark the form as submitted here. The application-wide submit
+        // guard reads that marker to swallow a repeated submit, so setting it
+        // first makes the guard cancel this very submission and the POST
+        // never leaves the browser. requestSubmit() marks the form
+        // synchronously, which is what stops a second click.
+        sendForm.requestSubmit();
+        window.setTimeout(() => { button.disabled = false; }, 5000);
     });
 
     function updateStatus(item) {
@@ -538,6 +620,11 @@ export function initCertificateEditor(root = document) {
             if (badge) { badge.textContent = shortLabel; badge.title = label; }
             row.title = label;
         });
+        const check = queueChecks.find((input) => input.dataset.queueCheck === item.participant_id);
+        const sendCheck = sendChecks.find((input) => input.dataset.sendParticipant === item.participant_id);
+        if (check && item.status !== 'ready') { check.disabled = true; check.checked = false; }
+        if (sendCheck && item.status !== 'ready') { sendCheck.disabled = true; sendCheck.checked = false; }
+        syncSelection();
         const number = cert?.querySelector('[data-certificate-number]'); if (number && item.certificate_number) number.textContent = item.certificate_number;
         const failure = person?.querySelector('[data-failure-detail]'); failure?.classList.toggle('hidden', item.status !== 'failed');
         const reason = failure?.querySelector('[data-failure-reason]'); if (reason && item.failed_reason) reason.textContent = item.failed_reason;
@@ -549,14 +636,16 @@ export function initCertificateEditor(root = document) {
     let pollDelay = 5000;
     let lastSignature = '';
     let lastEtag = '';
-    function schedulePoll() { window.setTimeout(runPoll, pollDelay); }
+    let pollTimer;
+    signal?.addEventListener('abort', () => clearTimeout(pollTimer), { once: true });
+    function schedulePoll() { if (!signal?.aborted) pollTimer = window.setTimeout(runPoll, pollDelay); }
     async function runPoll() {
-        if (!studio.dataset.statusUrl) return;
+        if (signal?.aborted || !studio.isConnected || !studio.dataset.statusUrl) return;
         if (document.hidden) { schedulePoll(); return; }
         try {
             const headers = { Accept: 'application/json' };
             if (lastEtag) headers['If-None-Match'] = lastEtag;
-            const response = await fetch(studio.dataset.statusUrl, { headers, credentials: 'same-origin' });
+            const response = await fetch(studio.dataset.statusUrl, { headers, credentials: 'same-origin', signal });
             if (response.status === 304) {
                 pollDelay = Math.min(Math.round(pollDelay * 2), 30000);
                 schedulePoll();
@@ -580,4 +669,11 @@ export function initCertificateEditor(root = document) {
     schedulePoll();
 
     renderDesign(designFor(activeId)); setActive(activeId); syncSelection(); renderHistoryButtons(); renderZoom();
+    if (typeof ResizeObserver !== 'undefined') {
+        const observer = new ResizeObserver(() => renderDesign(designFor(activeId))); observer.observe(canvas);
+        signal?.addEventListener('abort', () => observer.disconnect(), { once: true });
+    }
+    const refitName = () => renderDesign(designFor(activeId));
+    document.fonts?.ready.then(() => { if (!signal?.aborted) refitName(); });
+    document.fonts?.addEventListener('loadingdone', refitName, { signal });
 }

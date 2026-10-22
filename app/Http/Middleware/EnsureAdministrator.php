@@ -25,6 +25,10 @@ class EnsureAdministrator
             return $next($request);
         }
 
+        if ($user?->canAccessPlatform()) {
+            abort(403, 'This page requires a platform administrator.');
+        }
+
         if ($user) {
             Auth::logout();
         }

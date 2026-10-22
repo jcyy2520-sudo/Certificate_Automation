@@ -37,7 +37,11 @@ return [
             'database' => env('DB_DATABASE', database_path('database.sqlite')),
             'prefix' => '',
             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
-            'busy_timeout' => null,
+            // SQLite allows one writer at a time. Without a busy timeout a
+            // second writer fails instantly with "database is locked", which
+            // loses queued certificate work on a busy laptop. Waiting is the
+            // correct behaviour here; production still requires PostgreSQL.
+            'busy_timeout' => (int) env('DB_BUSY_TIMEOUT', 5000),
             'journal_mode' => null,
             'synchronous' => null,
         ],

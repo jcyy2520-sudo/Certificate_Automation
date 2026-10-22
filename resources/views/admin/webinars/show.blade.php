@@ -63,6 +63,81 @@
     </section>
 @endif
 
+@php
+    $requirementLabels = [
+        'registration' => 'Registration',
+        'attendance' => 'Attendance',
+        'pretest' => 'Pre-Test',
+        'posttest' => 'Post-Test',
+        'evaluation' => 'Evaluation',
+    ];
+    $requirementOrder = ['registration', 'attendance', 'pretest', 'posttest', 'evaluation'];
+    $requiredLabel = $readiness['required_requirements']
+        ->sortBy(function (string $requirement) use ($requirementOrder): int {
+            $position = array_search($requirement, $requirementOrder, true);
+
+            return $position === false ? PHP_INT_MAX : $position;
+        })
+        ->map(fn ($requirement) => $requirementLabels[$requirement] ?? ucfirst($requirement))
+        ->implode(' + ');
+    $canRelease = $readiness['has_certificate_design']
+        && $readiness['unresolved_import_issues'] === 0
+        && $readiness['ready_recipient_count'] > 0
+        && ! $readiness['active_batch']
+        && $readiness['email_provider_ready'];
+@endphp
+<section class="panel mb-6 overflow-hidden">
+    <div class="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
+        <div>
+            <h2 class="section-title flex items-center gap-2"><x-icon name="shield" class="size-[18px] text-accent-600" />Certificate release readiness</h2>
+            <p class="mt-1 max-w-3xl text-[13px] leading-5 text-slate-500">This is a live safety check, not a substitute for reviewing the original Google Forms export. Resolve uncertain rows and inspect sample PDFs before sending.</p>
+        </div>
+        @if($canRelease)
+            <span class="badge badge-green">Ready for a controlled batch</span>
+        @else
+            <span class="badge badge-amber">Review required before sending</span>
+        @endif
+    </div>
+    <div class="grid divide-y divide-slate-100 sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-3">
+        <div class="p-4">
+            <p class="text-[12px] font-medium text-slate-500">Certificate requirements</p>
+            <p class="mt-1 text-[13px] font-semibold text-slate-900">{{ $requiredLabel ?: 'No requirements configured' }}</p>
+            <p class="mt-1 text-[12px] leading-5 {{ $readiness['uses_default_requirements'] ? 'text-emerald-700' : 'text-amber-800' }}">{{ $readiness['uses_default_requirements'] ? 'Matches the standard rule; registration is not required.' : 'Custom rule set — review before issuing.' }}</p>
+            <a class="mt-2 inline-block text-[12px] font-medium text-accent-600 hover:underline" href="{{ route('admin.certification.edit', $webinar) }}">Review requirements</a>
+        </div>
+        <div class="p-4">
+            <p class="text-[12px] font-medium text-slate-500">Import review queue</p>
+            <p class="mt-1 text-[13px] font-semibold text-slate-900">{{ number_format($readiness['unresolved_import_issues']) }} unresolved row{{ $readiness['unresolved_import_issues'] === 1 ? '' : 's' }}</p>
+            <p class="mt-1 text-[12px] leading-5 {{ $readiness['unresolved_import_issues'] === 0 ? 'text-emerald-700' : 'text-amber-800' }}">{{ $readiness['unresolved_import_issues'] === 0 ? 'No identity or completion decisions are waiting.' : 'Bulk sending remains blocked until every row is resolved or dismissed.' }}</p>
+            <a class="mt-2 inline-block text-[12px] font-medium text-accent-600 hover:underline" href="{{ route('admin.webinars.imports.index', $webinar) }}">Review CSV imports</a>
+        </div>
+        <div class="p-4">
+            <p class="text-[12px] font-medium text-slate-500">Certificate artwork</p>
+            <p class="mt-1 text-[13px] font-semibold text-slate-900">{{ $readiness['has_certificate_design'] ? 'Uploaded and active' : 'Missing' }}</p>
+            <p class="mt-1 text-[12px] leading-5 {{ $readiness['has_certificate_design'] ? 'text-emerald-700' : 'text-amber-800' }}">{{ $readiness['has_certificate_design'] ? 'Preview short, long, and accented names before a real batch.' : 'Upload and position a certificate design before issuing.' }}</p>
+            <a class="mt-2 inline-block text-[12px] font-medium text-accent-600 hover:underline" href="{{ route('admin.certification.edit', $webinar) }}">{{ $readiness['has_certificate_design'] ? 'Review template' : 'Upload design' }}</a>
+        </div>
+        <div class="p-4">
+            <p class="text-[12px] font-medium text-slate-500">Eligible recipients</p>
+            <p class="mt-1 text-[13px] font-semibold text-slate-900">{{ number_format($readiness['eligible_count']) }} eligible · {{ number_format($readiness['ready_recipient_count']) }} ready</p>
+            <p class="mt-1 text-[12px] leading-5 {{ $readiness['missing_email_count'] === 0 ? 'text-emerald-700' : 'text-amber-800' }}">{{ $readiness['missing_email_count'] === 0 ? 'Every eligible participant has a usable email address.' : number_format($readiness['missing_email_count']).' eligible participant(s) need an email correction.' }}</p>
+            <a class="mt-2 inline-block text-[12px] font-medium text-accent-600 hover:underline" href="{{ route('admin.participants.index', $webinar) }}">Review participant roster</a>
+        </div>
+        <div class="p-4">
+            <p class="text-[12px] font-medium text-slate-500">Delivery mode</p>
+            <p class="mt-1 text-[13px] font-semibold text-slate-900">{{ $readiness['email_provider_ready'] ? ucfirst((string) $readiness['email_provider']).' configured' : 'Rehearsal / log mode' }}</p>
+            <p class="mt-1 text-[12px] leading-5 {{ $readiness['email_provider_ready'] ? 'text-emerald-700' : 'text-amber-800' }}">{{ $readiness['email_provider_ready'] ? 'Use a small selected batch first and verify the provider dashboard.' : 'Certificates can be generated, but messages will not leave the application.' }}</p>
+            <a class="mt-2 inline-block text-[12px] font-medium text-accent-600 hover:underline" href="{{ route('admin.webinars.email-logs.index', $webinar) }}">Open delivery log</a>
+        </div>
+        <div class="p-4">
+            <p class="text-[12px] font-medium text-slate-500">Batch and evidence</p>
+            <p class="mt-1 text-[13px] font-semibold text-slate-900">{{ $readiness['active_batch'] ? 'A batch is currently active' : 'No batch is currently active' }}</p>
+            <p class="mt-1 text-[12px] leading-5 {{ $readiness['active_batch'] ? 'text-amber-800' : 'text-slate-500' }}">Download the password-protected roster before sending; it includes eligibility basis, certificate state, delivery state, and provider message ID.</p>
+            <a class="mt-2 inline-block text-[12px] font-medium text-accent-600 hover:underline" href="{{ route('admin.participants.export', $webinar) }}">Download pre-send roster</a>
+        </div>
+    </div>
+</section>
+
 @if($registrationForm)
     <section class="panel mb-6 overflow-hidden">
         <div class="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 bg-accent-50/40 px-5 py-4">
@@ -78,7 +153,7 @@
         <div class="p-5">
             <div class="flex flex-col gap-2 sm:flex-row">
                 <input id="registration-link" class="field mt-0 flex-1 font-mono text-[13px]" value="{{ $registrationForm->shareUrl() }}" readonly data-select-on-click aria-label="Registration link">
-                <div class="flex gap-2">
+                <div class="flex flex-wrap gap-2">
                     <button type="button" class="button-secondary shrink-0" data-copy-target="#registration-link" data-copy-label="Copy link" data-copy-success="Link copied"><x-icon name="copy" class="size-4" />Copy link</button>
                     <a class="button-secondary shrink-0" target="_blank" rel="noopener" href="{{ $registrationForm->shareUrl() }}"><x-icon name="external" class="size-4" />Open registration page</a>
                 </div>
@@ -101,7 +176,7 @@
     </section>
 @endif
 
-<div class="grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200">
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200">
     @foreach([['Participants', $webinar->participants_count], ['Certificates', $webinar->certificates_count], ['Retention', $webinar->data_retention_days.' days']] as [$label, $value])
         <div class="bg-white p-5">
             <p class="text-[13px] text-slate-500">{{ $label }}</p>

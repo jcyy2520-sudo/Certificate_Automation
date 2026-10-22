@@ -1,5 +1,5 @@
 @extends('layouts.webinar')
-@section('title', 'CSV imports — '.$webinar->title)
+@section('title', 'Import history & review — '.$webinar->title)
 @section('content')
 @php
     $typeLabels = [
@@ -12,6 +12,12 @@
         \App\Models\ImportIssue::TYPE_MISSING_COLUMN => 'Missing column',
         \App\Models\ImportIssue::TYPE_MISSING_NAME => 'Missing name',
         \App\Models\ImportIssue::TYPE_EMPTY_ROW => 'Empty row',
+        \App\Models\ImportIssue::TYPE_NAME_CONFLICT => 'Conflicting name',
+        \App\Models\ImportIssue::TYPE_IDENTITY_CONFLICT => 'Check identity',
+        \App\Models\ImportIssue::TYPE_INCOMPLETE_RESPONSE => 'Incomplete response',
+        \App\Models\ImportIssue::TYPE_INVALID_TIMESTAMP => 'Invalid timestamp',
+        \App\Models\ImportIssue::TYPE_INVALID_ROW_STRUCTURE => 'Malformed row',
+        \App\Models\ImportIssue::TYPE_VALUE_TOO_LONG => 'Value too long',
     ];
     $typeBadges = [
         \App\Models\ImportIssue::TYPE_UNMATCHED_EMAIL => 'badge-amber',
@@ -23,9 +29,9 @@
         \App\Models\ImportIssue::TYPE_MISSING_NAME => 'badge-red',
     ];
 @endphp
-<x-page-header title="CSV imports"
+<x-page-header title="Import history & review"
                :subtitle="'Response files uploaded for '.$webinar->title.', and any rows waiting for a decision.'">
-    <x-slot:actions>
+    <x-slot:actions><a class="button-secondary" href="{{ route('admin.responses.index', [$webinar, 'type' => request('type', 'registration')]) }}">Back to responses</a>
         <a class="button-primary" href="{{ route('admin.webinars.imports.create', $webinar) }}"><x-icon name="plus" class="size-4" />Upload responses</a>
     </x-slot:actions>
 </x-page-header>
@@ -43,7 +49,7 @@
         <p class="text-[14px] font-semibold text-slate-950">Uploaded files</p>
     </div>
     <div class="overflow-x-auto">
-        <table class="w-full text-left text-sm">
+        <table class="w-full min-w-[760px] text-left text-sm">
             <thead class="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-[0.06em] text-slate-500">
                 <tr>
                     <th class="px-5 py-3 font-semibold">File</th>
@@ -89,7 +95,7 @@
     <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-4">
         <div>
             <p class="text-[14px] font-semibold text-slate-950">Waiting for your decision</p>
-            <p class="mt-0.5 text-[12px] text-slate-500">Rows the import could not attach on its own. Promoting adds the participant and attaches their response; dismissing leaves everything untouched.</p>
+            <p class="mt-0.5 text-[12px] text-slate-500">Adding a participant attaches this response but does not bypass certificate requirements. Correct invalid or conflicting data in the original export and upload again. Dismissing records a decision to leave a row out.</p>
         </div>
         <div class="flex flex-wrap gap-1.5">
             @foreach($counts as $type => $total)
@@ -110,11 +116,35 @@
                         <span class="text-[11px] text-slate-400">{{ $issue->import?->original_filename }}</span>
                     </div>
                     <p class="mt-1 text-[12px] leading-5 text-slate-500">{{ $issue->issue_message }}</p>
+                    <details class="mt-2 text-sm">
+                        <summary class="cursor-pointer">Inspect source values</summary>
+                        <dl class="mt-2 space-y-1">
+                            @foreach($issue->raw_data ?? [] as $header => $value)
+                                @if($header !== '_resolved' && is_scalar($value))
+                                    <div class="break-words"><dt class="font-medium">{{ $header }}</dt><dd>{{ $value }}</dd></div>
+                                @endif
+                            @endforeach
+                        </dl>
+                    </details>
                 </div>
                 <div class="flex shrink-0 items-center gap-2">
+                    @if($issue->issue_type === \App\Models\ImportIssue::TYPE_DUPLICATE_EXISTING && isset($issue->raw_data['_resolved']['options']))
+                        <details class="max-w-xs text-sm">
+                            <summary class="cursor-pointer">Correct earlier import</summary>
+                            <form method="POST" action="{{ route('admin.webinars.import-issues.replace', [$webinar, $issue]) }}" class="mt-2 space-y-2">
+                                @csrf
+                                <p>Replaces an earlier CSV response and keeps the original as history. Revoke any active certificate first. Live form responses are protected.</p>
+                                <label class="field-label">Reason<input name="reason" class="field" required minlength="5" maxlength="500"></label>
+                                <label class="flex items-start gap-2"><input type="checkbox" name="replacement_confirmed" value="1" required><span>I verified this corrected response against the source.</span></label>
+                                <button class="button-secondary">Replace imported response</button>
+                            </form>
+                        </details>
+                    @endif
                     @if($issue->issue_type === \App\Models\ImportIssue::TYPE_UNMATCHED_EMAIL)
                         <form method="POST" action="{{ route('admin.webinars.import-issues.promote', [$webinar, $issue]) }}">
                             @csrf
+                            <label class="field-label">Confirmed certificate name<input name="full_name" class="field mb-2" value="{{ $issue->raw_data['_resolved']['name'] ?? '' }}" required maxlength="180"></label>
+                            <label class="mb-2 flex max-w-xs items-start gap-2 text-xs"><input type="checkbox" name="response_verified" value="1" required><span>I verified the person's identity and this form's completion. Normal certificate requirements still apply.</span></label>
                             <button class="button-success !py-1.5 text-[12px]"><x-icon name="check" class="size-3.5" />Add participant &amp; attach</button>
                         </form>
                     @endif
@@ -127,7 +157,7 @@
                 </div>
             </li>
         @empty
-            <li class="px-5 py-10 text-center text-sm text-slate-500">Nothing is waiting — every imported row was attached cleanly.</li>
+            <li class="px-5 py-10 text-center text-sm text-slate-500">No unresolved rows in this view. Use the reconciliation report to review imported and dismissed outcomes.</li>
         @endforelse
     </ul>
 </section>

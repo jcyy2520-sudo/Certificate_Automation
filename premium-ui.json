@@ -1,0 +1,10 @@
+{
+  "profile": "product-admin",
+  "sourceRoots": ["resources/js", "resources/css"],
+  "canonicalMap": "UX-CONTRACT.md",
+  "requiredCapabilities": ["Table Selection", "Select/Listbox", "Date", "Form", "Scrollbar", "Toast", "CRUD"],
+  "ownership": {"Select/Listbox": "native", "Date": "native"},
+  "requiredCommands": ["unit", "build", "e2e"],
+  "commands": {"unit": "php artisan test", "build": "npm run build", "e2e": "npm run test:workflow"},
+  "evidence": {"crudFullFlow": "tests/workflow/responses.spec.js", "failurePaths": "tests/Feature/FormResponsesWorkflowTest.php"}
+}

@@ -22,6 +22,7 @@ class EraseExpiredParticipantData extends Command
         $erased = 0;
         $erasedByWebinar = [];
         $failedErasures = 0;
+        $failedImportErasures = 0;
         $purgedImportIssues = 0;
         $missingDeadlines = Webinar::query()
             ->whereNull('retention_due_at')
@@ -44,7 +45,7 @@ class EraseExpiredParticipantData extends Command
         Webinar::query()
             ->whereNotNull('retention_due_at')
             ->where('retention_due_at', '<=', now())
-            ->eachById(function (Webinar $webinar) use (&$erased, &$erasedByWebinar, &$failedErasures, &$purgedImportIssues, $privacy): void {
+            ->eachById(function (Webinar $webinar) use (&$erased, &$erasedByWebinar, &$failedErasures, &$failedImportErasures, &$purgedImportIssues, $privacy): void {
                 $webinar->participants()
                     ->withTrashed()
                     ->whereNull('privacy_erased_at')
@@ -81,7 +82,13 @@ class EraseExpiredParticipantData extends Command
                         ->where('webinar_id', $webinar->id)
                         ->count();
                 } else {
-                    $purgedImportIssues += $privacy->eraseWebinarImports($webinar)['issues'];
+                    try {
+                        $purgedImportIssues += $privacy->eraseWebinarImports($webinar)['issues'];
+                    } catch (Throwable) {
+                        $failedImportErasures++;
+                        Log::critical('Overdue import data could not be erased.', ['webinar_id' => $webinar->id]);
+                        $this->error('Import data in webinar '.$webinar->id.' requires cleanup retry or operator intervention.');
+                    }
                 }
             });
 
@@ -102,7 +109,7 @@ class EraseExpiredParticipantData extends Command
             $this->error($failedErasures.' overdue participant record(s) require retry or operator intervention.');
         }
 
-        return $missingDeadlines->isEmpty() && $failedErasures === 0
+        return $missingDeadlines->isEmpty() && $failedErasures === 0 && $failedImportErasures === 0
             ? self::SUCCESS
             : self::FAILURE;
     }

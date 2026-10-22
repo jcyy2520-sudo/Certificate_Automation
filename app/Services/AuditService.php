@@ -53,7 +53,7 @@ class AuditService
             $key = is_string($key) ? Str::limit($key, 100, '') : $key;
 
             if (is_string($key) && ! str_ends_with($key, '_fingerprint') && preg_match(
-                '/(?:^|_)(?:email|full_name|name|organization|recipient|token|code|password|secret|answer|response|payload|content|html|attachment|reason|prompt|label|title|ip_address|user_agent)(?:$|_)/i',
+                '/(?:^|_)(?:email|full_name|name|organization|recipient|token|code|password|secret|answer|response|payload|content|html|attachment|reasons?|prompt|label|title|ip_address|user_agent)(?:$|_)/i',
                 $key,
             )) {
                 $clean[$key] = '[redacted]';

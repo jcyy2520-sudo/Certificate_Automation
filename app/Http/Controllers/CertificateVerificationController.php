@@ -12,6 +12,7 @@ class CertificateVerificationController extends Controller
         $certificate = Certificate::query()
             ->with('webinar:id,title')
             ->where('verification_code_hash', Certificate::verificationCodeHash($code))
+            ->whereHas('webinar', fn ($query) => $query->whereNull('deletion_started_at'))
             ->firstOrFail();
 
         return view('certificates.verify', compact('certificate'));

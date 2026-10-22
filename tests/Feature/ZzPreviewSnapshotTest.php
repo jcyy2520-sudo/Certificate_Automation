@@ -7,7 +7,11 @@ use App\Models\EligibilityRule;
 use App\Models\Submission;
 use App\Models\User;
 use App\Models\Webinar;
+use App\Services\CsvImportService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
+use Tests\Concerns\ApprovesCertificateFixtures;
 use Tests\TestCase;
 
 /**
@@ -17,10 +21,12 @@ use Tests\TestCase;
  */
 class ZzPreviewSnapshotTest extends TestCase
 {
+    use ApprovesCertificateFixtures;
     use RefreshDatabase;
 
     public function test_render_snapshots(): void
     {
+        Storage::fake('local');
         $admin = User::factory()->create(['is_active' => true, 'name' => 'Alex Rivera']);
 
         $webinar = Webinar::query()->create([
@@ -126,8 +132,20 @@ class ZzPreviewSnapshotTest extends TestCase
         if (! is_dir($dir)) {
             mkdir($dir, 0777, true);
         }
+        $image = imagecreatetruecolor(1200, 850);
+        imagefill($image, 0, 0, imagecolorallocate($image, 255, 255, 255));
+        imagepng($image, $dir.DIRECTORY_SEPARATOR.'background.png');
+        imagedestroy($image);
 
+        $this->actingAs($admin);
+        $import = app(CsvImportService::class)->storePending($webinar, $forms['registration'], UploadedFile::fake()->createWithContent('synthetic-responses.csv', "Email Address,First Name,Middle Name,Last Name,Suffix\nreview@example.com,Renée,Santos,Mañalac,Jr.\n,Missing,Email,Person,\n"));
+        $this->post(route('admin.webinars.imports.dry-run', [$webinar, $import]), ['map' => $import->column_map['map'], 'allow_import_time' => '1', 'source_description' => 'Registration Form v1, exported 2026-08-20', 'source_confirmed' => '1'])->assertSessionHas('dry_run');
+
+        $this->approveCertificateFixtures($webinar);
         $pages = [
+            'import-map' => route('admin.webinars.imports.map', [$webinar, $import]),
+            'responses' => route('admin.responses.index', $webinar),
+            'eligibility' => route('admin.responses.index', [$webinar, 'view' => 'eligibility']),
             'overview' => route('admin.webinars.show', $webinar),
             'new-webinar' => route('admin.webinars.create'),
             'settings' => route('admin.webinars.edit', $webinar),
@@ -141,7 +159,10 @@ class ZzPreviewSnapshotTest extends TestCase
         foreach ($pages as $key => $url) {
             $this->withoutExceptionHandling();
             $response = $this->actingAs($admin)->get($url);
-            file_put_contents($dir.DIRECTORY_SEPARATOR.$key.'.html', $response->getContent());
+            $html = str_replace(route('admin.certification.background', $webinar), '/_preview/background.png', $response->getContent());
+            $html = str_replace(url('/'), 'http://localhost:8012', $html);
+            $this->assertStringNotContainsString(route('admin.certification.background', $webinar), $html);
+            file_put_contents($dir.DIRECTORY_SEPARATOR.$key.'.html', $html);
         }
 
         $this->assertTrue(true);

@@ -11,13 +11,15 @@ use App\Models\Webinar;
 use App\Services\AuditService;
 use App\Services\EligibilityService;
 use App\Services\ParticipantPrivacyService;
+use App\Support\CsvSanitizer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use RuntimeException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ParticipantController extends Controller
@@ -86,75 +88,13 @@ class ParticipantController extends Controller
         ]);
     }
 
-    /**
-     * Add an off-platform attendee to the participant table. The table is the
-     * only place an administrator creates certificate recipients: once added,
-     * the participant is explicitly eligible and preselected for review.
-     */
+    /** Compatibility endpoint: all manual additions use the Studio mechanism. */
     public function store(Request $request, Webinar $webinar, AuditService $audit): RedirectResponse
     {
-        abort_if($webinar->deletion_started_at !== null, 409);
+        $response = app(ManualCertificateRecipientController::class)->store($request, $webinar, app(EligibilityService::class), $audit);
 
-        $data = $request->validate([
-            'full_name' => ['required', 'string', 'max:180'],
-            'email' => ['required', 'email:rfc', 'max:255'],
-            'organization' => ['nullable', 'string', 'max:180'],
-        ]);
-        $email = Str::lower(trim($data['email']));
-        $name = trim($data['full_name']);
-
-        $outcome = DB::transaction(function () use ($webinar, $email, $name, $data, $request): array {
-            $participant = Participant::withTrashed()
-                ->where('webinar_id', $webinar->id)
-                ->where('email_normalized', $email)
-                ->lockForUpdate()
-                ->first();
-
-            if (! $participant) {
-                $participant = Participant::query()->create([
-                    'webinar_id' => $webinar->id,
-                    'email' => $email,
-                    'full_name' => $name,
-                    'organization' => filled($data['organization'] ?? null) ? trim($data['organization']) : null,
-                ]);
-                $participant = Participant::withTrashed()->lockForUpdate()->findOrFail($participant->id);
-            }
-
-            if ($participant->privacy_erased_at !== null || $participant->trashed()) {
-                return ['status' => 'unavailable', 'participant' => $participant];
-            }
-
-            $participant->forceFill([
-                'full_name' => $name,
-                'email' => $email,
-                'organization' => filled($data['organization'] ?? null)
-                    ? trim($data['organization'])
-                    : $participant->organization,
-            ])->save();
-
-            EligibilityOverride::query()->create([
-                'participant_id' => $participant->id,
-                'decision' => 'eligible',
-                'reason' => 'Added by an administrator from the participant table.',
-                'overridden_by' => $request->user()->id,
-            ]);
-
-            return ['status' => 'added', 'participant' => $participant];
-        }, attempts: 3);
-
-        if ($outcome['status'] === 'unavailable') {
-            return back()->withInput()->with('error', 'That participant record was previously erased and cannot be restored.');
-        }
-
-        $participant = $outcome['participant'];
-        $audit->record($request, 'participant.added_manually', $participant, [
-            'email_fingerprint' => $audit->fingerprint($email, 'manual-participant-email'),
-        ]);
-        $request->session()->forget($this->filterSessionKey($webinar));
-
-        return redirect()->route('admin.participants.index', $webinar)
-            ->with('new_participant_public_id', $participant->public_id)
-            ->with('success', $name.' was added and selected. Review the row, then send the certificate.');
+        return redirect()->route('admin.certificates.studio', [$webinar, 'manual' => $response->getData()->participant_id])
+            ->with('success', 'Recipient added to Studio.');
     }
 
     /** Store sensitive search terms in the encrypted session, never in URLs. */
@@ -178,7 +118,11 @@ class ParticipantController extends Controller
         return redirect()->route('admin.participants.index', $webinar);
     }
 
-    /** Download the completion list as CSV, for sending certificates by hand. */
+    /**
+     * Download the pre-send roster and its final delivery evidence. This is
+     * deliberately an authenticated, password-confirmed export: it contains
+     * participant addresses and provider correlation IDs for operator review.
+     */
     public function export(Request $request, Webinar $webinar, EligibilityService $eligibility, AuditService $audit): StreamedResponse
     {
         $audit->record($request, 'participants.exported', $webinar);
@@ -199,7 +143,9 @@ class ParticipantController extends Controller
                 'Name', 'Email', 'Organization', 'Registered on', 'Attendance',
                 ...$forms->map(fn ($form) => $form->title)->all(),
                 ...$scored->map(fn ($form) => $form->title.' score')->all(),
-                'Meets all requirements', 'Certificate',
+                'Meets all requirements', 'Eligibility basis',
+                'Certificate number', 'Certificate state',
+                'Email delivery state', 'Email sent at (UTC)', 'Provider message ID',
             ]);
 
             $webinar->participants()
@@ -214,13 +160,19 @@ class ParticipantController extends Controller
                         ->latest()
                         ->orderByDesc('id'),
                     'certificates' => fn ($query) => $query
-                        ->select(['id', 'participant_id', 'verification_code', 'issued_at', 'revoked_at']),
+                        ->select(['id', 'participant_id', 'verification_code', 'status', 'issued_at', 'sent_at', 'revoked_at', 'privacy_erased_at'])
+                        ->with(['deliveries' => fn ($deliveries) => $deliveries
+                            ->select(['id', 'certificate_id', 'status', 'sent_at', 'provider_message_id'])]),
                 ])
                 ->chunkById(200, function ($participants) use ($handle, $webinar, $forms, $scored, $eligibility): void {
                     $eligibility->attachTo($participants, $webinar);
 
                     foreach ($participants as $participant) {
-                        $certificate = $participant->certificates->first(fn ($item) => $item->isPubliclyValid());
+                        $certificate = $participant->certificates
+                            ->whereNull('privacy_erased_at')
+                            ->sortByDesc('id')
+                            ->first();
+                        $delivery = $certificate?->deliveries->sortByDesc('id')->first();
                         $registration = $participant->submissions
                             ->whereIn('form_id', $forms->where('type', 'registration')->pluck('id'))
                             ->sortByDesc('submitted_at')
@@ -236,15 +188,18 @@ class ParticipantController extends Controller
                         ];
 
                         foreach ($forms as $form) {
+                            // Match EligibilityService::meets(): only submitted
+                            // responses count; superseded rows must not show Yes.
                             $completed = $form->type === 'registration'
                                 ? $participant->verified_at !== null
-                                : $participant->submissions->firstWhere('form_id', $form->id) !== null;
+                                : $participant->submissions->firstWhere(fn ($s) => $s->form_id === $form->id && $s->status === 'submitted') !== null;
                             $row[] = $completed ? 'Yes' : 'No';
                         }
 
                         foreach ($scored as $form) {
                             $submission = $participant->submissions
                                 ->where('form_id', $form->id)
+                                ->where('status', 'submitted')
                                 ->sortByDesc('attempt_number')
                                 ->first();
                             $row[] = $submission?->score !== null
@@ -253,7 +208,21 @@ class ParticipantController extends Controller
                         }
 
                         $row[] = $participant->eligibility['eligible'] ? 'Yes' : 'No';
+                        $row[] = $participant->eligibility['overridden']
+                            ? 'Administrator override: '.($participant->eligibility['eligible'] ? 'eligible' : 'ineligible')
+                            : 'Automatic requirements';
                         $row[] = $certificate?->verification_code ?? '';
+                        $row[] = match (true) {
+                            $certificate === null => 'Not issued',
+                            $certificate->revoked_at !== null => 'Revoked',
+                            $certificate->status === 'processing' => 'Generating',
+                            $certificate->status === 'issued' && $certificate->sent_at !== null => 'Issued and sent',
+                            $certificate->status === 'issued' => 'Issued; awaiting delivery',
+                            default => ucfirst((string) $certificate->status),
+                        };
+                        $row[] = $delivery?->status ?? '';
+                        $row[] = $delivery?->sent_at?->utc()->toIso8601String() ?? '';
+                        $row[] = $delivery?->provider_message_id ?? '';
 
                         $this->writeCsvRow($handle, $row);
                     }
@@ -271,7 +240,7 @@ class ParticipantController extends Controller
     public function show(Webinar $webinar, Participant $participant, EligibilityService $eligibilityService): View
     {
         $this->assertBelongsTo($webinar, $participant);
-        $participant->load(['submissions.form', 'certificates', 'eligibilityOverrides.administrator']);
+        $participant->load(['submissions.form', 'certificates.deliveries', 'eligibilityOverrides.administrator']);
         $activeOverride = $participant->eligibilityOverrides
             ->filter(fn (EligibilityOverride $override): bool => $override->expires_at === null || $override->expires_at->isFuture())
             ->sortBy([
@@ -280,11 +249,24 @@ class ParticipantController extends Controller
             ])
             ->first();
 
+        // "Issued" says the PDF exists, not that the email left. Showing the
+        // delivery outcome next to it stops a failed email from reading as a
+        // finished send.
+        $deliveryStates = [];
+        foreach ($participant->certificates as $certificate) {
+            $delivery = $certificate->deliveries->sortByDesc('id')->first();
+            $deliveryStates[$certificate->id] = [
+                'state' => CertificateDeliveryState::from($certificate, $delivery, filled($participant->email)),
+                'delivery' => $delivery,
+            ];
+        }
+
         return view('admin.participants.show', [
             'webinar' => $webinar,
             'participant' => $participant,
             'eligibility' => $eligibilityService->evaluate($participant),
             'activeOverride' => $activeOverride,
+            'deliveryStates' => $deliveryStates,
         ]);
     }
 
@@ -294,6 +276,7 @@ class ParticipantController extends Controller
         $data = $request->validate([
             'decision' => ['required', Rule::in(['eligible', 'ineligible'])],
             'reason' => ['required', 'string', 'min:5', 'max:2000'],
+            'expires_at' => ['nullable', 'date', 'after:now'],
         ]);
         $override = EligibilityOverride::query()->create([
             ...$data,
@@ -356,19 +339,32 @@ class ParticipantController extends Controller
         $data = $request->validate([
             'full_name' => ['required', 'string', 'max:180'],
         ]);
+        $manual = $participant->certificateApproval;
+        if ($manual?->source === 'manual' && $manual->manages_identity
+            && ($participant->certificates()->whereNull('revoked_at')->whereIn('status', ['processing', 'issued'])->exists()
+                || (! $participant->certificates()->exists() && ! $participant->verified_at
+                    && ! $participant->email_verified_at && ! $participant->checked_in_at && ! $participant->submissions()->exists()))) {
+            throw ValidationException::withMessages(['full_name' => 'Manage manual recipient details in Certificate Studio. After issuance, use the correction or reissue workflow.']);
+        }
+
         $name = trim($data['full_name']);
 
         $participant->update(['full_name' => $name]);
         $audit->record($request, 'participant.name_corrected', $participant);
+        $hasCertificate = $participant->certificates()->whereNull('revoked_at')->whereIn('status', ['processing', 'issued'])->exists();
+        $message = $hasCertificate
+            ? 'Participant name corrected. An existing certificate keeps its earlier name. Revoke it and issue a corrected certificate; queued work using the earlier name will not finalize.'
+            : 'Participant name corrected. Future certificate previews now use this name.';
 
         if ($request->expectsJson()) {
             return response()->json([
                 'participant_id' => $participant->public_id,
                 'full_name' => $name,
+                'certificate_warning' => $hasCertificate ? $message : null,
             ]);
         }
 
-        return back()->with('success', 'Participant name corrected. Future certificate previews now use this name.');
+        return back()->with($hasCertificate ? 'warning' : 'success', $message);
     }
 
     /**
@@ -392,6 +388,85 @@ class ParticipantController extends Controller
         return redirect()
             ->route('admin.participants.index', $webinar)
             ->with('success', 'Participant and their responses were deleted.');
+    }
+
+    /**
+     * Reviewed identity merge for the email-A/email-B split: one person used
+     * two mailboxes across forms. Never automatic; requires explicit reason and
+     * confirmation. Blocked while either identity holds an active certificate
+     * or conflicting responses for the same form.
+     */
+    public function merge(Request $request, Webinar $webinar, Participant $participant, AuditService $audit): RedirectResponse
+    {
+        $this->assertBelongsTo($webinar, $participant);
+        $data = $request->validate([
+            'secondary_email' => ['required', 'email', 'max:254'],
+            'reason' => ['required', 'string', 'min:10', 'max:2000'],
+            'merge_confirmed' => ['accepted'],
+        ], [
+            'merge_confirmed.accepted' => 'Confirm the two records describe the same person before merging.',
+        ]);
+
+        $secondaryEmail = strtolower(trim($data['secondary_email']));
+        if ($secondaryEmail === strtolower(trim((string) $participant->email))) {
+            return back()->with('error', 'The two email addresses are the same record. No merge was performed.');
+        }
+
+        try {
+            $merged = DB::transaction(function () use ($webinar, $participant, $secondaryEmail): Participant {
+                $lockedWebinar = Webinar::query()->whereKey($webinar->id)->whereNull('deletion_started_at')->sharedLock()->firstOrFail();
+                // Lock in id order to avoid deadlocks; both are child rows of the webinar.
+                $ordered = Participant::query()
+                    ->where('webinar_id', $lockedWebinar->id)
+                    ->whereIn('email_normalized', [strtolower(trim((string) $participant->email)), $secondaryEmail])
+                    ->whereNull('privacy_erased_at')
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->get();
+                $primary = $ordered->firstWhere('id', $participant->id);
+                $secondary = $ordered->firstWhere('email_normalized', $secondaryEmail);
+                if (! $primary || ! $secondary) {
+                    throw new RuntimeException('Both participant records must exist in this webinar and not be erased.');
+                }
+                foreach ([$primary, $secondary] as $record) {
+                    if ($record->certificates()->whereNull('revoked_at')->whereIn('status', ['processing', 'issued'])->exists()) {
+                        throw new RuntimeException('Revoke active certificates on both records before merging, then reissue after checking eligibility.');
+                    }
+                }
+                $primaryForms = $primary->submissions()->where('status', 'submitted')->pluck('form_id')->all();
+                $conflict = $secondary->submissions()->where('status', 'submitted')->whereIn('form_id', $primaryForms)->exists();
+                if ($conflict) {
+                    throw new RuntimeException('Both records hold a submitted response for the same form. Resolve which response is authoritative (revoke/correct) before merging.');
+                }
+                $secondary->submissions()->update(['participant_id' => $primary->id]);
+                $secondary->eligibilityOverrides()->update(['participant_id' => $primary->id]);
+                if (blank($primary->full_name) && filled($secondary->full_name)) {
+                    $primary->full_name = $secondary->full_name;
+                }
+                if (blank($primary->organization) && filled($secondary->organization)) {
+                    $primary->organization = $secondary->organization;
+                }
+                // The reviewed same-person merge retains event participation
+                // facts. Mailbox ownership remains bound to the primary email.
+                $primary->verified_at ??= $secondary->verified_at;
+                $primary->checked_in_at ??= $secondary->checked_in_at;
+                $primary->save();
+                $secondary->accessTokens()->delete();
+                $secondary->delete();
+
+                return $primary->fresh();
+            }, attempts: 3);
+        } catch (RuntimeException $exception) {
+            return back()->with('error', $exception->getMessage());
+        }
+
+        $audit->record($request, 'participant.merged', $merged, [
+            'secondary_email_fingerprint' => $audit->fingerprint($secondaryEmail, 'participant-merge-email'),
+            'reason_fingerprint' => $audit->fingerprint($data['reason'], 'participant-merge-reason'),
+        ]);
+
+        return redirect()->route('admin.participants.show', [$webinar, $merged])
+            ->with('success', 'The two records were merged. Eligibility was recalculated; issue or reissue only after review.');
     }
 
     /** @param array<string, mixed> $filters */
@@ -440,12 +515,6 @@ class ParticipantController extends Controller
 
     private function safeCsvCell(mixed $value): string
     {
-        $value = str_replace("\0", '', (string) ($value ?? ''));
-
-        if (preg_match('/^[\p{Z}\x00-\x20]*[=+\-@]/u', $value)) {
-            return "'".$value;
-        }
-
-        return $value;
+        return CsvSanitizer::safeCell($value);
     }
 }

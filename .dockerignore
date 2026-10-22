@@ -4,6 +4,7 @@
 .env.*
 !.env.example
 auth.json
+admin-bootstrap.json
 *.pem
 *.key
 
@@ -21,6 +22,7 @@ storage/app/public
 storage/framework/cache
 storage/framework/sessions
 storage/framework/views
+storage/framework/testing
 storage/logs
 bootstrap/cache
 database/*.sqlite
@@ -38,8 +40,12 @@ blob-report
 .playwright
 .phpunit.cache
 .phpunit.result.cache
+__pycache__
+*.pyc
 phpunit.xml
 playwright.config.js
+playwright.workflow.config.js
+premium-audit.json
 vitest.config.js
 
 # Repository and editor metadata.

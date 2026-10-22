@@ -13,6 +13,37 @@ use Illuminate\Support\Collection;
 
 class EligibilityService
 {
+    /** Stable rule snapshot; contains no participant identity or answers. */
+    public function ruleSnapshot(Webinar $webinar): array
+    {
+        return $this->rulesFor($webinar)->where('is_required', true)->sortBy('requirement')
+            ->map(fn ($rule) => ['requirement' => $rule->requirement, 'minimum_score' => $rule->minimum_score])
+            ->values()->all();
+    }
+
+    /** One derived roster; manual exceptions never change form eligibility. */
+    public function certificateParticipantsQuery(Webinar $webinar): Builder
+    {
+        return Participant::query()->select('participants.id')
+            ->where('webinar_id', $webinar->id)->whereNull('privacy_erased_at')
+            ->where(fn ($query) => $query
+                ->whereIn('participants.id', $this->eligibleParticipantsQuery($webinar))
+                ->orWhereHas('certificateApproval', fn ($approval) => $approval->where('source', 'manual')->whereNull('removed_at')));
+    }
+
+    public function canPrepareCertificate(Participant $participant): bool
+    {
+        return $this->evaluate($participant)['eligible'] || $this->hasManualRecipient($participant);
+    }
+
+    public function hasManualRecipient(Participant $participant): bool
+    {
+        $participant->loadMissing('certificateApproval');
+
+        return $participant->certificateApproval?->source === 'manual'
+            && $participant->certificateApproval->removed_at === null;
+    }
+
     /**
      * @param  Collection<int, EligibilityRule>|null  $rules
      * @return array{eligible: bool, overridden: bool, requirements: array<string, bool>}

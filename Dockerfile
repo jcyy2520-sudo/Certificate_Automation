@@ -37,7 +37,8 @@ RUN composer install \
         --no-progress
 
 COPY . .
-RUN composer dump-autoload --optimize --classmap-authoritative --no-dev
+RUN mkdir -p bootstrap/cache \
+    && composer dump-autoload --optimize --classmap-authoritative --no-dev
 
 
 # ---------------------------------------------------------------------------
@@ -77,8 +78,8 @@ RUN apk add --no-cache --virtual .build-deps \
         zip \
         bcmath \
         opcache \
-    # phpredis is the faster Redis client. predis ships in composer.json as the
-    # portable fallback, so the image works either way; REDIS_CLIENT selects.
+        pcntl \
+    # The application uses phpredis; no pure-PHP Redis client is bundled.
     && pecl install redis \
     && docker-php-ext-enable redis \
     && apk del .build-deps
@@ -93,6 +94,7 @@ COPY --from=vendor /app/vendor ./vendor
 COPY --from=assets /app/public/build ./public/build
 
 COPY docker/php.ini /usr/local/etc/php/conf.d/zz-app.ini
+COPY docker/php-fpm.conf /usr/local/etc/php-fpm.d/zz-webinar.conf
 COPY docker/nginx.conf /etc/nginx/nginx.conf
 COPY docker/supervisord.conf /etc/supervisord.conf
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint

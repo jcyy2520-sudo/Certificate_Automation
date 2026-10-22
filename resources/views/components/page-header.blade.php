@@ -6,7 +6,7 @@
 <header class="mb-7">
     @if($crumbs)
         {{-- Ancestors only. Repeating the page title here would just print it twice. --}}
-        <nav class="mb-2.5 flex items-center gap-1.5 text-[13px] text-slate-500" aria-label="Breadcrumb">
+        <nav class="mb-2.5 flex min-w-0 flex-wrap items-center gap-1.5 text-[13px] text-slate-500" aria-label="Breadcrumb">
             @foreach($crumbs as $label => $url)
                 @if(! $loop->first)<span class="text-slate-300" aria-hidden="true">/</span>@endif
                 <a href="{{ $url }}" class="max-w-[22ch] truncate transition hover:text-slate-900">{{ $label }}</a>
@@ -22,7 +22,7 @@
         </div>
 
         @if(isset($actions))
-            <div class="flex shrink-0 flex-wrap items-center gap-2">{{ $actions }}</div>
+            <div class="flex min-w-0 max-w-full flex-wrap items-center gap-2">{{ $actions }}</div>
         @endif
     </div>
 </header>

@@ -52,7 +52,9 @@ final class EmailOutboxRelay
             }
 
             try {
-                SendTransactionalEmail::dispatch((int) $deliveryId);
+                $accountId = EmailDelivery::query()->whereKey($deliveryId)->value('account_user_id');
+                SendTransactionalEmail::dispatch((int) $deliveryId)
+                    ->onQueue($accountId ? config('accounts.email_queue') : config('webinar.email.queue'));
                 $dispatched++;
             } catch (Throwable $exception) {
                 EmailDelivery::query()
@@ -79,6 +81,9 @@ final class EmailOutboxRelay
             ->whereNotNull('recipient_email')
             ->whereNotNull('payload')
             ->where(fn ($query) => $query
+                ->where('attempts', 0)
+                ->orWhereNull('attempts'))
+            ->where(fn ($query) => $query
                 ->whereNull('scheduled_at')
                 ->orWhere('scheduled_at', '<=', now()))
             ->where(fn ($query) => $query
@@ -95,6 +100,12 @@ final class EmailOutboxRelay
         return $delivery->status === 'pending'
             && filled($delivery->recipient_email)
             && filled($delivery->payload)
+            // A delivery that has already been attempted belongs to the job
+            // that is retrying it. Re-dispatching it would reset that job's
+            // attempt budget, so a provider that keeps refusing could never
+            // settle on "failed": the delivery would sit in "pending" for ever
+            // and the administrator would be told nothing.
+            && (int) $delivery->attempts === 0
             && ($delivery->scheduled_at === null || ! $delivery->scheduled_at->isFuture())
             && ($delivery->expires_at === null || $delivery->expires_at->isFuture())
             && ($delivery->processing_at === null || ! $delivery->processing_at->isAfter($cutoff));

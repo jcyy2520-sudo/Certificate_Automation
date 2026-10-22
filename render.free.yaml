@@ -1,0 +1,92 @@
+# Explicit $0 demonstration profile. Use external free PostgreSQL and private
+# S3-compatible storage; this Blueprint creates no paid services or databases.
+# No existing participant data is included. See deploy/render/FREE_DEPLOYMENT.md.
+services:
+  - type: web
+    name: certificate-automation
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    autoDeployTrigger: "off"
+    healthCheckPath: /up
+    maxShutdownDelaySeconds: 300
+    envVars:
+      - key: APP_NAME
+        value: Certificate Automation
+      - key: APP_ENV
+        value: staging
+      - key: APP_DEBUG
+        value: "false"
+      - key: APP_KEY
+        sync: false
+      # APP_URL defaults to Render's own injected HTTPS URL in the entrypoint.
+      - key: RENDER_EDGE_TLS
+        value: "true"
+      - key: PHP_FPM_MAX_CHILDREN
+        value: "1"
+      - key: DB_CONNECTION
+        value: pgsql
+      - key: DB_URL
+        sync: false
+      - key: MANAGED_POSTGRES
+        value: "true"
+      - key: DB_SSLMODE
+        value: verify-full
+      - key: DB_SSLROOTCERT
+        value: /var/www/html/deploy/render/prod-ca-2021.crt
+      - key: CACHE_STORE
+        value: database
+      - key: SESSION_DRIVER
+        value: database
+      - key: SESSION_ENCRYPT
+        value: "true"
+      - key: SESSION_LIFETIME
+        value: "30"
+      - key: SESSION_EXPIRE_ON_CLOSE
+        value: "true"
+      - key: SESSION_SECURE_COOKIE
+        value: "true"
+      - key: SESSION_SAME_SITE
+        value: strict
+      - key: SECURITY_REQUIRE_ADMIN_TWO_FACTOR
+        value: "true"
+      - key: SECURITY_REQUIRE_SENSITIVE_ACTION_PASSWORD_CONFIRMATION
+        value: "true"
+      - key: SECURITY_ALLOW_ADMIN_REMEMBER_ME
+        value: "false"
+      - key: QUEUE_CONNECTION
+        value: database
+      - key: EMAIL_QUEUE_CONNECTION
+        value: database-emails
+      - key: DB_QUEUE_RETRY_AFTER
+        value: "2100"
+      - key: EMAIL_QUEUE_RETRY_AFTER
+        value: "120"
+      - key: CERTIFICATE_DISK
+        value: s3
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_DEFAULT_REGION
+        sync: false
+      - key: AWS_BUCKET
+        value: webinar-private
+      - key: AWS_ENDPOINT
+        sync: false
+      - key: AWS_USE_PATH_STYLE_ENDPOINT
+        value: "true"
+      - key: TRANSACTIONAL_EMAIL_PROVIDER
+        value: log
+      - key: MAIL_FROM_ADDRESS
+        value: setup@example.invalid
+      - key: RUN_WORKERS
+        value: "true"
+      # Only for the expressly authorized fresh, empty deployment database.
+      - key: RUN_MIGRATIONS
+        value: "true"
+      - key: LOG_CHANNEL
+        value: stderr
+      - key: LOG_LEVEL
+        value: warning

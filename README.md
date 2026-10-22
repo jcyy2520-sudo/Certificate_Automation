@@ -2,9 +2,16 @@
 
 Laravel 12 foundation for managing multiple webinars or events, dynamic registration and evaluation forms, pre/post assessments, eligibility-based certificate issuance, queued transactional email, audit history, and privacy erasure.
 
+Approved multi-user accounts, owner-isolated webinars, optional management
+passwords and administrator oversight are documented in
+[`MULTI_USER_PLATFORM.md`](MULTI_USER_PLATFORM.md). Its additive migration must be
+reviewed and applied with the source release; it has not been applied to the
+owner's real database during implementation. Account email workers now consume
+`account-emails,emails` in that priority order.
+
 ## Included in this foundation
 
-- Laravel 12, PHP 8.3+, Livewire 4, Blade, Tailwind CSS 4
+- Laravel 12, PHP 8.3+, server-rendered Blade, hand-written JavaScript, Tailwind CSS 4
 - PostgreSQL production configuration (SQLite remains supported for local tests)
 - Administrator accounts with encrypted TOTP and recovery-code columns
 - Webinars with independent dates, status, forms, retention policy, and settings
@@ -18,7 +25,12 @@ Laravel 12 foundation for managing multiple webinars or events, dynamic registra
 - Daily scheduled personal-data erasure while retaining non-personal certificate verification records
 - Baseline security headers and rate-limited public verification
 
-This milestone intentionally provides the tested application/domain foundation. Admin screens, participant flows, certificate rendering UI, and production authentication screens are the next implementation modules.
+The application includes the administrator workflow, participant-access flow,
+CSV review/import, certificate studio, server-rendered PDF generation, durable
+email outbox, privacy lifecycle, and audit history. It is **not** a turnkey
+production deployment: use `DEPLOYMENT_CHECKLIST.md` and complete its
+PostgreSQL, Redis, worker, TLS, backup/restore, and controlled-live-send gates
+before accepting real participant data.
 
 ## Local setup
 
@@ -41,14 +53,13 @@ composer run dev
 
 For a quick SQLite evaluation, change `DB_CONNECTION=sqlite`, remove the other `DB_*` values, create `database/database.sqlite`, and migrate.
 
-## Administrator seed
+## Administrator setup
 
-The seeder creates no known default password. Set these before `php artisan db:seed`:
+Create the first administrator interactively; do not place an administrator
+password in `.env`, a command line, source control, or a deployment log:
 
-```dotenv
-ADMIN_NAME="Platform Administrator"
-ADMIN_EMAIL=admin@example.com
-ADMIN_PASSWORD="replace-with-a-long-random-password"
+```bash
+php artisan admin:create
 ```
 
 ## Email
@@ -62,13 +73,18 @@ MAIL_FROM_ADDRESS=no-reply@example.com
 MAIL_FROM_NAME="Webinar Platform"
 ```
 
-Run the dedicated queue:
+Run separate workers for certificate work and transactional email. Their
+visibility windows are intentionally different and must stay different:
 
 ```bash
-php artisan queue:work --queue=emails --tries=3
+php artisan queue:work redis --queue=default --tries=3 --timeout=1800
+php artisan queue:work redis-emails --queue=emails --tries=3 --timeout=60
 ```
 
-Credentials are never included in source control.
+For local database-queue development, `composer run dev` starts equivalent
+`database` and `database-emails` listeners. Credentials are never included in
+source control. A successful provider API response means **accepted by Brevo**,
+not proof that the recipient's inbox received or opened the message.
 
 ## Storage
 
@@ -76,7 +92,7 @@ Local development uses `CERTIFICATE_DISK=local`. For S3 or Cloudflare R2, set `F
 
 ## Privacy scheduler
 
-After a webinar's end time plus its `data_retention_days` (seven by default), the scheduler removes participant names, email addresses, organizations, response data, scores, access tokens, delivery payloads, and stored certificate recipient names. Certificate identifiers, webinar title, issue date, and validity state remain.
+After a webinar's end time plus its `data_retention_days` (30 by default), the scheduler removes participant names, email addresses, organizations, response data, scores, access tokens, delivery payloads, pending CSV source files, and stored certificate recipient names. Certificate identifiers, webinar title, issue date, and validity state remain.
 
 Preview or run erasure manually:
 
@@ -90,11 +106,12 @@ Production must run Laravel's scheduler every minute and keep a queue worker ali
 ## Verification
 
 ```bash
-php artisan migrate:fresh --env=testing
 php artisan test
 vendor/bin/pint --test
 npm run build
 ```
+
+Do not use `migrate:fresh` against a database containing participant data.
 
 ### Browser and JavaScript tests
 
@@ -114,5 +131,10 @@ Playwright version, then run the suite (which regenerates the snapshots):
 npx playwright install chromium
 npm run test:e2e
 ```
+
+Snapshot checks use a dedicated static server on port 8012, synthetic artwork
+and generated HTML; PHP and application routes are refused. They do not reuse
+the development server. Authenticated HTTP workflows use port 8011 and the
+guarded `workflow-browser.sqlite` database with the log email provider.
 
 Public certificate checks use `/certificates/verify/{verification-code}` and deliberately exclude participant contact information and test results.

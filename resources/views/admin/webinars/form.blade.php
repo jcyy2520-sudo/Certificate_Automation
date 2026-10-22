@@ -23,7 +23,6 @@
         'verification' => $isNew || $errors->has('requires_verification'),
         'capacity' => $isNew || $errors->has('registration_capacity'),
         'schedule' => $isNew || $errors->hasAny(['starts_at', 'ends_at', 'registration_closes_at']),
-        'certificate_email' => $isNew || $errors->hasAny(['certificate_email_subject', 'certificate_email_message']),
     ];
 
     $scheduleDates = collect([
@@ -46,6 +45,18 @@
 <form method="POST" action="{{ $webinar->exists ? route('admin.webinars.update', $webinar) : route('admin.webinars.store') }}" class="w-full max-w-5xl">
     @csrf
     @if($webinar->exists)@method('PUT')@endif
+
+    @if(! $webinar->exists)
+    <section class="panel mb-5 p-5">
+        <label class="flex items-center gap-3 text-sm font-medium"><input type="checkbox" name="password_protected" value="1" data-password-option="creation-password-fields" @checked(old('password_protected'))>Password-protect this webinar</label>
+        <p class="mt-2 text-[13px] text-slate-500">Optional. Your account and ownership already protect management. Public forms do not use this password.</p>
+        <div id="creation-password-fields" class="mt-4 grid gap-4 sm:grid-cols-2" hidden>
+            <x-account-field name="webinar_password" label="Webinar password" type="password" autocomplete="new-password" />
+            <x-account-field name="webinar_password_confirmation" label="Confirm webinar password" type="password" autocomplete="new-password" />
+            <p class="text-[12px] text-slate-500">Use at least 15 characters.</p>
+        </div>
+    </section>
+    @endif
 
     <section class="panel divide-y divide-slate-100">
 
@@ -103,37 +114,6 @@
                 <label for="description" class="sr-only">Description</label>
                 <textarea id="description" class="field {{ $errors->has('description') ? 'field-invalid' : '' }}" name="description" rows="4">{{ old('description', $webinar->description) }}</textarea>
                 <x-field-error :error="$errors->first('description')" />
-            </div>
-        </details>
-
-        <details class="group" @if($open['certificate_email']) open @endif>
-            <summary class="flex cursor-pointer list-none items-start justify-between gap-4 px-5 py-4 hover:bg-slate-50">
-                <div class="min-w-0">
-                    <p class="text-[13px] font-medium text-slate-900">Certificate email</p>
-                    <p class="mt-0.5 max-w-[38ch] truncate text-[13px] text-slate-500 group-open:hidden">{{ filled($webinar->certificate_email_subject) || filled($webinar->certificate_email_message) ? 'Custom subject and message are set.' : 'Using the standard wording.' }}</p>
-                </div>
-                <span class="shrink-0 text-[13px] font-medium text-accent-600">
-                    <span class="group-open:hidden">Edit</span><span class="hidden group-open:inline">Close</span>
-                </span>
-            </summary>
-            <div class="space-y-4 px-5 pb-5">
-                <label class="field-label">Subject line <span class="font-normal text-slate-400">optional</span>
-                    <input class="field {{ $errors->has('certificate_email_subject') ? 'field-invalid' : '' }}" name="certificate_email_subject"
-                           value="{{ old('certificate_email_subject', $webinar->certificate_email_subject) }}" maxlength="120"
-                           placeholder="Your certificate for {{ '{webinar}' }}">
-                    <x-field-error :error="$errors->first('certificate_email_subject')" />
-                </label>
-                <label class="field-label">Extra message <span class="font-normal text-slate-400">optional</span>
-                    <textarea class="field {{ $errors->has('certificate_email_message') ? 'field-invalid' : '' }}" name="certificate_email_message" rows="4"
-                              placeholder="Added to every certificate email for this webinar, above the certificate details.">{{ old('certificate_email_message', $webinar->certificate_email_message) }}</textarea>
-                    <x-field-error :error="$errors->first('certificate_email_message')" />
-                </label>
-                <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-[12px] leading-5 text-slate-600">
-                    <span class="flex items-start gap-2">
-                        <x-icon name="mail" class="mt-px size-4 shrink-0 text-slate-400" />
-                        <span>Leave both blank to use the standard wording. Use <code class="rounded bg-white px-1 font-mono text-[11px]">{'{participant}'}</code> and <code class="rounded bg-white px-1 font-mono text-[11px]">{'{webinar}'}</code> in either field — they are replaced with the recipient's name and this webinar's title. The PDF attachment and verification code are always included.</span>
-                    </span>
-                </div>
             </div>
         </details>
 
@@ -237,7 +217,11 @@
                     <div class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] leading-5 text-amber-900">
                         The committed participant-data erasure deadline is
                         <strong>{{ $webinar->retention_due_at->timezone($webinar->timezone ?: config('app.timezone'))->format('F j, Y \a\t g:i A T') }}</strong>.
-                        This deadline can be shortened but never extended.
+                        This deadline can be shortened but never extended. Certificate issuance, share links, and email delivery stop working after this date.
+                    </div>
+                @else
+                    <div class="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-[12px] leading-5 text-slate-600">
+                        Recommended: 30–90 days. Certificate issuance is a post-event workflow spanning weeks — a 7-day default routinely destroys access before certificates are sent. The deadline commits on publish and can only be shortened afterward.
                     </div>
                 @endif
                 <div class="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-[12px] leading-5 text-slate-600">
@@ -315,50 +299,28 @@
         </details>
     </section>
 
-    <div class="mt-6 flex items-center gap-3">
+    <div class="mt-6 flex flex-wrap items-center gap-3">
         <button class="button-primary">{{ $webinar->exists ? 'Save changes' : 'Create webinar' }}</button>
         <a class="button-secondary" href="{{ $webinar->exists ? route('admin.webinars.show', $webinar) : route('admin.webinars.index') }}">Cancel</a>
     </div>
 </form>
+@if($webinar->exists)
+<section class="panel mt-6 max-w-5xl p-5">
+    <h2 class="section-title">Webinar password protection</h2>
+    <p class="mt-2 text-sm text-slate-500">{{ $webinar->management_password ? 'Protection is enabled.' : 'Protection is disabled.' }} Changes expire previous unlocks. Participants continue using public forms without this password.</p>
+    <form novalidate method="POST" action="{{ route('admin.webinars.protection', $webinar) }}" class="mt-4 grid gap-4" data-confirm="Update webinar password protection? All previous unlocks will expire." data-confirm-action="Update protection">
+        @csrf @method('PUT')
+        <input type="hidden" name="enabled" value="0">
+        <label class="flex items-center gap-3 text-sm"><input type="checkbox" name="enabled" value="1" data-password-option="edit-password-fields" @checked(old('enabled', (bool)$webinar->management_password))>Password-protect this webinar</label>
+        <div id="edit-password-fields" class="grid gap-4 sm:grid-cols-2">
+            <x-account-field name="password" label="New webinar password" type="password" autocomplete="new-password" />
+            <x-account-field name="password_confirmation" label="Confirm new webinar password" type="password" autocomplete="new-password" />
+        </div>
+        <p class="text-[12px] text-slate-500">Use at least 15 characters. Your account password may be requested to confirm this change.</p>
+        <button class="button-secondary justify-self-start">Update protection</button>
+    </form>
+</section>
+@endif
 
-<script nonce="{{ $cspNonce }}">
-    (function () {
-        // Keep the Open/Closed explanation in sync before settings are saved.
-        var openSwitch = document.querySelector('[data-webinar-open-switch]');
-        var openLabel = document.querySelector('[data-webinar-open-label]');
-        var openHelp = document.querySelector('[data-webinar-open-help]');
-        var openText = document.querySelector('[data-webinar-open-text]');
-        if (openSwitch && openLabel && openHelp && openText) {
-            var syncOpen = function () {
-                var on = openSwitch.checked;
-                openLabel.textContent = on ? 'Webinar open' : 'Webinar closed';
-                openText.textContent = on
-                    ? 'The webinar is open. Each form still follows its own Open/Closed switch and deadline.'
-                    : 'The webinar is closed. No participant form can accept responses until you open it.';
-                openHelp.classList.toggle('border-emerald-200', on);
-                openHelp.classList.toggle('bg-emerald-50', on);
-                openHelp.classList.toggle('text-emerald-900', on);
-                openHelp.classList.toggle('border-slate-200', !on);
-                openHelp.classList.toggle('bg-slate-50', !on);
-                openHelp.classList.toggle('text-slate-600', !on);
-            };
-            openSwitch.addEventListener('change', syncOpen);
-            syncOpen();
-        }
 
-        // Swap the plain-language explanation as the email-confirmation switch flips.
-        var verifySwitch = document.querySelector('[data-verify-switch]');
-        var verifyHelp = document.querySelector('[data-verify-help]');
-        if (verifySwitch && verifyHelp) {
-            var syncVerify = function () {
-                var state = verifySwitch.checked ? 'on' : 'off';
-                verifyHelp.querySelectorAll('[data-verify-help-for]').forEach(function (el) {
-                    el.classList.toggle('hidden', el.getAttribute('data-verify-help-for') !== state);
-                });
-            };
-            verifySwitch.addEventListener('change', syncVerify);
-            syncVerify();
-        }
-    })();
-</script>
 @endsection

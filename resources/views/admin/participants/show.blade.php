@@ -3,7 +3,7 @@
 @section('content')
 
 <x-page-header :title="$participant->full_name ?: 'Erased participant'"
-               :crumbs="['Registered participants' => route('admin.participants.index', $webinar)]">
+               :crumbs="['Form Responses' => route('admin.responses.index', [$webinar, 'view' => 'eligibility'])]">
     <x-slot:meta>
         <div class="mt-3 flex flex-wrap items-center gap-2.5 text-[13px] text-slate-500">
             <span class="badge {{ $eligibility['eligible'] ? 'badge-green' : 'badge-slate' }}">{{ $eligibility['eligible'] ? 'eligible' : 'not eligible' }}</span>
@@ -19,7 +19,7 @@
             <button class="button-secondary"><x-icon name="check-circle" class="size-4" />{{ $participant->checked_in_at ? 'Remove attendance' : 'Mark present' }}</button>
         </form>
         <a class="button-success" href="{{ route('admin.certificates.studio', ['webinar' => $webinar, 'manual' => $participant->public_id]) }}">
-            <x-icon name="award" class="size-4" />Send certificate
+            <x-icon name="award" class="size-4" />Open Certificate Studio
         </a>
     </x-slot:actions>
 </x-page-header>
@@ -33,6 +33,7 @@
                     <div class="flex items-center justify-between gap-4 px-5 py-4">
                         <div class="min-w-0">
                             <p class="text-sm font-medium">{{ $submission->form->title }}</p>
+                            @if($submission->status === 'superseded')<p class="text-xs text-amber-700">Replaced by a corrected import — excluded from eligibility.</p>@endif
                             <p class="mt-0.5 text-[12px] text-slate-500">Attempt {{ $submission->attempt_number }} · {{ $submission->submitted_at?->format('M j, Y g:i A') ?? 'not submitted' }}@if($submission->answers_erased_at) · answers erased @endif</p>
                         </div>
                         @if($submission->score !== null)
@@ -51,10 +52,26 @@
             <div class="border-b border-slate-100 px-5 py-4"><h2 class="section-title">Certificates</h2></div>
             <div class="divide-y divide-slate-100">
                 @forelse($participant->certificates as $certificate)
+                    @php
+                        $delivery = $deliveryStates[$certificate->id] ?? null;
+                        $deliveryState = $delivery['state'] ?? null;
+                    @endphp
                     <div class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                         <div class="min-w-0">
                             <p class="font-mono text-[13px] font-medium">{{ $certificate->verification_code }}</p>
                             <p class="mt-0.5 text-[12px] text-slate-500">Issued {{ $certificate->issued_at?->format('M j, Y') ?? '—' }}@if($certificate->revoked_at) · revoked {{ $certificate->revoked_at->format('M j, Y') }}@endif</p>
+                            @if($deliveryState)
+                                {{-- "Issued" means the PDF exists, not that the email left.
+                                     The delivery outcome belongs next to it. --}}
+                                <p class="mt-1 text-[12px] {{ $deliveryState->slug() === 'failed' ? 'text-red-700' : 'text-slate-500' }}">
+                                    {{ $deliveryState->label() }}
+                                    @if($deliveryState->slug() === 'failed' && $delivery['delivery']?->last_error)
+                                        — {{ $delivery['delivery']->last_error }}
+                                    @elseif($deliveryState->slug() === 'sent' && $delivery['delivery']?->sent_at)
+                                        — {{ $delivery['delivery']->sent_at->format('M j, Y g:i A') }}
+                                    @endif
+                                </p>
+                            @endif
                         </div>
                         <div class="flex shrink-0 flex-wrap items-center gap-2">
                             <span class="badge {{ $certificate->isPubliclyValid() ? 'badge-green' : 'badge-red' }}">{{ $certificate->status }}</span>
@@ -77,8 +94,8 @@
     <div class="space-y-6">
         <section class="panel p-5">
             <h2 class="section-title">Participant name</h2>
-            <p class="mt-1 text-[12px] leading-5 text-slate-500">This is the single name used on participant records and all future certificates.</p>
-            <form method="POST" action="{{ route('admin.participants.name', [$webinar, $participant]) }}" class="mt-4 flex items-end gap-2">
+            <p class="mt-1 text-[12px] leading-5 text-slate-500">This is the name used on future certificates. Existing PDFs retain their issued name: revoke and reissue after a correction.</p>
+            <form method="POST" action="{{ route('admin.participants.name', [$webinar, $participant]) }}" class="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end">
                 @csrf @method('PUT')
                 <label class="field-label min-w-0 flex-1">Full name
                     <input class="field" name="full_name" value="{{ $participant->full_name }}" required maxlength="180">
@@ -103,7 +120,7 @@
                     <div class="flex items-start justify-between gap-3">
                         <div>
                             <p class="font-semibold">Active eligibility override</p>
-                            <p class="mt-1">{{ ucfirst($activeOverride->decision) }} · set by {{ $activeOverride->administrator?->name ?? 'unknown administrator' }} on {{ $activeOverride->created_at->format('M j, Y g:i A') }}</p>
+                            <p class="mt-1">{{ ucfirst($activeOverride->decision) }} · set by {{ $activeOverride->administrator?->name ?? 'unknown administrator' }} on {{ $activeOverride->created_at->format('M j, Y g:i A') }}@if($activeOverride->expires_at) · expires {{ $activeOverride->expires_at->format('M j, Y g:i A') }}@else · no expiry (permanent until removed)@endif</p>
                         </div>
                         <span class="badge badge-amber shrink-0">{{ $activeOverride->decision }}</span>
                     </div>
@@ -130,11 +147,13 @@
         </section>
 
         <section class="panel p-5">
-            <h2 class="section-title">Record an override</h2>
+            <h2 class="section-title">Eligibility exclusion</h2>
+            <p class="mt-2 text-sm text-slate-500">For a certificate exception, use <a class="underline" href="{{ route('admin.certificates.studio', [$webinar, 'add_recipient' => 1]) }}">Add Recipient Manually in Certificate Studio</a>.</p>
             <p class="mt-1 text-[13px] text-slate-500">Audited with your account and reason.</p>
             <form class="mt-4 grid gap-4" method="POST" action="{{ route('admin.participants.override', [$webinar, $participant]) }}">@csrf
-                <label class="field-label">Decision<select class="field" name="decision"><option value="eligible">Eligible</option><option value="ineligible">Not eligible</option></select></label>
+                <label class="field-label">Decision<select class="field" name="decision"><option value="ineligible">Not eligible</option></select></label>
                 <label class="field-label">Reason<textarea class="field" name="reason" rows="3" required placeholder="Explain why this decision was made.">{{ old('reason') }}</textarea></label>
+                <label class="field-label">Expires (optional)<input class="field" type="datetime-local" name="expires_at" value="{{ old('expires_at') }}"><span class="mt-1 block text-[12px] font-normal text-slate-500">Leave blank for a permanent exclusion. Manual certificate recipients are managed in Certificate Studio.</span></label>
                 <button class="button-primary">Save override</button>
             </form>
 

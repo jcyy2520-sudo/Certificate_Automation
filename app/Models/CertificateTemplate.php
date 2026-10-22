@@ -8,6 +8,19 @@ class CertificateTemplate extends Model
 {
     protected $guarded = ['id'];
 
+    public function certificateType(): string
+    {
+        $layout = $this->layout ?? [];
+        $type = trim((string) ($layout['certificate_type'] ?? $layout['heading'] ?? ''));
+
+        return $type !== '' ? $type : 'Certificate of Participation';
+    }
+
+    public function automaticName(): string
+    {
+        return $this->webinar->title.' — '.$this->certificateType();
+    }
+
     /** @var array<string, array{label: string, css: string, pdf: string}> */
     public const FONTS = [
         'sans' => ['label' => 'Sans-serif', 'css' => "'DejaVu Sans', Verdana, Geneva, sans-serif", 'pdf' => "'DejaVu Sans', sans-serif"],

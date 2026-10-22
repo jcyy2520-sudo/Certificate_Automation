@@ -9,7 +9,17 @@
 </x-page-header>
 
 <form method="GET" class="mb-6 flex flex-wrap items-center gap-3">
-    <label class="chip w-56">
+    <label class="field-label w-full sm:w-64">Search by title
+        <input class="field" name="search" value="{{ request('search') }}" type="search" maxlength="180" placeholder="Webinar title">
+    </label>
+    @if(auth()->user()->isAdministrator())
+    <label class="field-label w-full sm:w-56">Owner
+        <select class="field" name="owner"><option value="">All owners</option>
+        @foreach($owners as $owner)<option value="{{ $owner->id }}" @selected((string)request('owner') === (string)$owner->id)>{{ $owner->name }}</option>@endforeach
+        </select>
+    </label>
+    @endif
+    <label class="chip w-full sm:w-56">
         <x-icon name="filter" class="size-[18px] text-slate-400" />
         <select name="availability" data-auto-submit>
             <option value="">All webinars</option>
@@ -19,6 +29,8 @@
         </select>
     </label>
     <span class="text-[13px] text-slate-500 tabular-nums">{{ $webinars->total() }} total</span>
+    <button class="button-secondary">Apply filters</button>
+    @if(request()->hasAny(['search', 'owner', 'availability', 'status']))<a class="button-secondary" href="{{ route('admin.webinars.index') }}">Clear filters</a>@endif
 </form>
 
 <div class="panel overflow-hidden">
@@ -31,11 +43,12 @@
                         <span class="badge shrink-0 {{ $webinar->isOpen() ? 'badge-green' : 'badge-slate' }}">{{ $webinar->availabilityLabel() }}</span>
                     </div>
                     <p class="mt-1 truncate text-[13px] text-slate-500">{{ $webinar->description ?: 'No description yet.' }}</p>
+                    @if(auth()->user()->isAdministrator())<p class="mt-1 text-[12px] text-slate-500">Owner: {{ $webinar->creator?->name ?? 'Owner unavailable' }}</p>@endif
                 </div>
-                <div class="flex shrink-0 items-center gap-6 text-[13px] text-slate-500 tabular-nums">
+                <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-slate-500 tabular-nums sm:shrink-0 sm:gap-6">
                     <span><strong class="font-semibold text-slate-900">{{ $webinar->participants_count }}</strong> participants</span>
                     <span><strong class="font-semibold text-slate-900">{{ $webinar->certificates_count }}</strong> certificates</span>
-                    <span class="w-24 text-right">{{ $webinar->starts_at?->format('M j, Y') ?? 'No date' }}</span>
+                    <span class="sm:w-24 sm:text-right">{{ $webinar->starts_at?->format('M j, Y') ?? 'No date' }}</span>
                 </div>
             </a>
         @empty

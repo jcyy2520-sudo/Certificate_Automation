@@ -10,7 +10,7 @@ class Submission extends Model
 
     protected function casts(): array
     {
-        return ['score' => 'decimal:2', 'maximum_score' => 'decimal:2', 'submitted_at' => 'datetime', 'answers_erased_at' => 'datetime', 'metadata' => 'array'];
+        return ['score' => 'decimal:2', 'maximum_score' => 'decimal:2', 'submitted_at' => 'datetime', 'answers_erased_at' => 'datetime', 'metadata' => 'array', 'imported_data' => 'encrypted:array'];
     }
 
     public function form()

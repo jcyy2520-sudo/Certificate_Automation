@@ -6,7 +6,8 @@
     $layout = $certificate->layout ?? $certificate->template?->layout ?? [];
     $nameTop = (float) ($layout['name_top'] ?? 62);
     $nameLeft = (float) ($layout['name_left'] ?? 50);
-    $fontSize = (float) ($layout['name_font_size'] ?? 42);
+    $fontSize = $fittedFontSize ?? (float) ($layout['name_font_size'] ?? 42);
+    $nameWidthPercent = $nameWidthPercent ?? 94;
     $fontKey = $layout['name_font_family'] ?? 'sans';
     $fontPdf = (CertificateTemplate::FONTS[$fontKey] ?? CertificateTemplate::FONTS['sans'])['pdf'];
     $color = $layout['accent'] ?? '#1d4ed8';
@@ -34,7 +35,7 @@
         .background { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
         .recipient-name {
             position: absolute; top: {{ $nameTop }}%; left: {{ $nameLeft }}%;
-            width: 94%; margin-left: -47%;
+            width: {{ $nameWidthPercent }}%; margin-left: -{{ $nameWidthPercent / 2 }}%; white-space: nowrap;
             text-align: {{ $align }}; font-weight: {{ $weight }}; font-style: {{ $style }}; font-size: {{ $fontSize }}pt;
             font-family: {{ $fontPdf }};
             color: {{ $color }};
@@ -46,7 +47,7 @@
         @if($backgroundDataUri)
             <img class="background" src="{{ $backgroundDataUri }}" alt="">
         @endif
-        <div class="recipient-name">{{ $certificate->recipient_name ?: 'Participant' }}</div>
+        <div class="recipient-name">{{ $certificate->recipient_name }}</div>
     </div>
 </body>
 </html>

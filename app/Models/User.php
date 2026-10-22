@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Services\AccountService;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -12,6 +13,10 @@ use Illuminate\Support\Str;
 class User extends Authenticatable
 {
     public const ADMINISTRATOR_ROLE = 'administrator';
+
+    public const USER_ROLE = 'user';
+
+    protected $attributes = ['auth_version' => 1, 'approval_status' => 'pending_verification'];
 
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
@@ -31,6 +36,8 @@ class User extends Authenticatable
         'two_factor_recovery_codes',
         'two_factor_confirmed_at',
         'last_login_at',
+        'approval_status',
+        'password_setup_at',
     ];
 
     /**
@@ -44,6 +51,7 @@ class User extends Authenticatable
         'two_factor_secret',
         'two_factor_recovery_codes',
         'email_normalized',
+        'verification_token_hash',
     ];
 
     protected static function booted(): void
@@ -73,6 +81,10 @@ class User extends Authenticatable
             'two_factor_confirmed_at' => 'datetime',
             'two_factor_last_used_step' => 'integer',
             'last_login_at' => 'datetime',
+            'password_setup_at' => 'datetime',
+            'approved_at' => 'datetime',
+            'verification_expires_at' => 'datetime',
+            'auth_version' => 'integer',
         ];
     }
 
@@ -84,6 +96,19 @@ class User extends Authenticatable
     /** The authorization middleware re-checks this on every protected request. */
     public function isAdministrator(): bool
     {
-        return $this->is_active && hash_equals(self::ADMINISTRATOR_ROLE, (string) $this->role);
+        return $this->is_active && $this->approval_status === 'approved'
+            && hash_equals(self::ADMINISTRATOR_ROLE, (string) $this->role);
+    }
+
+    public function canAccessPlatform(): bool
+    {
+        return $this->is_active && $this->approval_status === 'approved'
+            && $this->password_setup_at !== null
+            && ($this->role === self::ADMINISTRATOR_ROLE || ($this->role === self::USER_ROLE && $this->email_verified_at !== null));
+    }
+
+    public function sendPasswordResetNotification($token): void
+    {
+        app(AccountService::class)->passwordInvitation($this, $token);
     }
 }

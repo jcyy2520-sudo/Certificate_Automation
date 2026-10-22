@@ -1,5 +1,14 @@
 # System Audit — Webinar Platform
 
+> Historical audit. The 2026-10-21 owner-requested multi-user extension supersedes
+> the single-role/no-policy findings for the new source. `created_by` now enforces
+> ownership, approved/onboarded account middleware protects management, and a
+> native WebinarPolicy plus explicit audited administrator access protects
+> webinar resources. See `MULTI_USER_PLATFORM.md` for the migration/release hold.
+> The subsequent same-day security review and concrete remediation are recorded
+> in `SECURITY_CONTINUATION.md`. Historical trust-domain, Redis-store and test
+> descriptions here are not evidence of current deployment configuration.
+
 **Audited:** 2026-08-24 · **Reviewer roles:** software architect, product manager, security reviewer, UI/UX auditor
 
 **Verdict:** an unusually well-engineered security and privacy core, wrapped around a product carrying roughly 25–30% more surface area than it needs. Two confirmed functional defects, one orphaned feature, one systemic duplication pair, and a handful of scalability ceilings. Nothing here requires a rewrite.

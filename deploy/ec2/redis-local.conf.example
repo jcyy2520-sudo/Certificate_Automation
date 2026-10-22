@@ -1,0 +1,12 @@
+# Reviewed overlay for a dedicated local Redis instance, not other applications.
+# Set authentication PRIVATELY in the real config before use. Do not use a
+# public listener or a password from this example. Check the real redis.conf.
+bind 127.0.0.1 ::1
+protected-mode yes
+appendonly yes
+appendfsync everysec
+maxmemory 256mb
+maxmemory-policy noeviction
+# requirepass <set a private strong value, matching runtime.env REDIS_PASSWORD>
+# Redis queues/sessions must never be silently evicted. Monitor memory and
+# persistence/disk errors; this memory limit is a staging candidate, not capacity proof.

@@ -46,7 +46,7 @@
 </section>
 
 <section class="mt-6 rounded-xl border border-slate-200 bg-white p-5">
-    <div class="flex items-start justify-between gap-4">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
             <h2 class="text-[15px] font-semibold text-slate-900">Certificate</h2>
             @if($certificate)

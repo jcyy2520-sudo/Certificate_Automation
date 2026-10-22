@@ -42,11 +42,11 @@
         </a>
     </section>
 @else
-    <dl class="panel flex flex-wrap divide-x divide-slate-200">
-        @foreach([['Webinars', $stats['webinars']], ['Participants', $stats['participants']], ['Certificates', $stats['certificates']], ['Emails sent', $stats['emails']]] as [$label, $value])
-            <div class="min-w-[8.5rem] flex-1 px-5 py-4">
-                <dt class="text-[13px] text-slate-500">{{ $label }}</dt>
-                <dd class="mt-1 text-[22px] font-semibold leading-none tracking-[-0.02em] tabular-nums">{{ number_format($value) }}</dd>
+    <dl class="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-slate-200 bg-slate-200 dark:border-slate-800 dark:bg-slate-800 lg:grid-cols-4">
+        @foreach([['Webinars', $stats['webinars']], ['Participants', $stats['participants']], ['Certificates', $stats['certificates']], ['Emails processed', $stats['emails']]] as [$label, $value])
+            <div class="bg-white px-4 py-4 dark:bg-slate-900 sm:px-5">
+                <dt class="text-[13px] text-slate-500 dark:text-slate-400">{{ $label }}</dt>
+                <dd class="mt-1.5 text-[20px] font-semibold leading-none tracking-[-0.02em] tabular-nums sm:text-[22px]">{{ number_format($value) }}</dd>
             </div>
         @endforeach
     </dl>
@@ -86,7 +86,7 @@
                     <div class="px-5 py-3.5">
                         <div class="flex items-start justify-between gap-3">
                             <p class="truncate text-[13px] font-medium">{{ $delivery->subject }}</p>
-                            <span class="badge shrink-0 {{ $delivery->status === 'sent' ? 'badge-green' : ($delivery->status === 'failed' ? 'badge-red' : 'badge-slate') }}">{{ $delivery->status }}</span>
+                            <span class="badge shrink-0 {{ $delivery->status === 'sent' ? 'badge-green' : ($delivery->status === 'failed' ? 'badge-red' : 'badge-slate') }}">{{ $delivery->statusLabel() }}</span>
                         </div>
                         <p class="mt-0.5 truncate text-[12px] text-slate-500">{{ $maskedEmail ?: 'Recipient unavailable' }}</p>
                     </div>

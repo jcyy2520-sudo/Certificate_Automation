@@ -1,7 +1,7 @@
 @extends('layouts.auth')
 @section('title', 'Sign in')
 @section('heading', 'Sign in')
-@section('subheading', 'Administrator access only.')
+@section('subheading', 'Sign in to manage your webinars.')
 @section('content')
 <form method="POST" action="{{ route('login.store') }}" class="grid gap-5">
     @csrf
@@ -22,5 +22,10 @@
 
     <button class="button-primary mt-1 w-full">Sign in</button>
 </form>
+<div class="mt-5 grid gap-3 text-sm">
+    <a class="text-accent-600 hover:underline" href="{{ route('password.request') }}">Forgot password or expired setup link?</a>
+    <a class="text-accent-600 hover:underline" href="{{ route('account.request') }}">Request an account</a>
+    <a class="text-accent-600 hover:underline" href="{{ route('account.status') }}">About account approval and access</a>
+</div>
 @endsection
 @section('footnote', 'This system is private. Every sign-in attempt is recorded.')

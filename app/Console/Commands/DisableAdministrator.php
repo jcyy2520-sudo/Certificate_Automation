@@ -4,8 +4,11 @@ namespace App\Console\Commands;
 
 use App\Models\AuditLog;
 use App\Models\User;
+use App\Services\AccountService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 
@@ -52,6 +55,7 @@ final class DisableAdministrator extends Command
         }
 
         $disabled = DB::transaction(function () use ($target): bool {
+            User::query()->where('role', User::ADMINISTRATOR_ROLE)->orderBy('id')->lockForUpdate()->get();
             $locked = User::query()->whereKey($target->getKey())->lockForUpdate()->first();
 
             if (! $locked || ! $locked->isAdministrator()) {
@@ -62,6 +66,8 @@ final class DisableAdministrator extends Command
                 ->whereKeyNot($locked->getKey())
                 ->where('role', User::ADMINISTRATOR_ROLE)
                 ->where('is_active', true)
+                ->where('approval_status', 'approved')
+                ->whereNotNull('password_setup_at')
                 ->whereNotNull('two_factor_confirmed_at')
                 ->exists();
 
@@ -71,8 +77,13 @@ final class DisableAdministrator extends Command
 
             $locked->forceFill([
                 'is_active' => false,
+                'approval_status' => 'suspended',
+                'auth_version' => $locked->auth_version + 1,
                 'remember_token' => null,
+                'password' => Hash::make(Str::random(64)),
             ])->save();
+            Password::deleteToken($locked);
+            app(AccountService::class)->cancelPending($locked);
 
             AuditLog::query()->create([
                 'user_id' => null,

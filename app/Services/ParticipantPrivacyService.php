@@ -21,6 +21,7 @@ class ParticipantPrivacyService
     public function erase(Participant $participant, bool $forceDelete = false): void
     {
         DB::transaction(function () use ($participant, $forceDelete): void {
+            Webinar::query()->whereKey($participant->webinar_id)->lockForUpdate()->first();
             $participant = Participant::withTrashed()->lockForUpdate()->find($participant->id);
 
             if (! $participant) {
@@ -46,6 +47,7 @@ class ParticipantPrivacyService
             $overrideIds = $participant->eligibilityOverrides()->pluck('id');
             $certificateIds = $certificateFiles->pluck('id');
             $erasedAt = now();
+            $this->eraseLegacySelectionMetadata($participant->webinar_id);
 
             SubmissionAnswer::query()->whereIn('submission_id', $submissionIds)->delete();
             $participant->submissions()->update([
@@ -53,9 +55,11 @@ class ParticipantPrivacyService
                 'maximum_score' => null,
                 'answers_erased_at' => $erasedAt,
                 'metadata' => null,
+                'imported_data' => null,
             ]);
             $participant->accessTokens()->delete();
             $participant->eligibilityOverrides()->delete();
+            $participant->certificateApproval()->delete();
 
             Certificate::query()->whereIn('id', $certificateIds)->update([
                 'participant_id' => null,
@@ -137,27 +141,80 @@ class ParticipantPrivacyService
      */
     public function eraseWebinarImports(Webinar $webinar): array
     {
+        // Pending files are not represented by participant records. Remove
+        // them before recording the privacy erasure: if private storage is
+        // unavailable, preserving the database record lets a later retention
+        // run retry rather than falsely claiming that the source was erased.
+        $pendingIds = Import::query()
+            ->where('webinar_id', $webinar->id)
+            ->pluck('id');
+        foreach ($pendingIds as $importId) {
+            // Include older committed/cancelled or previously stamped records:
+            // earlier versions could leave their plaintext file behind.
+            ImportSourceFile::delete((int) $importId);
+        }
+
         return DB::transaction(function () use ($webinar): array {
-            $importIds = Import::query()
+            Webinar::query()->whereKey($webinar->id)->lockForUpdate()->first();
+            $this->eraseLegacySelectionMetadata($webinar->id);
+            $imports = Import::query()
                 ->where('webinar_id', $webinar->id)
                 ->whereNull('privacy_erased_at')
                 ->lockForUpdate()
-                ->pluck('id');
+                ->get();
 
             // Issues are deleted whether or not their import was already
             // stamped, so a partially completed earlier run cannot strand them.
             $issues = ImportIssue::query()->where('webinar_id', $webinar->id)->delete();
 
-            if ($importIds->isEmpty()) {
+            if ($imports->isEmpty()) {
                 return ['imports' => 0, 'issues' => $issues];
             }
 
-            $imports = Import::query()->whereIn('id', $importIds)->update([
-                'column_map' => null,
-                'privacy_erased_at' => now(),
-            ]);
+            // Retain a non-PII audit summary per import so "which file, which
+            // mapping, which outcome" stays answerable after erasure: file
+            // hash and counts live in their own columns; the mapping survives
+            // as field-to-column indices plus a header-layout signature, never
+            // raw response values. Free-text completion attestations are not
+            // retained: they do not establish an individual's completion and
+            // can inadvertently contain participant information.
+            foreach ($imports as $import) {
+                $columnMap = $import->column_map ?? [];
+                $headers = $columnMap['headers'] ?? null;
+                $options = $columnMap['options'] ?? [];
+                $import->forceFill([
+                    'column_map' => [
+                        'erased' => true,
+                        'header_count' => is_array($headers) ? count($headers) : null,
+                        'header_signature' => is_array($headers) ? CsvImportService::headerSignature($headers) : null,
+                        'map' => $columnMap['map'] ?? null,
+                        'timestamp_format' => $columnMap['timestamp_format'] ?? null,
+                        'required_column_count' => is_array($options['required_columns'] ?? null) ? count($options['required_columns']) : null,
+                        'score_mode' => $options['score_mode'] ?? null,
+                        'source_description' => $options['source_description'] ?? null,
+                    ],
+                    'privacy_erased_at' => now(),
+                    'status' => $import->status === Import::STATUS_PENDING ? Import::STATUS_CANCELLED : $import->status,
+                ])->save();
+            }
 
-            return ['imports' => $imports, 'issues' => $issues];
+            return ['imports' => $imports->count(), 'issues' => $issues];
         }, attempts: 3);
+    }
+
+    /** Legacy selection logs attached identities to the webinar, not participant. */
+    private function eraseLegacySelectionMetadata(int $webinarId): void
+    {
+        AuditLog::query()->where('auditable_type', (new Webinar)->getMorphClass())
+            ->where('auditable_id', $webinarId)->where('action', 'certificate.issued_selection')
+            ->whereNotNull('metadata')->chunkById(200, function ($logs): void {
+                foreach ($logs as $log) {
+                    $metadata = $log->metadata ?? [];
+                    if (array_key_exists('skip_reasons', $metadata)) {
+                        unset($metadata['skip_reasons']);
+                        $log->update(['metadata' => $metadata]);
+                    }
+                }
+            });
     }
 }

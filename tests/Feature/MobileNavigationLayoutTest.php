@@ -41,6 +41,37 @@ class MobileNavigationLayoutTest extends TestCase
             ->assertSee('data-mobile-webinar-nav-toggle', false)
             ->assertSee('aria-controls="mobile-webinar-navigation"', false)
             ->assertSee('id="mobile-webinar-navigation"', false)
-            ->assertSee('data-mobile-webinar-nav-close', false);
+            ->assertSee('data-mobile-webinar-nav-close', false)
+            ->assertDontSee('data-mobile-rail-toggle', false)
+            ->assertDontSee('id="mobile-primary-navigation"', false);
+    }
+
+    public function test_all_webinar_subpages_exclude_primary_navigation_and_use_workspace_drawer(): void
+    {
+        $administrator = User::factory()->create(['is_active' => true]);
+        $webinar = Webinar::query()->create([
+            'title' => 'Workspace Subpages',
+            'slug' => 'workspace-subpages',
+            'status' => 'published',
+            'timezone' => 'UTC',
+            'created_by' => $administrator->id,
+        ]);
+
+        $subpageRoutes = [
+            route('admin.participants.index', $webinar),
+            route('admin.certification.edit', $webinar),
+            route('admin.webinars.reports', $webinar),
+            route('admin.webinars.edit', $webinar),
+        ];
+
+        foreach ($subpageRoutes as $url) {
+            $this->actingAs($administrator)
+                ->get($url)
+                ->assertOk()
+                ->assertSee('data-mobile-webinar-nav-toggle', false)
+                ->assertSee('id="mobile-webinar-navigation"', false)
+                ->assertDontSee('data-mobile-rail-toggle', false)
+                ->assertDontSee('id="mobile-primary-navigation"', false);
+        }
     }
 }

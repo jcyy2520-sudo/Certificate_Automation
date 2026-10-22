@@ -31,6 +31,11 @@ class LockdownTest extends TestCase
             '/',
             'admin/login',
             'admin/two-factor-challenge',
+            'request-account',
+            'account-status',
+            'verify-account/{user}',
+            'forgot-password',
+            'reset-password',
             'certificates/verify/{code}',
             'f/{token}',
             'f/{token}/access/confirm',
@@ -74,7 +79,8 @@ class LockdownTest extends TestCase
             ->assertDontSee('Dashboard')
             ->assertDontSee('Webinars');
 
-        $this->assertStringNotContainsString('<a ', $response->getContent(), 'The sign-in page must contain no links.');
+        $response->assertSee(route('account.request'))->assertSee(route('password.request'));
+        $response->assertDontSee(route('admin.webinars.index'));
     }
 
     public function test_the_retired_public_event_urls_are_gone(): void

@@ -2,12 +2,15 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\PendingSensitiveAction;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 class EnsureRecentPassword
 {
+    public function __construct(private readonly PendingSensitiveAction $pending) {}
+
     public function handle(Request $request, Closure $next): Response
     {
         if (! config('security.require_sensitive_action_password_confirmation', true)) {
@@ -21,9 +24,13 @@ class EnsureRecentPassword
             return $next($request);
         }
 
-        // A GET can be resumed exactly. Mutating request bodies are deliberately
-        // not stored or replayed; after confirmation the administrator returns
-        // to a safe internal page and must submit the action again.
+        // Remember what the administrator was trying to do. A GET can be
+        // resumed exactly through the intended URL; a mutating request is
+        // remembered so that proving the password completes the action instead
+        // of silently discarding it. The administrator then submits the action
+        // again only when it genuinely cannot be replayed.
+        $this->pending->remember($request);
+
         $request->session()->put(
             'url.intended',
             $request->isMethodSafe() ? $request->fullUrl() : $this->safeReturnUrl($request),

@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex">
     <title>Certificate verification</title>
-    <script nonce="{{ $cspNonce }}">try{var t=localStorage.getItem('theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark')}else{document.documentElement.classList.remove('dark')}}catch(e){}</script>
-    @vite('resources/css/app.css')
+    @include('partials.theme-init')
+    @vite(['resources/css/app.css', 'resources/js/standalone.js'])
 </head>
 @php
     $privacyUnavailable = $certificate->privacy_erased_at !== null
@@ -29,14 +29,14 @@
         </button>
     </div>
 
-    <main class="mx-auto flex min-h-screen max-w-2xl items-center px-6 py-12">
-        <section class="w-full rounded-2xl bg-white dark:bg-[#12141a] p-8 shadow-sm ring-1 ring-slate-200 dark:ring-slate-800">
+    <main class="mx-auto flex min-h-screen max-w-2xl items-center px-4 py-8 sm:px-6 sm:py-12">
+        <section class="w-full rounded-2xl bg-white dark:bg-[#12141a] p-5 sm:p-8 shadow-sm ring-1 ring-slate-200 dark:ring-slate-800">
             <p class="text-sm font-semibold uppercase tracking-wider {{ $state[1] }}">{{ $state[0] }}</p>
-            <h1 class="mt-3 text-3xl font-bold">{{ $privacyUnavailable ? 'Certificate verification' : $certificate->webinar->title }}</h1>
+            <h1 class="mt-3 text-2xl font-bold sm:text-3xl">{{ $privacyUnavailable ? 'Certificate verification' : $certificate->webinar->title }}</h1>
             <p class="mt-3 text-slate-600 dark:text-slate-400">{{ $state[2] }}</p>
             @unless($privacyUnavailable)
                 <dl class="mt-8 grid gap-5 sm:grid-cols-2">
-                    <div><dt class="text-sm text-slate-500 dark:text-slate-400">Certificate ID</dt><dd class="font-mono">{{ $certificate->verification_code }}</dd></div>
+                    <div><dt class="text-sm text-slate-500 dark:text-slate-400">Certificate ID</dt><dd class="font-mono break-all">{{ $certificate->verification_code }}</dd></div>
                     <div><dt class="text-sm text-slate-500 dark:text-slate-400">Issued</dt><dd>{{ $certificate->issued_at?->toFormattedDateString() ?? 'Pending' }}</dd></div>
                 </dl>
                 <p class="mt-8 text-sm text-slate-500 dark:text-slate-400">This public record intentionally excludes email, organization, and assessment results.</p>
@@ -44,14 +44,6 @@
         </section>
     </main>
 
-    <script nonce="{{ $cspNonce }}">
-    document.addEventListener('click', function(e) {
-        var btn = e.target.closest('[data-theme-toggle]');
-        if (btn) {
-            var isDark = document.documentElement.classList.toggle('dark');
-            try { localStorage.setItem('theme', isDark ? 'dark' : 'light'); } catch(e) {}
-        }
-    });
-    </script>
+
 </body>
 </html>

@@ -54,6 +54,12 @@ class ImportIssue extends Model
     /** A required registration identity field is blank. */
     public const TYPE_MISSING_NAME = 'missing_name';
 
+    public const TYPE_NAME_CONFLICT = 'name_conflict';
+
+    public const TYPE_IDENTITY_CONFLICT = 'identity_conflict';
+
+    public const TYPE_INCOMPLETE_RESPONSE = 'incomplete_response';
+
     protected $guarded = ['id'];
 
     /**

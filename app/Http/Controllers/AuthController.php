@@ -43,7 +43,7 @@ class AuthController extends Controller
             $user?->password ?? self::DUMMY_PASSWORD_HASH,
         );
 
-        if (! $user || ! $passwordMatches || ! $user->isAdministrator()) {
+        if (! $user || ! $passwordMatches || ! $user->canAccessPlatform()) {
             $audit->record($request, 'administrator.login_failed', $user);
 
             return back()->withErrors(['email' => 'The supplied credentials are incorrect or the account is inactive.'])->onlyInput('email');
@@ -61,6 +61,7 @@ class AuthController extends Controller
             $request->session()->put(TwoFactorChallengeController::PENDING_USER, $user->id);
             $request->session()->put(TwoFactorChallengeController::PENDING_REMEMBER, $remember);
             $request->session()->put(TwoFactorChallengeController::PENDING_AT, now()->timestamp);
+            $request->session()->put(TwoFactorChallengeController::PENDING_CREDENTIAL, TwoFactorChallengeController::credentialBinding($user));
 
             return redirect()->route('two-factor.challenge');
         }

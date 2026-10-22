@@ -5,6 +5,25 @@ test.beforeEach(async ({ page }) => {
     await expect(page.locator('[data-cert-name]')).toBeVisible();
 });
 
+test('PDF preview links use the selected participant identifier without a name query', async ({ page }) => {
+    const id = await page.locator('[data-studio]').getAttribute('data-initial-participant');
+    const links = await page.locator('[data-preview-pdf]').evaluateAll(nodes => nodes.map(node => node.href));
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) {
+        const url = new URL(link);
+        expect(url.searchParams.get('participant')).toBe(id);
+        expect(url.searchParams.has('name')).toBe(false);
+    }
+});
+
+test('the snapshot server refuses application, PHP and sensitive-file paths', async ({ request }) => {
+    for (const path of ['/admin/login', '/index.php', '/.env', '/vendor/autoload.php']) {
+        const response = await request.get(path);
+        expect(response.status()).toBe(404);
+        expect(await response.text()).toBe('Static test fixture not found.');
+    }
+});
+
 test('dragging the name updates its saved position', async ({ page }) => {
     const name = page.locator('[data-cert-name]');
     const canvas = page.locator('[data-cert-canvas]');
@@ -42,6 +61,33 @@ test('typing an exact position moves the name there', async ({ page }) => {
     await page.locator('[data-design-top-input]').fill('25');
     await page.locator('[data-design-top-input]').blur();
     await expect(page.locator('[data-design-top]')).toHaveValue('25.00');
+});
+
+test('numeric positioning accepts zero and preserves coordinates across viewport changes', async ({ page }) => {
+    await page.locator('[data-design-top-input]').fill('0');
+    await page.locator('[data-design-top-input]').blur();
+    await expect(page.locator('[data-design-top]')).toHaveValue('0.00');
+    await page.locator('[data-design-top-input]').fill('55');
+    await page.locator('[data-design-top-input]').blur();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator('[data-design-top]')).toHaveValue('55.00');
+    const ratio = await page.locator('[data-cert-canvas]').evaluate(node => node.clientWidth / node.clientHeight);
+    expect(ratio).toBeCloseTo(1200 / 850, 1);
+});
+
+test('Studio toolbar actions fit between mobile and desktop breakpoints', async ({ page }) => {
+    for (const width of [320, 390, 640, 768, 1024, 1280, 1920]) {
+        await page.setViewportSize({ width, height: 900 });
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `Studio at ${width}px`).toBe(true);
+        const controls = await page.locator('.studio-topbar a:visible, .studio-topbar button:visible, .studio-topbar select:visible').evaluateAll(nodes => nodes.map(node => {
+            const rect = node.getBoundingClientRect(); return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+        }));
+        for (let i = 0; i < controls.length; i++) for (let j = i + 1; j < controls.length; j++) {
+            const a = controls[i], b = controls[j];
+            const overlap = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+            expect(overlap, `Toolbar controls overlap at ${width}px`).toBeLessThan(2);
+        }
+    }
 });
 
 test('an alignment preset repositions and re-aligns the name', async ({ page }) => {
@@ -93,6 +139,30 @@ test('sending always opens the explicit queue confirmation', async ({ page }) =>
     await expect(page.locator('[data-confirm-count]')).toContainText('1 participant');
     await page.locator('[data-cancel-send]').click();
     await expect(page.locator('[data-send-confirm]')).toBeHidden();
+});
+
+test('confirming the queue actually submits the send form', async ({ page }) => {
+    // The confirmation used to look perfect while the request never left the
+    // browser: the studio marked the form as submitted itself, and the
+    // application-wide submit guard read that marker and cancelled the very
+    // submission. Nothing was sent and nothing said so.
+    const submissions = [];
+    await page.route('**/certificates/issue-selected', async (route) => {
+        submissions.push(route.request().postData() || '');
+        await route.fulfill({ status: 302, headers: { location: '/' }, body: '' });
+    });
+
+    const firstReady = page.locator('[data-queue-check]:not([disabled])').first();
+    await firstReady.check();
+    await expect(page.locator('[data-open-send-confirm]')).toBeEnabled();
+
+    await page.locator('[data-open-send-confirm]').click();
+    await expect(page.locator('[data-send-confirm]')).toBeVisible();
+    await page.locator('[data-confirm-send]').click();
+
+    await expect.poll(() => submissions.length, { timeout: 5_000 }).toBe(1);
+    expect(submissions[0]).toContain('preview_confirmed=1');
+    expect(submissions[0]).toMatch(/participants(%5B%5D|\[0\])=/);
 });
 
 test('choosing a participant shows their name on the certificate', async ({ page }) => {
@@ -189,6 +259,11 @@ test('the style being edited can be applied to every recipient', async ({ page }
     const form = page.locator('#apply-all-form');
     await expect(form.locator('[data-apply-top]')).toHaveValue(/^30(\.00)?$/);
     await expect(page.locator('[data-confirm-modal] [data-confirm-title]')).toHaveText('Apply style to every recipient');
+
+    // The style endpoint is a PUT route, so the browser needs the method
+    // override. Without it the request never reaches the server and the
+    // style silently never applies to anyone.
+    await expect(form.locator('input[name="_method"][value="PUT"]')).toHaveCount(1);
 
     // Cancelling must leave the page unchanged — nothing is posted.
     await page.locator('[data-confirm-cancel]').click();

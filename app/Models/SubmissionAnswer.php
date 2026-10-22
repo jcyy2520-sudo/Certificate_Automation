@@ -20,11 +20,11 @@ class SubmissionAnswer extends Model
 
     public function formField()
     {
-        return $this->belongsTo(FormField::class);
+        return $this->belongsTo(FormField::class)->withTrashed();
     }
 
     public function question()
     {
-        return $this->belongsTo(Question::class);
+        return $this->belongsTo(Question::class)->withTrashed();
     }
 }

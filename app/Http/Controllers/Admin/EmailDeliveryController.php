@@ -40,14 +40,27 @@ class EmailDeliveryController extends Controller
             $query->where('status', $status);
         }
 
+        $deliveries = $query
+            ->with('certificate:id,verification_code')
+            ->select(['id', 'webinar_id', 'certificate_id', 'type', 'recipient_email', 'subject', 'status', 'attempts', 'provider_message_id', 'last_error', 'scheduled_at', 'sent_at', 'failed_at', 'created_at'])
+            ->latest('id')
+            ->paginate(30)
+            ->withQueryString();
+
+        // First delivery per certificate is the original; later rows are manual
+        // resends with fresh idempotency keys. Precompute so the view stays N+1-free.
+        $certificateIds = $deliveries->getCollection()->pluck('certificate_id')->filter()->unique()->values();
+        $originalIds = $certificateIds->isEmpty() ? collect() : EmailDelivery::query()
+            ->whereIn('certificate_id', $certificateIds)
+            ->groupBy('certificate_id')
+            ->selectRaw('certificate_id, min(id) as original_id')
+            ->pluck('original_id', 'certificate_id');
+
         return view('admin.email-log', [
             'webinar' => $webinar,
             'logUrl' => $currentUrl,
-            'deliveries' => $query
-                ->select(['id', 'webinar_id', 'type', 'recipient_email', 'subject', 'status', 'attempts', 'provider_message_id', 'last_error', 'scheduled_at', 'sent_at', 'failed_at', 'created_at'])
-                ->latest('id')
-                ->paginate(30)
-                ->withQueryString(),
+            'deliveries' => $deliveries,
+            'originalIds' => $originalIds,
         ]);
     }
 

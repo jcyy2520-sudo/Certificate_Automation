@@ -1,6 +1,6 @@
 {{-- The primary application rail. Present on every admin surface. A webinar
      workspace renders its own secondary sidebar to the right of this one. --}}
-<aside class="rail sticky top-0 z-30 hidden h-screen shrink-0 flex-col overflow-hidden border-r border-slate-800/80 bg-slate-950 text-slate-300 lg:flex">
+<aside data-persist-key="primary-rail" class="rail sticky top-0 z-30 hidden h-screen shrink-0 flex-col overflow-hidden border-r border-slate-800/80 bg-slate-950 text-slate-300 lg:flex">
     <div class="flex h-[76px] shrink-0 items-center px-5">
         <span class="rail-label truncate text-[14px] font-bold tracking-tight text-white">{{ config('app.name') }}</span>
     </div>

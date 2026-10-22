@@ -2,6 +2,8 @@
 
 namespace App\Support;
 
+use Illuminate\Support\ConfigurationUrlParser;
+
 final class SessionStorageSafety
 {
     public static function usesDedicatedRedisDatabase(): bool
@@ -40,7 +42,9 @@ final class SessionStorageSafety
         }
 
         foreach (self::activeRedisConsumerConnections() as $connection) {
-            if ($connection === $sessionConnection) {
+            $configuration = $connections[$connection] ?? null;
+            $identity = is_array($configuration) ? self::redisDatabaseIdentity($configuration) : null;
+            if ($identity === null || hash_equals($sessionIdentity, $identity)) {
                 return false;
             }
         }
@@ -87,24 +91,39 @@ final class SessionStorageSafety
      * deliberately excluded: different credentials can still address the same
      * Redis database and therefore do not make a session flush safe.
      */
-    private static function redisDatabaseIdentity(array $configuration): ?string
+    public static function redisDatabaseIdentity(array $configuration): ?string
     {
-        $url = is_string($configuration['url'] ?? null) ? parse_url($configuration['url']) : [];
-
-        if ($url === false) {
+        try {
+            // Match RedisManager: URL primary options and query options both
+            // override the nominal connection defaults.
+            $configuration = (new ConfigurationUrlParser)->parseConfiguration($configuration);
+            // Connectors can reinterpret nested/global options (including
+            // Predis parameter defaults and PhpRedis's last-wins merge).
+            // Refuse endpoint overrides here: destructive flushing requires a
+            // directly resolvable single-server identity, not a topology guess.
+            foreach ([config('database.redis.options', []), $configuration['options'] ?? []] as $options) {
+                if (! is_array($options) || array_intersect(['host', 'port', 'database', 'parameters', 'replication', 'aggregate', 'connections'], array_keys($options)) !== []) {
+                    return null;
+                }
+            }
+        } catch (\Throwable) {
             return null;
         }
 
-        $host = $configuration['host'] ?? $url['host'] ?? null;
-        $port = $configuration['port'] ?? $url['port'] ?? 6379;
-        $database = $configuration['database'] ?? (isset($url['path']) ? ltrim((string) $url['path'], '/') : null);
+        $host = $configuration['host'] ?? null;
+        if (is_string($host)) {
+            $host = preg_replace('#^(?:tcp|tls)://#i', '', $host);
+        }
+        $port = $configuration['port'] ?? 6379;
+        $database = $configuration['database'] ?? null;
 
-        if (! is_string($host) || $host === '' || ! is_numeric($port) || ! is_numeric($database)) {
+        if (! is_string($host) || trim($host) === '' || str_contains($host, '://') || str_starts_with($host, '/')
+            || ! is_scalar($port) || ! preg_match('/^[0-9]+$/D', (string) $port) || (int) $port < 1 || (int) $port > 65535
+            || ! is_scalar($database) || ! preg_match('/^[0-9]+$/D', (string) $database)) {
             return null;
         }
 
         $identity = [
-            'scheme' => strtolower((string) ($url['scheme'] ?? 'redis')),
             'host' => strtolower($host),
             'port' => (int) $port,
             'database' => (int) $database,

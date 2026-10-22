@@ -6,9 +6,14 @@ use App\Http\Controllers\Controller;
 use App\Models\Certificate;
 use App\Models\CertificateTemplate;
 use App\Models\EligibilityRule;
+use App\Models\EmailDelivery;
+use App\Models\Participant;
 use App\Models\Webinar;
 use App\Services\AuditService;
+use App\Services\CertificateArtwork;
 use App\Services\CertificateService;
+use App\Services\NotificationService;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -16,6 +21,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class CertificationController extends Controller
@@ -25,17 +31,11 @@ class CertificationController extends Controller
 
     public function edit(Webinar $webinar): View
     {
-        $webinar->load([
-            'forms' => fn ($query) => $query->select(['id', 'webinar_id', 'type', 'title', 'status']),
-            'eligibilityRules' => fn ($query) => $query
-                ->select(['id', 'webinar_id', 'requirement', 'is_required', 'minimum_score']),
-        ]);
-
         return view('admin.webinars.certification', [
             'webinar' => $webinar,
-            'rules' => $webinar->eligibilityRules->keyBy('requirement'),
             'template' => $this->activeTemplate($webinar),
             'fonts' => CertificateTemplate::FONTS,
+            'emailSender' => $this->emailSender(),
             'issuedCount' => $webinar->certificates()->whereNotNull('issued_at')->whereNull('revoked_at')->count(),
             'pendingCount' => $webinar->participants()
                 ->whereNull('privacy_erased_at')
@@ -53,6 +53,7 @@ class CertificationController extends Controller
         ]);
 
         DB::transaction(function () use ($data, $webinar): void {
+            Webinar::query()->whereKey($webinar->id)->whereNull('deletion_started_at')->lockForUpdate()->firstOrFail();
             foreach (self::REQUIREMENTS as $requirement) {
                 $rule = $data['rules'][$requirement] ?? [];
 
@@ -74,11 +75,21 @@ class CertificationController extends Controller
             }
         });
 
-        $audit->record($request, 'eligibility_rules.updated', $webinar, ['requirements' => array_keys(array_filter($data['rules'] ?? [], fn ($rule) => ! empty($rule['enabled'])))]);
+        $enabled = array_keys(array_filter($data['rules'] ?? [], fn ($rule) => ! empty($rule['enabled'])));
+        $audit->record($request, 'eligibility_rules.updated', $webinar, ['requirements' => $enabled]);
+        $destination = route('admin.responses.index', [$webinar, 'view' => 'settings']);
+
+        if ($enabled === []) {
+            return redirect()
+                ->to($destination)
+                ->with('warning', 'All requirements are disabled: every participant with an email is now automatically eligible. Re-enable the intended requirements before sending certificates.');
+        }
+
+        $affected = $webinar->participants()->whereNull('privacy_erased_at')->count();
 
         return redirect()
-            ->to(route('admin.certification.edit', $webinar).'#certificate-requirements')
-            ->with('success', 'Certificate requirements saved.');
+            ->to($destination)
+            ->with('success', 'Certificate requirements saved ('.implode(', ', $enabled).'). '.$affected.' participant(s) will be re-evaluated against the new rule.');
     }
 
     public function updateTemplate(Request $request, Webinar $webinar, AuditService $audit): RedirectResponse
@@ -86,46 +97,67 @@ class CertificationController extends Controller
         $template = $this->activeTemplate($webinar);
 
         $data = $request->validate([
-            'name' => ['required', 'string', 'max:120'],
             // The finished certificate is uploaded whole; the system only places
-            // the name on it. An upload is required unless one is already stored.
-            // The name's position, font, size, and colour are set visually in the
-            // certificate editor, not here.
+            // the name on it. A one-page PDF is converted to PNG in the browser,
+            // so the private server-side storage/rendering pipeline continues to
+            // accept only verified raster images. An upload is required unless
+            // one is already stored. Name styling is configured in the editor.
             'background' => [$template->background_path ? 'nullable' : 'required', 'image', 'mimes:png,jpg,jpeg', 'max:8192'],
         ], [
-            'background.required' => 'Upload the finished certificate image (PNG or JPG).',
+            'background.required' => 'Upload the finished certificate artwork (PNG, JPG, or a single-page PDF).',
+            'background.image' => 'The server expected a converted PNG or JPG. Wait for PDF preparation to finish and try again.',
+            'background.mimes' => 'The server expected a converted PNG or JPG. Wait for PDF preparation to finish and try again.',
         ]);
 
         $disk = Storage::disk($template->storage_disk);
         $backgroundPath = $template->background_path;
+        $oldBackgroundPath = $backgroundPath;
         $layout = $template->layout ?? [];
 
         if ($request->hasFile('background')) {
-            if ($backgroundPath) {
-                $disk->delete($backgroundPath);
-            }
             $file = $request->file('background');
-            $backgroundPath = $file->storeAs(
+            try {
+                $dimensions = CertificateArtwork::inspect(file_get_contents($file->getRealPath()));
+            } catch (\RuntimeException $exception) {
+                throw ValidationException::withMessages(['background' => $exception->getMessage()]);
+            }
+            $newBackgroundPath = $file->storeAs(
                 'certificate-backgrounds',
                 $template->id.'-'.now()->timestamp.'.'.$file->extension(),
                 ['disk' => $template->storage_disk],
             );
+            if (! $newBackgroundPath) {
+                return back()->withInput()->withErrors(['background' => 'The certificate artwork could not be stored. The existing design was left unchanged.']);
+            }
+            $backgroundPath = $newBackgroundPath;
 
             // Remember the design's real pixel size so the preview and the issued
             // PDF are both rendered at its exact aspect ratio — never distorted.
-            $dimensions = @getimagesize($file->getRealPath());
-            if ($dimensions !== false && $dimensions[0] > 0 && $dimensions[1] > 0) {
-                $layout['bg_w'] = (int) $dimensions[0];
-                $layout['bg_h'] = (int) $dimensions[1];
-            }
+            $layout['bg_w'] = $dimensions['width'];
+            $layout['bg_h'] = $dimensions['height'];
         }
 
-        $template->update([
-            'name' => $data['name'],
-            'background_path' => $backgroundPath,
-            // Preserve the name placement/font/colour set in the editor.
-            'layout' => $layout,
-        ]);
+        try {
+            $template->fill([
+                'name' => mb_substr($template->automaticName(), 0, 255),
+                'background_path' => $backgroundPath,
+                // Preserve the name placement/font/colour set in the editor.
+                'layout' => $layout,
+            ])->save();
+        } catch (\Throwable $exception) {
+            if (isset($newBackgroundPath)) {
+                $disk->delete($newBackgroundPath);
+            }
+
+            throw $exception;
+        }
+
+        // Only remove the previous private artwork after the replacement is
+        // durable. A storage outage can no longer turn an otherwise valid
+        // template into a template with no background at all.
+        if (isset($newBackgroundPath) && $oldBackgroundPath && $oldBackgroundPath !== $backgroundPath) {
+            $disk->delete($oldBackgroundPath);
+        }
 
         $audit->record($request, 'certificate_template.updated', $template);
 
@@ -155,7 +187,8 @@ class CertificationController extends Controller
             'name_text_align' => ['nullable', Rule::in(['left', 'center', 'right'])],
         ]);
 
-        $template->update([
+        $template->fill([
+            'name' => mb_substr($template->automaticName(), 0, 255),
             'layout' => array_merge($template->layout ?? [], [
                 'name_top' => round((float) $data['name_top'], 2),
                 'name_left' => round((float) $data['name_left'], 2),
@@ -166,7 +199,7 @@ class CertificationController extends Controller
                 'name_font_style' => $data['name_font_style'] ?? 'regular',
                 'name_text_align' => $data['name_text_align'] ?? 'center',
             ]),
-        ]);
+        ])->save();
 
         $audit->record($request, 'certificate_template.design_updated', $template);
 
@@ -184,8 +217,8 @@ class CertificationController extends Controller
 
     /**
      * Render the uploaded design with a sample (or typed) name so the placement
-     * can be checked before issuing. A `name` query lets the organizer preview
-     * the exact spelling they intend to print.
+     * can be checked before issuing. Participant names are resolved server-side;
+     * ad hoc names travel only in a CSRF-protected POST body.
      */
     public function preview(Request $request, Webinar $webinar, CertificateService $service): Response|RedirectResponse
     {
@@ -197,17 +230,31 @@ class CertificationController extends Controller
                 ->with('error', 'Upload a certificate design first, then preview it.');
         }
 
-        $name = trim((string) $request->query('name', ''));
+        $request->validate(['participant' => ['nullable', 'string', 'max:64']]);
+        $name = '';
+        if ($request->filled('participant')) {
+            $participant = $webinar->participants()->where('public_id', $request->input('participant'))->whereNull('privacy_erased_at')->firstOrFail();
+            $name = (string) $participant->full_name;
+        } elseif ($request->isMethod('post')) {
+            $data = validator($request->request->all(), ['name' => ['nullable', 'string', 'max:180']])->validate();
+            $name = trim((string) ($data['name'] ?? ''));
+        }
 
         $certificate = new Certificate([
             'verification_code' => 'CERT-PREVIEW0000000000',
-            'recipient_name' => $name !== '' ? Str::limit($name, 120, '') : 'Sample Participant',
+            'recipient_name' => $name !== '' ? $name : 'Sample Participant',
             'issued_at' => now(),
         ]);
         $certificate->setRelation('webinar', $webinar);
         $certificate->setRelation('template', $template);
 
-        return response($service->render($certificate), 200, [
+        try {
+            $contents = $service->render($certificate);
+        } catch (\RuntimeException $exception) {
+            return back()->with('error', $exception->getMessage());
+        }
+
+        return response($contents, 200, [
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => 'inline; filename="certificate-preview.pdf"',
         ]);
@@ -232,15 +279,138 @@ class CertificationController extends Controller
         ]);
     }
 
-    /** Fetch the webinar's active template, creating a default one if it has none. */
+    /** Reading setup/preview never creates or rewrites a template. */
     private function activeTemplate(Webinar $webinar): CertificateTemplate
     {
-        return $webinar->certificateTemplates()->where('is_active', true)->first()
-            ?? $webinar->certificateTemplates()->create([
-                'name' => 'Certificate',
+        $template = $webinar->certificateTemplates()->where('is_active', true)->first()
+            ?? $webinar->certificateTemplates()->make([
                 'storage_disk' => config('webinar.certificate_disk'),
                 'layout' => ['accent' => '#1d4ed8', 'name_top' => 62, 'name_font_size' => 42],
                 'is_active' => true,
             ]);
+        $template->setRelation('webinar', $webinar);
+
+        return $template;
+    }
+
+    public function updateEmail(Request $request, Webinar $webinar, AuditService $audit): RedirectResponse
+    {
+        $data = $this->emailInput($request, $webinar);
+        DB::transaction(function () use ($webinar, $data, $audit, $request): void {
+            $locked = Webinar::query()->whereKey($webinar->id)->whereNull('deletion_started_at')->lockForUpdate()->firstOrFail();
+            $locked->update($data);
+            $audit->record($request, 'certificate_email.updated', $locked);
+        });
+
+        return redirect()->to(route('admin.certification.edit', $webinar).'#email-configuration')->with('success', 'Email configuration saved. No certificates or emails were sent.');
+    }
+
+    /** Resolve unsaved composer text using synthetic recipient information only. */
+    public function previewEmail(Request $request, Webinar $webinar): View
+    {
+        $sample = clone $webinar;
+        if ($request->isMethod('post')) {
+            $sample->fill($this->emailInput($request, $webinar));
+        }
+        [$participant, $certificate] = $this->sampleCertificate($sample);
+        $sender = $this->emailSender();
+
+        return view('emails.certificate-issued', [
+            'participant' => $participant, 'certificate' => $certificate,
+            'customMessage' => $sample->certificateEmailMessage($certificate->recipient_name),
+            'subject' => $sample->certificateEmailSubject($certificate->recipient_name),
+            'previewInfo' => [
+                'sender' => $sender['name'].' <'.$sender['address'].'>',
+                'participant' => $certificate->recipient_name,
+                'attachment' => $certificate->template->background_path
+                    ? 'certificate.pdf — sample PDF using this webinar’s saved design'
+                    : 'certificate.pdf — upload a certificate design before testing the attachment',
+            ],
+            'statusUrl' => null,
+        ]);
+    }
+
+    public function testEmail(Request $request, Webinar $webinar, CertificateService $certificates, NotificationService $notifications, AuditService $audit): RedirectResponse
+    {
+        $data = $request->validate(['test_key' => ['required', 'uuid'], 'confirmed' => ['required', 'accepted']]);
+        $data['test_key'] = Str::lower($data['test_key']);
+        try {
+            $queued = DB::transaction(function () use ($webinar, $request, $data, $certificates, $notifications, $audit): bool {
+                $locked = Webinar::query()->whereKey($webinar->id)->whereNull('deletion_started_at')->lockForUpdate()->firstOrFail();
+                abort_if($locked->archived_at !== null || $locked->retention_due_at?->isPast(), 409, 'This webinar is archived or past its retention deadline.');
+                if (EmailDelivery::query()->where('idempotency_key', $data['test_key'])->exists()) {
+                    return false;
+                }
+                [$participant, $certificate] = $this->sampleCertificate($locked);
+                $contents = $certificates->render($certificate);
+                $expiry = now()->addMinutes(15);
+                if ($locked->retention_due_at && $locked->retention_due_at->lt($expiry)) {
+                    $expiry = $locked->retention_due_at;
+                }
+                $delivery = $notifications->queue(
+                    $locked, null, 'certificate_test', $request->user()->email,
+                    '[TEST] '.$locked->certificateEmailSubject($certificate->recipient_name),
+                    view('emails.certificate-issued', [
+                        'participant' => $participant, 'certificate' => $certificate,
+                        'customMessage' => $locked->certificateEmailMessage($certificate->recipient_name),
+                        'statusUrl' => null, 'isTest' => true,
+                    ])->render(),
+                    null, [['name' => 'certificate.pdf', 'content' => base64_encode($contents)]], $expiry, $data['test_key'],
+                );
+                $audit->record($request, 'certificate_email.test_queued', $delivery);
+
+                return true;
+            });
+        } catch (UniqueConstraintViolationException) {
+            $queued = false;
+        } catch (\RuntimeException $exception) {
+            return redirect()->to(route('admin.certification.edit', $webinar).'#email-configuration')->with('error', $exception->getMessage());
+        }
+
+        return redirect()->to(route('admin.certification.edit', $webinar).'#email-configuration')->with($queued ? 'success' : 'warning', $queued
+            ? 'One sample email was queued to your '.($request->user()->isAdministrator() ? 'administrator' : 'account').' email address. No participant certificate was issued. Check the email delivery log for pending, sent or failed status.'
+            : 'This test request was already queued. It was not sent again. Check the email delivery log.');
+    }
+
+    private function emailInput(Request $request, Webinar $webinar): array
+    {
+        try {
+            $data = $request->validate([
+                'certificate_email_subject' => ['nullable', 'string', 'max:120', 'not_regex:/[\r\n]/'],
+                'certificate_email_message' => ['nullable', 'string', 'max:2000'],
+            ]);
+            foreach (['certificate_email_subject', 'certificate_email_message'] as $field) {
+                $data[$field] = filled($data[$field] ?? null) ? trim($data[$field]) : null;
+                preg_match_all('/\{\{([^{}]+)\}\}/', (string) $data[$field], $matches);
+                if (array_diff($matches[1], ['participant_name', 'webinar_title', 'certificate_type']) !== []) {
+                    throw ValidationException::withMessages([$field => 'Use only {{participant_name}}, {{webinar_title}} or {{certificate_type}}.']);
+                }
+            }
+
+            return $data;
+        } catch (ValidationException $exception) {
+            // A background image request can become the session's previous URL.
+            // Validation must return to the composer, never to a raw image.
+            throw $exception->redirectTo(route('admin.certification.edit', $webinar).'#email-configuration');
+        }
+    }
+
+    /** No participant, certificate, file or delivery is persisted by sample creation. */
+    private function sampleCertificate(Webinar $webinar): array
+    {
+        $participant = new Participant(['full_name' => 'Sample Participant']);
+        $participant->setRelation('webinar', $webinar);
+        $certificate = new Certificate(['verification_code' => 'SAMPLE — NOT VALID', 'recipient_name' => 'Sample Participant', 'issued_at' => now()]);
+        $certificate->setRelation('webinar', $webinar);
+        $certificate->setRelation('template', $this->activeTemplate($webinar));
+
+        return [$participant, $certificate];
+    }
+
+    private function emailSender(): array
+    {
+        return config('webinar.email.provider') === 'brevo'
+            ? ['name' => config('services.brevo.from_name'), 'address' => config('services.brevo.from_address')]
+            : config('mail.from');
     }
 }

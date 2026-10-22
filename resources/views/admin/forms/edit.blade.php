@@ -12,7 +12,7 @@
     // Pre/post-assessments are quizzes — they only make sense as scored
     // questions, not profile-style fields. Registration collects details
     // about the person; the evaluation survey can use either.
-    $hasFields = ! in_array($form->type, ['pretest', 'posttest'], true);
+    $hasFields = true;
     $hasQuestions = $form->type !== 'registration';
     $showTwoColumns = $hasFields && $hasQuestions;
     $settingsOpen = $errors->hasAny(['title', 'description', 'closes_at', 'max_attempts', 'show_score']);
@@ -22,7 +22,7 @@
     // Plain-language names for the technical field_type/question_type values.
     $fieldTypeLabels = [
         'text' => 'Short text', 'email' => 'Email address', 'number' => 'Number', 'date' => 'Date',
-        'textarea' => 'Long text', 'select' => 'Dropdown list', 'radio' => 'Multiple choice (pick one)', 'checkbox' => 'Checkboxes (pick multiple)',
+        'textarea' => 'Long text', 'rating' => 'Rating scale (1?5)', 'select' => 'Dropdown list', 'radio' => 'Multiple choice (pick one)', 'checkbox' => 'Checkboxes (pick multiple)',
     ];
     $questionTypeLabels = [
         'multiple_choice' => 'Multiple choice', 'true_false' => 'True / false', 'text' => 'Written answer',
@@ -51,13 +51,18 @@
 @endphp
 
 <x-page-header :title="$form->title"
-               :crumbs="[($form->type === 'registration' ? 'Participants' : 'Tests') => route('admin.webinars.show', $webinar)]">
+               :crumbs="['Forms' => route('admin.forms.edit', [$webinar, $webinar->forms->firstWhere('type', 'registration') ?? $form])]">
     <x-slot:meta>
         <div class="mt-3 flex flex-wrap items-center gap-2.5 text-[13px] text-slate-500">
-            <span class="uppercase tracking-wide">{{ $form->type }}</span>
+            <span>{{ $form->submissions_count }} responses</span>
         </div>
     </x-slot:meta>
+    <x-slot:actions>
+        <a class="button-secondary" target="_blank" rel="noopener" href="{{ route('admin.forms.preview', [$webinar, $form]) }}">Preview form</a>
+        <a class="button-secondary" href="{{ route('admin.responses.index', [$webinar, 'type' => $form->type]) }}">View responses</a>
+    </x-slot:actions>
 </x-page-header>
+<x-form-tabs :webinar="$webinar" :active="$form->type" />
 
 <section class="panel mb-6 p-5" data-availability-panel>
     <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -130,6 +135,15 @@
         </form>
     </div>
 </section>
+
+@if($form->fields->count() + $form->questions->count() > 1)
+<details class="panel mb-6 p-5"><summary class="cursor-pointer text-sm font-semibold">Question order</summary><p class="mt-2 text-sm text-slate-500">Move questions within each section. Participant details appear before scored questions.</p>
+@foreach(['fields' => 'Participant details', 'questions' => 'Scored questions'] as $kind => $heading)
+    @if($form->$kind->isNotEmpty())<h3 class="mt-4 text-sm font-semibold">{{ $heading }}</h3>@endif
+    @foreach($form->$kind as $item)<form class="flex items-center justify-between gap-3 border-b border-slate-200 py-3" method="POST" action="{{ route('admin.forms.reorder', [$webinar, $form]) }}">@csrf<input type="hidden" name="kind" value="{{ $kind }}"><input type="hidden" name="item" value="{{ $item->id }}"><span class="text-sm">{{ $item->label ?? $item->prompt }}</span><span class="flex shrink-0 gap-2"><button class="button-secondary" name="direction" value="up" @disabled($loop->first) aria-label="Move {{ $item->label ?? $item->prompt }} up">?</button><button class="button-secondary" name="direction" value="down" @disabled($loop->last) aria-label="Move {{ $item->label ?? $item->prompt }} down">?</button></span></form>@endforeach
+@endforeach
+</details>
+@endif
 
 <section class="panel mb-6 overflow-hidden">
     <details class="group" @if($settingsOpen) open @endif>
@@ -239,7 +253,7 @@
                         <button class="button-primary justify-self-start">Save field</button>
                     </form>
 
-                    <form class="mt-3 border-t border-slate-100 pt-3" method="POST" action="{{ route('admin.forms.fields.destroy', [$webinar, $form, $field]) }}" data-confirm="Remove this field and every answer given to it?">@csrf @method('DELETE')
+                    <form class="mt-3 border-t border-slate-100 pt-3" method="POST" action="{{ route('admin.forms.fields.destroy', [$webinar, $form, $field]) }}" data-confirm="Remove this field from the live form? Existing answers remain available in Form Responses.">@csrf @method('DELETE')
                         <button class="text-[13px] font-medium text-red-600 hover:underline">Delete this field</button>
                     </form>
                     </details>
@@ -274,7 +288,7 @@
                             <textarea class="field {{ $addQuestionOpen && $errors->has('prompt') ? 'field-invalid' : '' }}" name="prompt" rows="3" placeholder="What is the first step in the BLS algorithm?" required>{{ $addQuestionOpen ? old('prompt') : '' }}</textarea>
                             <x-field-error :error="$addQuestionOpen ? $errors->first('prompt') : null" />
                         </label>
-                        <div class="grid grid-cols-2 gap-3">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <label class="field-label">Answer type
                                 <select class="field" name="question_type" data-toggles-visibility>
                                     @foreach($questionTypeLabels as $value => $text)
@@ -333,7 +347,7 @@
                                 <textarea class="field {{ $rowErrors?->has('prompt') ? 'field-invalid' : '' }}" name="prompt" rows="3" required>{{ $rowFailed ? old('prompt') : $question->prompt }}</textarea>
                                 <x-field-error :error="$rowErrors?->first('prompt')" />
                             </label>
-                            <div class="grid grid-cols-2 gap-3">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <label class="field-label">Answer type
                                     <select class="field" name="question_type" data-toggles-visibility @disabled($locked)>
                                         @foreach($questionTypeLabels as $value => $text)
@@ -359,7 +373,7 @@
                             <button class="button-primary justify-self-start">Save question</button>
                         </form>
 
-                        <form class="mt-3 border-t border-slate-100 pt-3" method="POST" action="{{ route('admin.forms.questions.destroy', [$webinar, $form, $question]) }}" data-confirm="Remove this question and every answer given to it?">@csrf @method('DELETE')
+                        <form class="mt-3 border-t border-slate-100 pt-3" method="POST" action="{{ route('admin.forms.questions.destroy', [$webinar, $form, $question]) }}" data-confirm="Remove this question from the live form? Existing answers remain available in Form Responses.">@csrf @method('DELETE')
                             <button class="text-[13px] font-medium text-red-600 hover:underline">Delete this question</button>
                         </form>
                     </details>
@@ -399,20 +413,6 @@
 </div>
 
 @if($hasQuestions)
-<script nonce="{{ $cspNonce }}">
-    (function () {
-        var root = document.querySelector('[data-questions]');
-        if (!root) return;
-        var tabs = root.querySelectorAll('[data-question-tabs] input[name="qtab"]');
-        var panels = root.querySelectorAll('[data-qpanel]');
-        function sync() {
-            var active = 'builder';
-            tabs.forEach(function (t) { if (t.checked) active = t.value; });
-            panels.forEach(function (p) { p.classList.toggle('hidden', p.getAttribute('data-qpanel') !== active); });
-        }
-        tabs.forEach(function (t) { t.addEventListener('change', sync); });
-        sync();
-    })();
-</script>
+
 @endif
 @endsection

@@ -39,6 +39,7 @@ class Certificate extends Model
             'verification_code' => 'encrypted',
             'recipient_name' => 'encrypted',
             'layout' => 'array',
+            'eligibility_snapshot' => 'array',
             'revocation_reason' => 'encrypted',
             'issued_at' => 'datetime',
             'sent_at' => 'datetime',

@@ -3,9 +3,12 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class FormField extends Model
 {
+    use SoftDeletes;
+
     protected $guarded = ['id'];
 
     protected function casts(): array

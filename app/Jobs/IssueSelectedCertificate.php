@@ -33,6 +33,9 @@ class IssueSelectedCertificate implements ShouldQueue
         Certificate::query()
             ->where('participant_id', $this->participantId)
             ->where('status', 'processing')
-            ->update(['status' => 'failed', 'updated_at' => now()]);
+            // Bulk updates bypass Certificate's saving event, so release its
+            // active-issuance claim explicitly. Keep the file inventory for
+            // retention/erasure if a terminated worker left an artifact.
+            ->update(['status' => 'failed', 'issuance_key' => null, 'updated_at' => now()]);
     }
 }

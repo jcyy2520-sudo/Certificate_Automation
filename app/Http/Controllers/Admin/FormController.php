@@ -31,8 +31,44 @@ class FormController extends Controller
             'questions.choices',
         ]);
         $form->setRelation('webinar', $webinar);
+        $webinar->loadMissing('forms');
+        $form->loadCount(['submissions' => fn ($query) => $query->where('status', 'submitted')->whereNull('answers_erased_at')]);
 
         return view('admin.forms.edit', compact('webinar', 'form'));
+    }
+
+    public function preview(Webinar $webinar, Form $form): View
+    {
+        $this->assertBelongsTo($webinar, $form);
+        $form->load(['fields', 'questions.choices']);
+        $form->setRelation('webinar', $webinar);
+
+        return view('public.form', ['form' => $form, 'participant' => null, 'adminPreview' => true]);
+    }
+
+    public function reorder(Request $request, Webinar $webinar, Form $form, AuditService $audit): RedirectResponse
+    {
+        $this->assertBelongsTo($webinar, $form);
+        $data = $request->validate(['kind' => ['required', Rule::in(['fields', 'questions'])], 'item' => ['required', 'integer'], 'direction' => ['required', Rule::in(['up', 'down'])]]);
+        DB::transaction(function () use ($webinar, $form, $data, $request, $audit): void {
+            $form = $this->lockedForm($webinar, $form);
+            $items = $form->{$data['kind']}()->orderBy('id')->lockForUpdate()->get()->sortBy('sort_order')->values();
+            $position = $items->search(fn ($item) => $item->id === (int) $data['item']);
+            abort_if($position === false, 404);
+            $target = $position + ($data['direction'] === 'up' ? -1 : 1);
+            if ($target < 0 || $target >= $items->count()) {
+                return;
+            }
+            $moving = $items->pull($position);
+            $items = $items->values();
+            $items->splice($target, 0, [$moving]);
+            foreach ($items as $index => $item) {
+                $item->update(['sort_order' => $index + 1]);
+            }
+            $audit->record($request, 'form.reordered', $form, ['kind' => $data['kind']]);
+        });
+
+        return back()->with('success', 'Question order saved.');
     }
 
     public function update(Request $request, Webinar $webinar, Form $form, AuditService $audit): RedirectResponse
@@ -191,6 +227,9 @@ class FormController extends Controller
     public function storeField(Request $request, Webinar $webinar, Form $form, AuditService $audit): RedirectResponse
     {
         $this->assertBelongsTo($webinar, $form);
+        if ($request->input('field_type') === 'rating') {
+            $request->merge(['field_type' => 'radio', 'options_text' => "1\n2\n3\n4\n5"]);
+        }
         $data = $request->validate([
             'label' => ['required', 'string', 'max:180'],
             'field_type' => ['required', Rule::in(['text', 'email', 'number', 'date', 'textarea', 'select', 'radio', 'checkbox'])],
@@ -217,6 +256,9 @@ class FormController extends Controller
     {
         $this->assertBelongsTo($webinar, $form);
         abort_unless($field->form_id === $form->id, 404);
+        if ($request->input('field_type') === 'rating') {
+            $request->merge(['field_type' => 'radio', 'options_text' => "1\n2\n3\n4\n5"]);
+        }
 
         $data = $request->validate([
             'label' => ['required', 'string', 'max:180'],
@@ -236,6 +278,10 @@ class FormController extends Controller
                 ->where('form_id', $form->id)
                 ->lockForUpdate()
                 ->firstOrFail();
+            if ($lockedField->answers()->exists()
+                && ($data['field_type'] !== $lockedField->field_type || $this->lines($data['options_text'] ?? '')->all() !== ($lockedField->options ?? []))) {
+                throw ValidationException::withMessages(['field_type' => 'This field already has answers. Keep its type and choices, or add a replacement field.']);
+            }
             $lockedField->update([
                 ...collect($data)->except('options_text', 'is_required')->all(),
                 'options' => $this->lines($data['options_text'] ?? '')->all(),

@@ -9,6 +9,7 @@
     $totalPrompts = $form->fields->count() + $form->questions->count();
 @endphp
 
+@if($adminPreview ?? false)<div class="mb-6 rounded-lg border border-slate-200 p-4 text-sm" role="status">Administrator preview ? Submissions are disabled. <a class="underline" href="{{ route('admin.forms.edit', [$form->webinar, $form]) }}">Return to Forms</a></div>@endif
 <header class="text-center">
     <p class="text-[22px] leading-8 text-slate-800">{{ $form->webinar->title }}</p>
     <h1 class="mt-1 text-[22px] font-bold leading-9 text-slate-900">
@@ -42,7 +43,7 @@
     </div>
 @endif
 
-<form class="mt-10" method="POST" action="{{ route('forms.public.submit', $form->public_token) }}" data-survey>@csrf
+<form class="mt-10" method="POST" action="{{ ($adminPreview ?? false) ? route('admin.forms.preview', [$form->webinar, $form]) : route('forms.public.submit', $form->public_token) }}" @if($adminPreview ?? false) data-admin-preview @endif data-survey>@csrf
 
     <fieldset class="space-y-5">
         <legend class="survey-question mb-5">About you</legend>
@@ -147,7 +148,7 @@
     </div>
 
     <div class="mt-14 flex flex-col items-center gap-4">
-        <button class="button-primary w-full sm:w-auto sm:min-w-50">Submit</button>
+        <button class="button-primary w-full sm:w-auto sm:min-w-50" @disabled($adminPreview ?? false)>{{ ($adminPreview ?? false) ? 'Preview ? submissions disabled' : 'Submit' }}</button>
         <p class="text-[12px] text-slate-400">{{ $form->max_attempts === 1 ? 'One response per email address' : $form->max_attempts.' responses allowed per email address' }}</p>
     </div>
 </form>
@@ -156,6 +157,9 @@
     // Drives the determinate progress bar from how much of the form is filled in.
     (function () {
         var form = document.querySelector('[data-survey]');
+        if (form && form.hasAttribute('data-admin-preview')) {
+            form.addEventListener('submit', function (event) { event.preventDefault(); });
+        }
         var stepper = document.querySelector('[data-stepper]');
         if (!form || !stepper) return;
 

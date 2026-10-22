@@ -11,6 +11,7 @@ use App\Services\ParticipantPrivacyService;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 /**
@@ -224,10 +225,29 @@ class ImportSchemaTest extends TestCase
         $import->refresh();
         $this->assertNotNull($import->privacy_erased_at);
         $this->assertFalse($import->retainsPersonalData());
-        $this->assertNull($import->column_map);
+        $summary = $import->column_map;
+        $this->assertTrue($summary['erased'] ?? false);
+        // Raw headers and response values are gone; only the layout signature
+        // and field-to-column indices remain to answer "which mapping was used".
+        $this->assertArrayNotHasKey('headers', $summary);
         $this->assertSame(500, $import->total_rows);
         $this->assertSame(487, $import->valid_rows);
         $this->assertSame($this->administrator->id, (int) $import->imported_by);
+    }
+
+    public function test_retention_removes_a_pending_source_file_before_marking_its_import_erased(): void
+    {
+        Storage::fake('local');
+        $import = $this->import(['status' => Import::STATUS_PENDING]);
+        $path = 'imports-pending/import-'.$import->id.'.csv';
+        Storage::disk('local')->put($path, "Timestamp,Email Address\n2026-09-25 09:00,person@example.com\n");
+
+        $result = app(ParticipantPrivacyService::class)->eraseWebinarImports($this->webinar);
+
+        $this->assertSame(['imports' => 1, 'issues' => 0], $result);
+        Storage::disk('local')->assertMissing($path);
+        $this->assertSame(Import::STATUS_CANCELLED, $import->fresh()->status);
+        $this->assertNotNull($import->fresh()->privacy_erased_at);
     }
 
     public function test_the_purge_is_idempotent_and_reaches_stranded_issues(): void

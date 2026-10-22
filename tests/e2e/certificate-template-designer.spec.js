@@ -6,8 +6,8 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('the template page is the permanent certificate style editor', async ({ page }) => {
-    await expect(page.locator('[data-template-designer]')).toContainText('Set this once');
-    await expect(page.locator('[data-template-designer]')).toContainText('Every new certificate starts with this style and position');
+    await expect(page.locator('[data-template-designer]')).toContainText('Every new certificate starts with this style');
+    await expect(page.locator('[data-template-designer]')).toContainText('Long names shrink to fit');
 
     await page.locator('[data-template-size]').evaluate((element) => {
         element.value = '72';

@@ -11,44 +11,21 @@
         </div>
     </x-slot:meta>
     <x-slot:actions>
-        <a class="button-primary" href="#add-participant"><x-icon name="plus" class="size-4" />Add participant</a>
-        <a class="button-secondary" href="{{ route('admin.participants.export', $webinar) }}" download><x-icon name="download" class="size-4" />Download CSV</a>
+        <a class="button-primary" href="{{ route('admin.certificates.studio', [$webinar, 'add_recipient' => 1]) }}"><x-icon name="plus" class="size-4" />Add Recipient Manually</a>
+        <a class="button-secondary" href="{{ route('admin.participants.export', $webinar) }}" download><x-icon name="download" class="size-4" />Download pre-send roster</a>
+        <a class="button-secondary" href="{{ route('admin.webinars.certificates.export-zip', $webinar) }}" title="Download all issued certificate PDFs as a ZIP archive"><x-icon name="archive" class="size-4" />Download certificates (ZIP)</a>
     </x-slot:actions>
 </x-page-header>
 
-<details id="add-participant" class="panel mb-5 scroll-mt-5 overflow-hidden" @if($errors->hasAny(['full_name', 'email', 'organization'])) open @endif>
-    <summary class="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 marker:hidden">
-        <span>
-            <span class="block text-[14px] font-semibold text-slate-950">Add a participant to this table</span>
-            <span class="mt-0.5 block text-[12px] text-slate-500">Use this for an off-platform attendee. They will be eligible and selected for certificate review.</span>
-        </span>
-        <span class="grid size-8 shrink-0 place-items-center rounded-lg bg-amber-50 text-amber-800"><x-icon name="plus" class="size-4" /></span>
-    </summary>
-    <form method="POST" action="{{ route('admin.participants.store', $webinar) }}" class="grid gap-4 border-t border-slate-100 bg-stone-50/70 px-5 py-5 md:grid-cols-[1fr_1fr_0.8fr_auto] md:items-start">
-        @csrf
-        <label class="field-label">Full name
-            <input class="field @error('full_name') field-invalid @enderror" name="full_name" value="{{ old('full_name') }}" required maxlength="180" autocomplete="name" placeholder="Full participant name">
-            @error('full_name')<span class="field-error">{{ $message }}</span>@enderror
-        </label>
-        <label class="field-label">Email address
-            <input class="field @error('email') field-invalid @enderror" type="email" name="email" value="{{ old('email') }}" required maxlength="255" autocomplete="email" placeholder="maria@example.com">
-            @error('email')<span class="field-error">{{ $message }}</span>@enderror
-        </label>
-        <label class="field-label">Organization <span class="font-normal text-slate-400">Optional</span>
-            <input class="field @error('organization') field-invalid @enderror" name="organization" value="{{ old('organization') }}" maxlength="180" autocomplete="organization" placeholder="Organization">
-            @error('organization')<span class="field-error">{{ $message }}</span>@enderror
-        </label>
-        <button class="button-primary mt-[22px]"><x-icon name="plus" class="size-4" />Add &amp; select</button>
-    </form>
-</details>
+
 
 <form method="POST" action="{{ route('admin.participants.filter', $webinar) }}" class="mb-3 flex flex-wrap items-center gap-3">
     @csrf
-    <label class="chip w-72">
+    <label class="chip w-full sm:w-72">
         <x-icon name="search" class="size-[18px] text-slate-400" />
         <input name="search" value="{{ $participantFilters['search'] ?? '' }}" placeholder="Search name or email" autocomplete="off">
     </label>
-    <label class="chip w-64">
+    <label class="chip w-full sm:w-64">
         <x-icon name="filter" class="size-[18px] text-slate-400" />
         <select name="filter" data-auto-submit>
             <option value="">Everyone</option>
@@ -77,7 +54,7 @@
 </div>
 <div class="panel overflow-hidden">
     <div class="overflow-x-auto">
-        <table class="w-full text-left text-sm">
+        <table class="w-full min-w-[960px] text-left text-sm">
             <thead class="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-[0.06em] text-slate-500">
                 <tr>
                     <th class="w-12 px-5 py-3"><input type="checkbox" class="survey-check size-[18px]" data-select-page-certificates aria-label="Select all eligible participants on this page"></th>
@@ -107,9 +84,23 @@
                             'failed' => 'badge-red',
                             default => 'badge-slate',
                         };
+                        // A greyed-out checkbox must still say why. Name the
+                        // missing requirements so nobody has to guess whether
+                        // the app is broken.
+                        $missingRequirements = collect($participant->eligibility['requirements'] ?? [])
+                            ->filter(fn ($met) => ! $met)
+                            ->keys()
+                            ->map(fn ($requirement) => ucfirst(str_replace('_', ' ', $requirement)))
+                            ->values()
+                            ->all();
+                        $checkboxTitle = $canSendCertificate
+                            ? 'Select for certificate sending'
+                            : ($missingRequirements
+                                ? 'Not eligible — missing '.implode(' and ', $missingRequirements).'. Use Add Recipient Manually in Certificate Studio for an authorized exception.'
+                                : 'Not available for certificate sending');
                     @endphp
                     <tr class="transition hover:bg-amber-50/30 {{ $justAdded ? 'bg-amber-50/70' : '' }}">
-                        <td class="px-5 py-3.5"><input type="checkbox" name="participants[]" value="{{ $participant->public_id }}" class="survey-check size-[18px]" data-participant-certificate-checkbox @if($justAdded && $canSendCertificate) data-auto-selected checked @endif @disabled(! $canSendCertificate) aria-label="Select {{ $participant->full_name ?: 'participant' }} for certificate sending"></td>
+                        <td class="px-5 py-3.5"><input type="checkbox" name="participants[]" value="{{ $participant->public_id }}" class="survey-check size-[18px]" data-participant-certificate-checkbox @if($justAdded && $canSendCertificate) data-auto-selected checked @endif @disabled(! $canSendCertificate) title="{{ $checkboxTitle }}" aria-label="Select {{ $participant->full_name ?: 'participant' }} for certificate sending"></td>
                         <td class="px-5 py-3.5">
                             <a href="{{ route('admin.participants.show', [$webinar, $participant]) }}" class="font-medium text-slate-900 hover:text-accent-700">{{ $participant->full_name ?: 'Erased participant' }}</a>
                         </td>

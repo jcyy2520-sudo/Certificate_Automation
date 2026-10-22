@@ -1,0 +1,14 @@
+; Overlay for the dedicated PHP 8.3 application pool on a small single node.
+; Merge into the intended existing pool; do not replace other sites' pools.
+; Verify measured memory/queue latency before enabling public traffic.
+[www]
+pm = ondemand
+pm.max_children = 2
+pm.process_idle_timeout = 10s
+pm.max_requests = 300
+request_terminate_timeout = 90s
+php_admin_value[memory_limit] = 256M
+php_admin_value[upload_max_filesize] = 10M
+php_admin_value[post_max_size] = 12M
+php_admin_flag[display_errors] = off
+php_admin_flag[log_errors] = on

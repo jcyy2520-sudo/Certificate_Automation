@@ -12,7 +12,7 @@
         "laravel/framework": "^12.0",
         "laravel/tinker": "^2.10.1",
         "league/flysystem-aws-s3-v3": "^3.35",
-        "livewire/livewire": "^4.4",
+        "openspout/openspout": "^4.28",
         "pragmarx/google2fa-laravel": "^3.0"
     },
     "require-dev": {
@@ -37,6 +37,7 @@
         }
     },
     "scripts": {
+        "test": "@php artisan test",
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
             "@php artisan package:discover --ansi"
@@ -54,7 +55,7 @@
         ],
         "dev": [
             "Composer\\Config::disableProcessTimeout",
-            "npx concurrently -c \"#93c5fd,#c4b5fd,#fb7185,#fdba74\" \"php artisan serve\" \"php artisan queue:listen --tries=1\" \"php artisan pail --timeout=0\" \"npm run dev\" --names=server,queue,logs,vite"
+            "npx concurrently -c \"#93c5fd,#c4b5fd,#a7f3d0,#fb7185,#fdba74\" \"php artisan serve\" \"php artisan queue:listen database --queue=default --tries=3 --timeout=1800\" \"php artisan queue:listen database-emails --queue=account-emails,emails --tries=3 --timeout=60\" \"php artisan pail --timeout=0\" \"npm run dev\" --names=server,certificates,email,logs,vite"
         ]
     },
     "extra": {

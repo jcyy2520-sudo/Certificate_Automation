@@ -6,7 +6,7 @@ Passing the automated checks is not a certification, penetration test, or guaran
 
 ## Security boundaries
 
-- Administrators have access to participant identity, responses, scores, exports, and certificates. Give each administrator a separate account; never share accounts.
+- Approved regular users manage their own webinars and private records. Platform administrators manage accounts and can explicitly authorize audited access to another owner's webinar. Give each person a separate account; never share accounts.
 - A form share link identifies one form, not a participant. By default, the participant must prove control of the submitted email inbox through a short-lived, one-time magic link before the form is unlocked.
 - An administrator can disable ownership verification for a specific trusted, low-stakes webinar. That mode still requires a registered email for later forms, but cannot stop someone who knows that address from impersonating its owner. Do not use it where identity assurance or consequential scoring matters.
 - Email verification proves current control of an inbox. It does not prove a legal identity, attendance, age, or that the mailbox has not been compromised.
@@ -20,12 +20,15 @@ Passing the automated checks is not a certification, penetration test, or guaran
 ### Administrator access
 
 - There is no self-service administrator registration. Accounts are provisioned interactively with `php artisan admin:create`; the password is entered at a hidden prompt and must contain at least 15 characters.
+- Public account requests create regular users awaiting email verification and administrator approval. Setup/reset links do not override suspension, approval or role checks.
 - Authentication and two-factor challenges are rate limited. Sessions are regenerated at authentication boundaries, and a password change invalidates sessions that still carry the old password hash.
-- Every protected request rechecks that the account is active and still has the administrator role.
-- TOTP multi-factor authentication is mandatory by default. A TOTP time step cannot be replayed, recovery codes are stored encrypted and hashed and are consumed once, and sensitive two-factor changes require the current password.
+- Every protected request rechecks approval, active status and completed password setup. Administrator-only endpoints additionally enforce the administrator role. Regular users are limited to their own webinars by policy and management-route middleware; administrator oversight of another owner's webinar requires an explicit audited authorization. See `MULTI_USER_PLATFORM.md` for the approved account lifecycle and migration boundary.
+- TOTP multi-factor authentication is mandatory for administrators by default and available to regular users. A TOTP time step cannot be replayed, recovery codes are stored encrypted and hashed and are consumed once, and sensitive two-factor changes require the current password.
+- Pending MFA login expires after five minutes and is bound to the accepted password and account authorization version. Credential changes invalidate it before consuming a factor; the final check and login hold the account row lock.
 - Persistent administrator login is disabled by default. Previously issued remember tokens are invalidated by the hardening migration.
 - Participant CSV export requires recent password confirmation by default. Exported spreadsheet cells are neutralized when their content could be interpreted as a formula.
-- Manual participant creation and authoritative participant-name correction require recent password confirmation. High-frequency attendance toggles and cosmetic certificate-design changes remain ungated by deliberate decision; both actions are audited.
+- The compatibility participant-creation endpoint, authoritative participant-name correction, and manual Studio recipient edits/removal require recent password confirmation. Adding a manual recipient through Certificate Studio has no extra password step by deliberate workflow decision; final certificate issuance remains password-gated. High-frequency attendance toggles and cosmetic certificate-design changes also remain ungated by deliberate decision. These actions are audited.
+- The password step-up completes the action it interrupts. The submitted request is remembered in the administrator's own session and replayed once, immediately, after the password is proven; the body is never stored outside that session, is dropped if it carries an upload, and expires within the confirmation window. Password submissions and the actions they protect have separate rate-limit budgets, so one button press costs one attempt of each.
 - Resource bindings are scoped to their parent webinar or form so an identifier from one resource cannot be substituted into another webinar's route.
 
 ### Participant access
@@ -43,8 +46,10 @@ Passing the automated checks is not a certification, penetration test, or guaran
 - Dynamic responses are marked private and `no-store`. They also receive anti-framing, MIME-sniffing, referrer, robots, cross-origin, and permissions headers.
 - The enforced Content Security Policy uses a fresh script nonce and forbids inline event handlers, frames, objects, and untrusted script execution. HSTS is sent on secure requests.
 - Host validation trusts the canonical `APP_URL` host plus only the exact aliases explicitly listed in `APP_TRUSTED_HOSTS`.
-- Sessions are encrypted and default to a 30-minute idle lifetime, expiration on browser close, HTTP-only cookies, and `SameSite=Strict`. Production requires HTTPS-only cookies.
+- Production policy requires encrypted sessions, at most 30 minutes idle time, expiration on browser close, HTTP-only/Secure cookies, and `SameSite=Strict`. Set these explicitly using the production example; Laravel's fallback configuration is database sessions, 120 minutes, unencrypted payloads and `SameSite=Lax`. Passing source tests does not verify the deployed settings.
 - Certificate files use private storage and are served through authorized controllers; Laravel's generic local-storage serving route is disabled.
+- Certificate artwork is verified PNG/JPEG, at most 8 MiB, 6,000 pixels per edge and 12 megapixels. Upload and the shared renderer inspect image headers before bitmap decoding; existing over-budget artwork must be replaced. Browser PDF conversion fits this budget while preserving aspect ratio. Participant PDF previews resolve a public ID inside the authorized webinar; typed names use a CSRF-protected POST body.
+- Pending response sources always use the private local disk, including installations using remote certificate storage. Its filesystem permissions, encrypted volume, backups and retention require separate operational verification. Import cancellation, commit cleanup, retention and webinar deletion retain inventory until source-file deletion is confirmed; hourly pruning retries cleanup without blocking other webinars on one failure.
 - Passwords use Laravel's password hasher. TOTP secrets, response values, delivery addresses and payloads, delivery errors, override reasons, certificate recipient names, and revocation reasons use application-layer encryption.
 - Participant names, email addresses, and organizations remain queryable fields in the primary database. They depend on database, disk, backup, and access-control protections and on timely erasure.
 
@@ -54,6 +59,7 @@ Passing the automated checks is not a certification, penetration test, or guaran
 - Audit logs are pruned on a bounded schedule. The default retention is 365 days and should be shortened if the documented operational and legal need permits.
 - Participant erasure deletes response answers, access credentials, overrides, certificate files, and participant-linked personal delivery data. It clears identity, scores, response metadata, certificate recipient names, and identifying audit links.
 - The erasure task fails closed if a certificate file cannot be deleted: it does not mark the database record erased while the file may remain.
+- Certificate-selection audits retain counts without recipient email/error strings. Participant and webinar retention remove legacy webinar-subject selection strings while preserving counts. Earlier infrastructure logs and backups require their own retention controls.
 
 ## Data lifecycle
 
@@ -105,8 +111,9 @@ At minimum:
 
 ### 4. Configure managed data services
 
-- Use managed PostgreSQL, not SQLite or a substitute engine. Require TLS with server identity verification, restrict ingress, use a least-privilege application account, and keep administrative credentials separate.
+- Use PostgreSQL, not SQLite or a substitute engine. Follow the selected managed or strictly local self-managed profile in `DEPLOYMENT_CHECKLIST.md`; remote PostgreSQL requires verified TLS. Restrict ingress, use a least-privilege application account, keep administrative credentials separate, and rehearse backup recovery.
 - Use encrypted Redis sessions and Redis cache with separate databases or clusters. A single `REDIS_URL` containing a database path overrides per-connection database numbers, so use connection-specific URLs when the provider supplies URLs.
+- Session revocation and preflight compare parsed Redis URL path/query identities. Nested/global endpoint overrides and unresolved topologies fail closed for destructive flushing; key prefixes do not isolate `FLUSHDB`. Use direct, explicitly separate server/database connections.
 - Use Redis queues; `sync` queues are not a production configuration. Isolate queue data from sessions/cache and use a real transactional-email provider over HTTPS.
 - Store certificate files in a private, access-controlled bucket for multi-node deployments. If local storage is unavoidable, use one application node plus encrypted disks and encrypted backups.
 - Keep application logs on daily rotation with restricted access. Forward them to a protected central store if required, while preserving their retention and redaction rules.
@@ -156,7 +163,7 @@ Run the default and email queue workers under a service manager that restarts fa
 
 ```bash
 php artisan queue:work redis --queue=default --tries=3 --timeout=1800
-php artisan queue:work redis-emails --queue=emails --tries=3 --timeout=60
+php artisan queue:work redis-emails --queue=account-emails,emails --tries=3 --timeout=60
 php artisan schedule:work
 ```
 
@@ -167,7 +174,9 @@ Run exactly one scheduler service. The supplied `deploy/systemd` units are a har
 | Hourly | Delete expired or used participant access credentials and abandoned unverified participants |
 | Every minute | Record scheduler health and dispatch a heartbeat through each required queue worker |
 | Daily at 02:00 | Erase participant data whose webinar retention deadline passed |
-| Daily at 02:30 | Prune audit records beyond the configured retention period |
+| Hourly | Cancel abandoned pending imports and retry private-source cleanup |
+| Daily at 02:30 | Prune expired transactional-email records |
+| Daily at 03:00 | Prune audit records beyond the configured retention period |
 
 Time values follow the application's configured timezone. Monitor both scheduler execution and job failures; merely configuring a cron entry or worker process is not evidence that it remains healthy.
 

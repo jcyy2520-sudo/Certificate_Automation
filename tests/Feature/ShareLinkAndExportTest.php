@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Models\Certificate;
+use App\Models\EmailDelivery;
 use App\Models\Form;
 use App\Models\Participant;
 use App\Models\User;
@@ -63,7 +65,7 @@ class ShareLinkAndExportTest extends TestCase
             ->assertSee('opens this form and nothing else', false);
 
         $this->assertMatchesRegularExpression(
-            '/aria-label="Breadcrumb".*?>Participants<\/a>/s',
+            '/aria-label="Breadcrumb".*?>Forms<\/a>/s',
             $response->getContent(),
         );
     }
@@ -144,6 +146,31 @@ class ShareLinkAndExportTest extends TestCase
                 'submitted_at' => now(),
             ]);
         }
+        $issuedAt = now();
+        $certificate = Certificate::query()->create([
+            'webinar_id' => $this->webinar->id,
+            'participant_id' => $dana->id,
+            'certificate_template_id' => $this->webinar->certificateTemplates()->firstOrFail()->id,
+            'recipient_name' => 'Done Dana',
+            'verification_code' => 'CERT-EXPORT-EVIDENCE',
+            'storage_disk' => 'local',
+            'status' => 'issued',
+            'issued_at' => $issuedAt,
+            'sent_at' => $issuedAt,
+        ]);
+        EmailDelivery::query()->create([
+            'webinar_id' => $this->webinar->id,
+            'participant_id' => $dana->id,
+            'certificate_id' => $certificate->id,
+            'type' => 'certificate',
+            'provider' => 'brevo',
+            'recipient_email' => 'dana@example.com',
+            'subject' => 'Your certificate',
+            'status' => 'sent',
+            'provider_message_id' => 'brevo-message-123',
+            'scheduled_at' => $issuedAt,
+            'sent_at' => $issuedAt,
+        ]);
         Participant::query()->create([
             'webinar_id' => $this->webinar->id, 'full_name' => 'Missing Marco', 'email' => 'marco@example.com',
         ]);
@@ -157,15 +184,36 @@ class ShareLinkAndExportTest extends TestCase
         $byName = collect($rows)->mapWithKeys(fn ($row) => [$row[0] => array_combine($header, $row)]);
 
         $this->assertContains('Meets all requirements', $header);
+        $this->assertContains('Eligibility basis', $header);
+        $this->assertContains('Certificate state', $header);
+        $this->assertContains('Email delivery state', $header);
         $this->assertSame('dana@example.com', $byName['Done Dana']['Email']);
         $this->assertSame('City Health', $byName['Done Dana']['Organization']);
         $this->assertSame('Yes', $byName['Done Dana']['Registration']);
         $this->assertSame('Yes', $byName['Done Dana']['Meets all requirements']);
+        $this->assertSame('Automatic requirements', $byName['Done Dana']['Eligibility basis']);
+        $this->assertSame('CERT-EXPORT-EVIDENCE', $byName['Done Dana']['Certificate number']);
+        $this->assertSame('Issued and sent', $byName['Done Dana']['Certificate state']);
+        $this->assertSame('sent', $byName['Done Dana']['Email delivery state']);
+        $this->assertSame('brevo-message-123', $byName['Done Dana']['Provider message ID']);
 
         $this->assertSame('No', $byName['Missing Marco']['Registration']);
         $this->assertSame('No', $byName['Missing Marco']['Meets all requirements']);
 
         $this->assertDatabaseHas('audit_logs', ['action' => 'participants.exported']);
+    }
+
+    public function test_the_webinar_overview_surfaces_live_certificate_release_readiness(): void
+    {
+        $this->actingAs($this->administrator)
+            ->get(route('admin.webinars.show', $this->webinar))
+            ->assertOk()
+            ->assertSee('Certificate release readiness')
+            ->assertSee('Certificate requirements')
+            ->assertSee('Pre-Test + Post-Test + Evaluation')
+            ->assertSee('Import review queue')
+            ->assertSee('Eligible recipients')
+            ->assertSee('Download pre-send roster');
     }
 
     public function test_the_csv_export_neutralizes_spreadsheet_formulas_and_is_not_cacheable(): void

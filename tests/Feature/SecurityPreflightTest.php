@@ -129,6 +129,20 @@ class SecurityPreflightTest extends TestCase
         $this->assertStringContainsString('FAIL  A recent restore rehearsal has recorded evidence', $output);
     }
 
+    public function test_proxy_allowlist_rejects_universal_networks_and_preserves_exact_hosts_and_networks(): void
+    {
+        $method = $this->securityCheckMethod('proxyAllowlistIsExact');
+        $command = app(SecurityCheck::class);
+
+        foreach (['0.0.0.0/0', '::/0', '0.0.0.0/00', '*', 'REMOTE_ADDR', '192.0.2.1/33', '2001:db8::1/129'] as $proxy) {
+            $this->assertFalse($method->invoke($command, [$proxy]), $proxy);
+        }
+
+        foreach (['192.0.2.8', '2001:db8::1', '192.0.2.0/24', '2001:db8::/32', '192.0.2.8/32', '2001:db8::1/128'] as $proxy) {
+            $this->assertTrue($method->invoke($command, [$proxy]), $proxy);
+        }
+    }
+
     private function securityCheckMethod(string $name): ReflectionMethod
     {
         $method = new ReflectionMethod(SecurityCheck::class, $name);

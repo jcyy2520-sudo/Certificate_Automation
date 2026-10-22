@@ -7,6 +7,11 @@
         ['route' => 'admin.email-logs.index', 'icon' => 'mail', 'label' => 'Email logs', 'active' => request()->routeIs('admin.email-logs.*', 'admin.webinars.email-logs.*')],
         ['route' => 'admin.two-factor.show', 'icon' => 'shield', 'label' => 'Security', 'active' => request()->routeIs('admin.two-factor.*')],
     ];
+    $railNav = array_values(array_filter($railNav, fn ($item) => $item['route'] !== 'admin.email-logs.index' || auth()->user()->isAdministrator()));
+    $railNav[] = ['route' => 'admin.profile', 'icon' => 'users', 'label' => 'Profile', 'active' => request()->routeIs('admin.profile*')];
+    if (auth()->user()->isAdministrator()) {
+        $railNav[] = ['route' => 'admin.users.index', 'icon' => 'users', 'label' => 'User Management', 'active' => request()->routeIs('admin.users.*')];
+    }
 @endphp
 
 @foreach($railNav as $item)

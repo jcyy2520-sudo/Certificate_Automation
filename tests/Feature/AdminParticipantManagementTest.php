@@ -154,10 +154,11 @@ class AdminParticipantManagementTest extends TestCase
         $this->delete($route)->assertRedirect(route('admin.password.confirm'));
         $this->assertDatabaseHas('eligibility_overrides', ['id' => $override->id]);
 
+        // Proving the password completes the action that the confirmation
+        // interrupted. The administrator does not have to press the button a
+        // second time, and the removal is not silently lost.
         $this->post(route('admin.password.confirm.store'), ['password' => 'password'])
-            ->assertRedirect(route('admin.dashboard'));
-        $this->delete($route)
-            ->assertRedirect()
+            ->assertRedirect(route('admin.participants.show', [$this->webinar, $this->participant]))
             ->assertSessionHas('success', 'Eligibility override removed. Eligibility was recalculated.');
 
         $this->assertDatabaseMissing('eligibility_overrides', ['id' => $override->id]);

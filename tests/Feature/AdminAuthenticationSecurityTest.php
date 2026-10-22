@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Http\Controllers\TwoFactorChallengeController;
 use App\Http\Middleware\EnsureAdministrator;
+use App\Http\Middleware\EnsureApprovedAccount;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
@@ -90,7 +91,10 @@ class AdminAuthenticationSecurityTest extends TestCase
         foreach ($adminRoutes as $route) {
             $middleware = $route->gatherMiddleware();
             $this->assertContains('auth', $middleware, $route->uri().' lacks authentication.');
-            $this->assertContains(EnsureAdministrator::class, $middleware, $route->uri().' lacks administrator authorization.');
+            $this->assertContains(EnsureApprovedAccount::class, $middleware, $route->uri().' lacks live account authorization.');
+            if (str_starts_with($route->getName(), 'admin.users.') || $route->getName() === 'admin.email-logs.index') {
+                $this->assertContains(EnsureAdministrator::class, $middleware, $route->uri().' lacks administrator authorization.');
+            }
             $this->assertContains('auth.session', $middleware, $route->uri().' does not detect password/session revocation.');
             $this->assertTrue($route->enforcesScopedBindings(), $route->uri().' does not use scoped route bindings.');
         }

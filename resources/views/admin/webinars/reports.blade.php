@@ -13,7 +13,7 @@
         ['label' => 'Certificates issued', 'value' => $issuedCount, 'icon' => 'award'],
     ];
 @endphp
-<div class="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 xl:grid-cols-4">
+<div class="grid grid-cols-1 min-[380px]:grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 xl:grid-cols-4">
     @foreach($cards as $card)
         <div class="bg-white p-5">
             <div class="flex items-center gap-2 text-slate-500"><x-icon name="{{ $card['icon'] }}" class="size-4" /><p class="text-[13px]">{{ $card['label'] }}</p></div>
@@ -79,7 +79,7 @@
     <div class="border-b border-slate-100 px-5 py-4">
         <h2 class="section-title">Certificates</h2>
     </div>
-    <div class="grid grid-cols-2 gap-px bg-slate-100 sm:grid-cols-4">
+    <div class="grid grid-cols-1 min-[380px]:grid-cols-2 gap-px bg-slate-100 sm:grid-cols-4">
         @foreach([
             ['Eligible', $eligibleCount],
             ['Issued', $issuedCount],

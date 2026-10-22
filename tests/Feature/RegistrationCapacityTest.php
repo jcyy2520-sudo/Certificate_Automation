@@ -122,6 +122,8 @@ class RegistrationCapacityTest extends TestCase
 
         $this->get($registration->shareUrl())->assertOk()->assertSee('Registration is full.');
         $this->actingAs($administrator)
+            ->post(route('admin.webinars.administrative-access.store', $webinar), ['confirmed' => 1])->assertRedirect();
+        $this
             ->put(route('admin.webinars.update', $webinar), $this->updatePayload($webinar, 2))
             ->assertRedirect(route('admin.webinars.show', $webinar));
 

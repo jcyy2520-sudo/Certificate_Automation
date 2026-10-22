@@ -7,6 +7,7 @@ use App\Jobs\SendTransactionalEmail;
 use App\Models\User;
 use App\Models\Webinar;
 use App\Services\Email\BrevoTransactionalMailer;
+use App\Support\SessionStorageSafety;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
@@ -95,7 +96,7 @@ class SecurityCheck extends Command
             $this->check(
                 $this->redisClientIsAvailable($cacheStore, $queue, $emailQueue),
                 'The configured Redis client is installed',
-                'REDIS_CLIENT=phpredis needs the `redis` PHP extension. Install it, or set REDIS_CLIENT=predis to use the bundled pure-PHP client.',
+                'Install the `redis` PHP extension and use REDIS_CLIENT=phpredis. The application does not bundle Predis.',
             );
             $this->check(($queue['driver'] ?? null) !== 'sync', 'Background work uses an asynchronous queue', 'Use a database or Redis queue and run workers.');
             $this->check(
@@ -358,20 +359,7 @@ class SecurityCheck extends Command
 
     private function effectiveRedisStorageIdentity(string $connection): ?string
     {
-        $config = (array) config("database.redis.{$connection}", []);
-        $url = (string) ($config['url'] ?? '');
-        $host = $url === '' ? ($config['host'] ?? null) : parse_url($url, PHP_URL_HOST);
-        $port = $url === '' ? ($config['port'] ?? null) : (parse_url($url, PHP_URL_PORT) ?: 6379);
-        $path = $url === '' ? null : parse_url($url, PHP_URL_PATH);
-        $database = is_string($path) && trim($path, '/') !== ''
-            ? trim($path, '/')
-            : ($config['database'] ?? null);
-
-        if (! filled($host) || ! filled($port) || $database === null) {
-            return null;
-        }
-
-        return strtolower((string) $host).':'.$port.'/'.$database;
+        return SessionStorageSafety::redisDatabaseIdentity((array) config("database.redis.{$connection}", []));
     }
 
     /** @param list<string> $proxies */
@@ -390,7 +378,7 @@ class SecurityCheck extends Command
             $maximum = filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) ? 32
                 : (filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) ? 128 : null);
 
-            if ($maximum === null || ! ctype_digit((string) $prefix) || (int) $prefix > $maximum) {
+            if ($maximum === null || ! ctype_digit((string) $prefix) || (int) $prefix < 1 || (int) $prefix > $maximum) {
                 return false;
             }
         }

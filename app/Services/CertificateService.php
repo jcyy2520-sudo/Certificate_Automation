@@ -5,10 +5,12 @@ namespace App\Services;
 use App\Models\AuditLog;
 use App\Models\Certificate;
 use App\Models\CertificateBatch;
+use App\Models\CertificateBatchItem;
 use App\Models\CertificateTemplate;
 use App\Models\Participant;
 use App\Models\Webinar;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -18,6 +20,9 @@ use Throwable;
 
 class CertificateService
 {
+    /** @var array<string, string> data URI per disk+path, valid for this instance only */
+    private array $backgroundUriCache = [];
+
     public function __construct(
         private EligibilityService $eligibility,
         private NotificationService $notifications,
@@ -89,11 +94,14 @@ class CertificateService
             if (! $lockedParticipant) {
                 throw new RuntimeException('The participant record is no longer available for certificate issuance.');
             }
+            if (blank($lockedParticipant->full_name)) {
+                throw new RuntimeException('Confirm the participant name before issuing a certificate.');
+            }
 
             $this->loadFreshEligibility($lockedParticipant, $webinar);
 
-            if (! $this->eligibility->evaluate($lockedParticipant, $webinar->eligibilityRules)['eligible']) {
-                throw new RuntimeException('The participant does not currently meet the certificate requirements.');
+            if (! $this->eligibility->canPrepareCertificate($lockedParticipant)) {
+                throw new RuntimeException('The participant does not currently meet the certificate requirements. Add an authorized exception using Add Recipient Manually in Certificate Studio.');
             }
 
             $existing = Certificate::query()
@@ -104,6 +112,10 @@ class CertificateService
                 ->first();
 
             if ($existing?->status === 'issued') {
+                if ($existing->recipient_name !== $lockedParticipant->full_name) {
+                    throw new RuntimeException('The issued certificate has an earlier name. Revoke it before issuing a corrected certificate.');
+                }
+
                 return $existing;
             }
 
@@ -132,17 +144,34 @@ class CertificateService
                 return $existing;
             }
 
-            $certificate = Certificate::query()->create([
-                'verification_code' => 'CERT-'.strtoupper(Str::random(20)),
-                'webinar_id' => $lockedParticipant->webinar_id,
-                'participant_id' => $lockedParticipant->id,
-                'certificate_template_id' => $template->id,
-                'certificate_batch_id' => $batch?->id,
-                'recipient_name' => $lockedParticipant->full_name,
-                'layout' => $layout ?: $template->layout,
-                'storage_disk' => $diskName,
-                'status' => 'processing',
-            ]);
+            // A savepoint lets PostgreSQL recover from a code collision without
+            // leaving the outer issuance transaction in an aborted state.
+            $certificate = null;
+            $lastError = null;
+            for ($attempt = 0; $attempt < 3 && $certificate === null; $attempt++) {
+                try {
+                    $certificate = DB::transaction(fn () => Certificate::query()->create([
+                        'verification_code' => 'CERT-'.strtoupper(Str::random(20)),
+                        'webinar_id' => $lockedParticipant->webinar_id,
+                        'participant_id' => $lockedParticipant->id,
+                        'certificate_template_id' => $template->id,
+                        'certificate_batch_id' => $batch?->id,
+                        'recipient_name' => $lockedParticipant->full_name,
+                        'layout' => $layout ?: $template->layout,
+                        'storage_disk' => $diskName,
+                        'status' => 'processing',
+                    ]));
+                } catch (UniqueConstraintViolationException $exception) {
+                    if (! str_contains($exception->getMessage(), 'certificates_verification_code_hash_unique')
+                        && ! str_contains($exception->getMessage(), 'certificates.verification_code_hash')) {
+                        throw $exception;
+                    }
+                    $lastError = $exception;
+                }
+            }
+            if ($certificate === null) {
+                throw new RuntimeException('A unique certificate number could not be generated. Try again.', 0, $lastError);
+            }
             // HasPublicId assigns the identifier during creation. Build the
             // inventory path from that persisted value instead of supplying a
             // mass-assignment-guarded public_id that the model would replace.
@@ -179,6 +208,9 @@ class CertificateService
                 || ! hash_equals($this->expectedPath($lockedCertificate), (string) $lockedCertificate->file_path)) {
                 throw new RuntimeException('The certificate preparation record is no longer valid.');
             }
+            if ($lockedCertificate->recipient_name !== $participant->full_name) {
+                throw new RuntimeException('The participant name changed during preparation. Generate the certificate again with the corrected name.');
+            }
 
             $template = CertificateTemplate::query()
                 ->whereKey($lockedCertificate->certificate_template_id)
@@ -194,13 +226,31 @@ class CertificateService
 
             $this->loadFreshEligibility($participant, $webinar);
 
-            if (! $this->eligibility->evaluate($participant, $webinar->eligibilityRules)['eligible']) {
+            $evaluation = $this->eligibility->evaluate($participant, $webinar->eligibilityRules);
+            if (! $evaluation['eligible'] && ! $this->eligibility->hasManualRecipient($participant)) {
                 throw new RuntimeException('The participant no longer meets the certificate requirements.');
             }
+
+            // Point-in-time snapshot so "why was this person eligible" stays
+            // answerable after rules change, overrides expire, or responses
+            // are superseded. No PII beyond requirement keys and scores.
+            $snapshot = [
+                'issued_at' => now()->toIso8601String(),
+                'source' => $this->eligibility->hasManualRecipient($participant) || $evaluation['overridden'] ? 'manual' : 'eligible',
+                'manual_authorization_id' => $this->eligibility->hasManualRecipient($participant) ? $participant->certificateApproval->id : null,
+                'overridden' => $evaluation['overridden'],
+                'requirements' => $evaluation['requirements'],
+                'rules' => $webinar->eligibilityRules->map(fn ($rule) => [
+                    'requirement' => $rule->requirement,
+                    'is_required' => (bool) $rule->is_required,
+                    'minimum_score' => $rule->minimum_score,
+                ])->values()->all(),
+            ];
 
             $lockedCertificate->update([
                 'status' => 'issued',
                 'issued_at' => now(),
+                'eligibility_snapshot' => $snapshot,
             ]);
             $lockedCertificate->setRelation('webinar', $webinar);
             $lockedCertificate->setRelation('template', $template);
@@ -243,6 +293,11 @@ class CertificateService
 
         if (! $webinar) {
             throw new RuntimeException('This webinar is closed for certificate issuance.');
+        }
+
+        $owner = $webinar->creator;
+        if ($owner && ! $owner->canAccessPlatform()) {
+            throw new RuntimeException('Certificate issuance is paused because the webinar owner account is unavailable.');
         }
 
         return $webinar;
@@ -351,32 +406,51 @@ class CertificateService
     {
         $batch->loadMissing('webinar');
 
-        if ($batch->status === 'cancelled' || $batch->webinar->deletion_started_at) {
+        if (in_array($batch->status, ['completed', 'cancelled'], true) || $batch->webinar->deletion_started_at) {
             return $batch;
         }
 
-        $candidates = $batch->webinar->participants()
+        // Start from the same query the studio uses. The per-person `issue()`
+        // check remains the authoritative locked re-check, but filtering here
+        // prevents an otherwise successful batch from reporting ineligible
+        // people as failures and avoids needless PDF/job work.
+        $candidates = Participant::query()
+            ->whereIn('participants.id', $this->eligibility->certificateParticipantsQuery($batch->webinar))
             ->whereNull('privacy_erased_at')
             ->whereNotNull('email')
             ->where('email', '!=', '')
             ->whereDoesntHave('certificates', fn ($query) => $query->whereNull('revoked_at')->whereNotNull('issued_at'));
+
+        // A worker can die after committing a PDF but before writing its batch
+        // outcome. Recover that durable issuance before counting remaining work.
+        $batch->certificates()->whereNotNull('issued_at')->with('participant')
+            ->eachById(function (Certificate $certificate) use ($batch): void {
+                if ($certificate->participant) {
+                    $this->recordBatchItem($batch, $certificate->participant, $certificate, 'issued', null);
+                }
+            });
+        $completed = $batch->items()->where('status', 'issued')
+            // A revoked certificate can put this recipient back into the work
+            // set. Count each recipient once, after the replacement succeeds.
+            ->whereNotIn('participant_id', (clone $candidates)->select('participants.id'))
+            ->distinct()->count('participant_id');
+        $failed = 0;
+        $total = max((int) $batch->fresh()->total_count, $completed + (clone $candidates)->count());
 
         $claimed = CertificateBatch::query()
             ->whereKey($batch->id)
             ->whereNotIn('status', ['completed', 'cancelled'])
             ->update([
                 'status' => 'processing',
-                'total_count' => (clone $candidates)->count(),
-                'completed_count' => 0,
+                'total_count' => $total,
+                'completed_count' => $completed,
                 'failed_count' => 0,
+                'completed_at' => null,
             ]);
 
         if ($claimed === 0) {
             return $batch->refresh();
         }
-
-        $completed = 0;
-        $failed = 0;
 
         $candidates
             ->with([
@@ -408,9 +482,10 @@ class CertificateService
 
                 foreach ($participants as $participant) {
                     try {
-                        $this->issue($participant, $batch);
+                        $certificate = $this->issue($participant, $batch);
                         $completed++;
-                    } catch (RuntimeException) {
+                        $this->recordBatchItem($batch, $participant, $certificate, 'issued', null);
+                    } catch (RuntimeException $exception) {
                         if (! CertificateBatch::query()
                             ->whereKey($batch->id)
                             ->where('status', 'processing')
@@ -419,8 +494,17 @@ class CertificateService
                         }
 
                         // Participants who do not meet the requirements are skipped, not errors.
+                        // The per-recipient row keeps the batch recoverable: the
+                        // operator sees who failed and why without re-running.
                         $failed++;
+                        $this->recordBatchItem($batch, $participant, null, 'failed', mb_substr($exception->getMessage(), 0, 500));
                     }
+                    // Keep visible progress and recovery evidence after every
+                    // recipient, rather than losing the counters on interruption.
+                    CertificateBatch::query()->whereKey($batch->id)->where('status', 'processing')->update([
+                        'completed_count' => $completed,
+                        'failed_count' => $failed,
+                    ]);
                 }
 
                 return true;
@@ -440,6 +524,28 @@ class CertificateService
     }
 
     /**
+     * Durable per-recipient batch outcome. Counts alone cannot answer "who
+     * failed and why" after a bulk run; this row can. Best-effort: a logging
+     * failure must never fail the issuance itself.
+     */
+    private function recordBatchItem(CertificateBatch $batch, Participant $participant, ?Certificate $certificate, string $status, ?string $message): void
+    {
+        try {
+            CertificateBatchItem::query()->updateOrCreate([
+                'certificate_batch_id' => $batch->id,
+                'participant_id' => $participant->id,
+            ], [
+                'webinar_id' => $batch->webinar_id,
+                'certificate_id' => $certificate?->id,
+                'status' => $status,
+                'message' => $message,
+            ]);
+        } catch (Throwable $exception) {
+            report($exception);
+        }
+    }
+
+    /**
      * Render the certificate PDF and return its raw bytes: the uploaded design
      * with the recipient's name placed on top of it, and nothing else.
      */
@@ -452,11 +558,6 @@ class CertificateService
             throw new RuntimeException('This certificate template has no uploaded design to render.');
         }
 
-        $pdf = Pdf::loadView('certificates.pdf-custom', [
-            'certificate' => $certificate,
-            'backgroundDataUri' => $this->backgroundDataUri($template),
-        ]);
-
         // Size the page to the uploaded design's aspect ratio so the certificate
         // is reproduced exactly, never stretched or cropped. The reference sheet
         // height (595, matching pdf-custom) keeps the name's size and position
@@ -464,7 +565,17 @@ class CertificateService
         $ratio = $template->aspectRatio();
         $height = 595.0;
         $width = round($height * $ratio, 2);
-        $pdf->setPaper([0, 0, $width, $height]);
+        $pdf = Pdf::setPaper([0, 0, $width, $height]);
+        $fitted = app(CertificateNameLayout::class)->fit((string) $certificate->recipient_name, $certificate->layout ?? $template->layout ?? [], $ratio, $pdf->getDomPDF());
+        // Validate existing as well as new artwork before loadView/output can
+        // decode it. Encoded byte size alone does not bound image memory use.
+        $backgroundDataUri = $this->backgroundDataUri($template);
+        $pdf->loadView('certificates.pdf-custom', [
+            'certificate' => $certificate,
+            'backgroundDataUri' => $backgroundDataUri,
+            'fittedFontSize' => $fitted['font_size'],
+            'nameWidthPercent' => $fitted['width_percent'],
+        ]);
 
         return $pdf->output();
     }
@@ -472,14 +583,28 @@ class CertificateService
     /** Read an uploaded certificate background off disk and inline it as a data URI, so dompdf never needs filesystem/chroot access to render it. */
     private function backgroundDataUri(CertificateTemplate $template): ?string
     {
+        // Bulk batches render the same artwork hundreds of times. Artwork is
+        // never overwritten in place (replacement uploads a new timestamped
+        // path, then deletes the old one), so memoizing per service instance
+        // is safe and keeps a large batch from base64-loading the same file
+        // on every render. The instance is short-lived (one request or job).
+        $key = $template->storage_disk."\0".$template->background_path;
+        if (isset($this->backgroundUriCache[$key])) {
+            return $this->backgroundUriCache[$key];
+        }
+
         $disk = Storage::disk($template->storage_disk);
 
         if (! $disk->exists($template->background_path)) {
-            return null;
+            throw new RuntimeException('The certificate artwork is missing. Restore the image before issuing.');
         }
 
-        $mime = $disk->mimeType($template->background_path) ?: 'image/png';
+        if ($disk->size($template->background_path) > CertificateArtwork::MAX_BYTES) {
+            throw new RuntimeException('Certificate artwork must be at most 8 MB. Export a smaller PNG or JPG and upload it again.');
+        }
+        $contents = $disk->get($template->background_path);
+        $image = CertificateArtwork::inspect($contents);
 
-        return 'data:'.$mime.';base64,'.base64_encode($disk->get($template->background_path));
+        return $this->backgroundUriCache[$key] = 'data:'.$image['mime'].';base64,'.base64_encode($contents);
     }
 }
