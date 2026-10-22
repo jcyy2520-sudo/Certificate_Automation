@@ -9,8 +9,10 @@ use App\Http\Controllers\Admin\FormResponseController;
 use App\Http\Controllers\Admin\ImportController as AdminImportController;
 use App\Http\Controllers\Admin\ManualCertificateRecipientController;
 use App\Http\Controllers\Admin\ParticipantController as AdminParticipantController;
+use App\Http\Controllers\Admin\ParticipantMessageController;
 use App\Http\Controllers\Admin\UserManagementController;
 use App\Http\Controllers\Admin\WebinarController as AdminWebinarController;
+use App\Http\Controllers\Admin\WebinarDocumentController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CertificateVerificationController;
 use App\Http\Controllers\DashboardController;
@@ -74,6 +76,7 @@ Route::middleware(['auth', EnsureApprovedAccount::class, 'auth.session', EnsureT
         Route::get('/', DashboardController::class)->name('dashboard');
         Route::get('/profile', [AccountController::class, 'profile'])->name('profile');
         Route::put('/profile', [AccountController::class, 'updateProfile'])->name('profile.update');
+        Route::put('/profile/password', [AccountController::class, 'changePassword'])->middleware([EnsureRecentPassword::class, 'throttle:admin-password-confirm'])->name('profile.password');
         Route::get('/users', [UserManagementController::class, 'index'])->middleware(EnsureAdministrator::class)->name('users.index');
         Route::post('/users/{user}', [UserManagementController::class, 'update'])->middleware([EnsureAdministrator::class, EnsureRecentPassword::class, 'throttle:admin-sensitive'])->name('users.update');
         Route::get('/webinar-access/{webinar}', [WebinarAccessController::class, 'administrative'])->middleware(EnsureAdministrator::class)->withoutMiddleware(AuthorizeWebinarManagement::class)->name('webinars.administrative-access');
@@ -89,6 +92,14 @@ Route::middleware(['auth', EnsureApprovedAccount::class, 'auth.session', EnsureT
         Route::delete('/security/two-factor', [TwoFactorController::class, 'disable'])->middleware('throttle:admin-sensitive')->name('two-factor.disable');
 
         Route::resource('webinars', AdminWebinarController::class)->except('destroy');
+        Route::get('/webinars/{webinar}/messages', [ParticipantMessageController::class, 'index'])->name('webinars.messages.index');
+        Route::post('/webinars/{webinar}/messages', [ParticipantMessageController::class, 'store'])->middleware([EnsureRecentPassword::class, 'throttle:admin-sensitive'])->name('webinars.messages.store');
+        Route::post('/webinars/{webinar}/messages/{delivery}/retry', [ParticipantMessageController::class, 'retry'])->middleware([EnsureRecentPassword::class, 'throttle:admin-sensitive'])->name('webinars.messages.retry');
+        Route::get('/webinars/{webinar}/documents', [WebinarDocumentController::class, 'index'])->name('webinars.documents.index');
+        Route::post('/webinars/{webinar}/documents', [WebinarDocumentController::class, 'store'])->middleware([EnsureRecentPassword::class, 'throttle:admin-sensitive'])->name('webinars.documents.store');
+        Route::put('/webinars/{webinar}/documents/{document}', [WebinarDocumentController::class, 'update'])->middleware([EnsureRecentPassword::class, 'throttle:admin-sensitive'])->name('webinars.documents.update');
+        Route::get('/webinars/{webinar}/documents/{document}/download', [WebinarDocumentController::class, 'download'])->middleware(EnsureRecentPassword::class)->name('webinars.documents.download');
+        Route::delete('/webinars/{webinar}/documents/{document}', [WebinarDocumentController::class, 'destroy'])->middleware(EnsureRecentPassword::class)->name('webinars.documents.destroy');
         Route::get('/webinars/{webinar}/reports', [AdminWebinarController::class, 'reports'])->name('webinars.reports');
         Route::delete('/webinars/{webinar}', [AdminWebinarController::class, 'destroy'])->middleware(EnsureRecentPassword::class)->name('webinars.destroy');
         Route::post('/webinars/{webinar}/archive', [AdminWebinarController::class, 'archive'])->middleware(EnsureRecentPassword::class)->name('webinars.archive');

@@ -1,6 +1,8 @@
 <?php
 
 return [
+    'document_disk' => env('WEBINAR_DOCUMENT_DISK', env('CERTIFICATE_DISK', env('FILESYSTEM_DISK', 'local'))),
+    'message_recipient_limit' => 200,
     'participant_session_minutes' => (int) env('PARTICIPANT_SESSION_MINUTES', 480),
     'verification_token_minutes' => (int) env('VERIFICATION_TOKEN_MINUTES', 30),
     'default_retention_days' => (int) env('PARTICIPANT_RETENTION_DAYS', 30),

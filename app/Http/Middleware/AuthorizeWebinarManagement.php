@@ -28,6 +28,9 @@ class AuthorizeWebinarManagement
         }
         // Run before any password prompt, controller, download or export.
         abort_unless(Gate::allows('manage', $webinar), 404);
+        if ($webinar->isUploadOnly() && $request->routeIs('admin.forms.*', 'admin.certification.*', 'admin.certificates.*', 'admin.participants.*', 'admin.responses.*', 'admin.webinars.imports.*', 'admin.webinars.import-issues.*', 'admin.webinars.certificates.*')) {
+            abort(404);
+        }
         if ($request->user()->isAdministrator()) {
             if ((int) $webinar->created_by !== (int) $request->user()->id || $webinar->management_password) {
                 $grant = $request->session()->get('administrative_webinars.'.$webinar->id);

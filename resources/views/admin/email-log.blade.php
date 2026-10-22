@@ -4,6 +4,7 @@
 @php
     $typeLabels = [
         'certificate' => 'Certificate',
+        'participant_message' => 'Message only',
         'certificate_test' => auth()->user()->isAdministrator() ? 'Certificate test (administrator only)' : 'Certificate test (your account only)',
         \App\Services\ParticipantMagicLinkService::DELIVERY_TYPE => 'Form access link',
         \App\Services\ParticipantStatusLinkService::DELIVERY_TYPE => 'Status page link',
@@ -77,7 +78,18 @@
                         <td class="max-w-[28ch] truncate px-5 py-3 text-slate-600" title="{{ $delivery->subject }}">{{ $delivery->subject ?? '—' }}</td>
                         <td class="px-5 py-3"><span class="badge {{ $statusBadges[$delivery->status] ?? 'badge-slate' }}">{{ $delivery->status === 'sent' ? 'Accepted by provider' : ucfirst($delivery->status) }}</span></td>
                         <td class="px-5 py-3 tabular-nums text-slate-600">{{ $delivery->attempts ?? 0 }}</td>
-                        <td class="max-w-[34ch] truncate px-5 py-3 text-[12px] text-slate-500" title="{{ $detail }}">{{ $detail ?: '—' }}</td>
+                        <td class="max-w-[34ch] px-5 py-3 text-[12px] text-slate-500">
+                            <p class="truncate" title="{{ $detail }}">{{ $detail ?: '—' }}</p>
+                            @if($webinar && $delivery->type === 'participant_message' && $delivery->status === 'failed')
+                            <form novalidate method="POST" action="{{ route('admin.webinars.messages.retry', [$webinar, $delivery->public_id]) }}" class="mt-2" data-confirm="Retry this failed message? Confirm with the provider first if its previous outcome is unknown." data-confirm-action="Retry message">
+                                @csrf
+                                @if(str_starts_with((string) $delivery->last_error, 'Provider outcome unknown'))
+                                <label class="flex gap-2"><input type="checkbox" name="provider_reconciled" value="1" required> I checked provider logs and confirmed this message was not accepted.</label>
+                                @endif
+                                <button class="button-secondary mt-2">Retry message</button>
+                            </form>
+                            @endif
+                        </td>
                     </tr>
                 @empty
                     <tr><td colspan="10" class="px-5 py-14 text-center text-sm text-slate-500">No email deliveries match this view.</td></tr>

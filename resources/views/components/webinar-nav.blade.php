@@ -74,13 +74,18 @@
     <nav class="flex-1 space-y-1 overflow-y-auto px-3 py-4">
 
         <div class="space-y-1 pb-3">
+            <a href="{{ route('admin.webinars.documents.index', $webinar) }}" class="wn-item {{ request()->routeIs('admin.webinars.documents.*') ? 'wn-item-active' : '' }}"><x-icon name="file-text" class="size-[15px]" /><span class="webinar-nav-label">Uploaded documents</span></a>
+            @if(! $webinar->isUploadOnly())
             @if($registrationForm = $navForms['registration'] ?? null)
                 <a href="{{ route('admin.forms.edit', [$webinar, $navSelectedForm ?? $registrationForm]) }}" class="wn-item {{ request()->routeIs('admin.forms.*') ? 'wn-item-active' : '' }}" @if(request()->routeIs('admin.forms.*')) aria-current="page" @endif><x-icon name="file-text" class="size-[15px]" /><span class="webinar-nav-label">Forms</span></a>
             @endif
             <a href="{{ route('admin.responses.index', [$webinar, 'type' => $navSelectedType]) }}" class="wn-item {{ $isParticipants || $isImports ? 'wn-item-active' : '' }}" @if($isParticipants || $isImports) aria-current="page" @endif><x-icon name="grid" class="size-[15px]" /><span class="webinar-nav-label">Form Responses</span></a>
+            <a href="{{ route('admin.webinars.messages.index', $webinar) }}" class="wn-item {{ request()->routeIs('admin.webinars.messages.*') ? 'wn-item-active' : '' }}"><x-icon name="mail" class="size-[15px]" /><span class="webinar-nav-label">Send a message</span></a>
+            @endif
         </div>
 
         {{-- Certificate --}}
+        @if(! $webinar->isUploadOnly())
         <details data-nav-group="certificate" open>
             <summary class="wn-summary">
                 <span class="flex items-center gap-2"><x-icon name="award" class="size-4 text-slate-400" /><span class="webinar-nav-label">Certificate</span></span>
@@ -96,6 +101,7 @@
             </div>
         </details>
 
+        @endif
         {{-- Others --}}
         <details data-nav-group="others" open>
             <summary class="wn-summary">

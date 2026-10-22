@@ -143,6 +143,8 @@ class MultiUserPlatformTest extends TestCase
                     'webinar' => $webinar->id, 'form' => $form->id, default => 987654
                 };
             }
+            // Each ownership check gets its own rate-limit window.
+            $this->travel(61)->seconds();
             $this->call($route->methods()[0], route($route->getName(), $params), [])->assertNotFound();
             $checked++;
         }

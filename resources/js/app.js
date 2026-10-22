@@ -10,6 +10,7 @@ import { initNavigation } from './navigation';
 import { initTheme } from './theme';
 import { initPageUsability } from './page-usability';
 import { initStudioRecipients } from './studio-recipients';
+import { initParticipantMessages } from './participant-messages';
 
 let pageController;
 function initializePage() {
@@ -20,6 +21,7 @@ function initializePage() {
     initCertificateTemplateEditor(document, signal);
     initCertificateEditor(document, signal);
     initStudioRecipients(document, signal);
+    initParticipantMessages(document, signal);
     initCertificatePdfUpload();
     initFormAvailability();
     initFormResponses(document, signal);

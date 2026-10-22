@@ -44,7 +44,10 @@ reactivation the account receives a new recovery/setup link. Old credentials and
 sessions remain revoked. Stable administrator-set locks protect the final active
 administrator in both the web and disable-command paths.
 
-Profile editing supports the display name only. Email changes need a separately
+Profile editing supports the display name and a current-password-verified password
+change (22 October update). Changing a password signs the user out, invalidates
+other password-bound sessions/remember tokens and reset links, and preserves MFA.
+Email changes need a separately
 verified workflow and are deliberately unavailable; contact the operator rather
 than updating the database without verifying ownership of the new address.
 

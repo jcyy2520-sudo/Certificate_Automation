@@ -35,6 +35,15 @@ its existing table behavior. Existing theme and typography tokens are unchanged.
 
 ## States and accessibility
 
+The 22 October creation-mode, private-document and message-only extensions reuse
+the existing field, panel, button and confirmation primitives. They add no color,
+font or theme system. Standard settings stay in their existing disclosure rows;
+the upload-only mode hides and disables irrelevant rows. Message selection is
+page-scoped, with an accessible live recipient count and explicit confirmation.
+The shared dark interaction surfaces must respect cascade-layer precedence so
+hovering a disclosure header cannot restore a light background. Browser evidence
+is kept with the isolated workflow results, never with real credentials.
+
 Native inputs, selects, tables, meters and dialog. Certificate sending is an explicit selection with a count and final confirmation. Eligible participants appear automatically; manual exceptions use one two-field native dialog. Page selection never implies all filtered results. Text labels accompany visual summaries. Required answers, invalid imports, no matches and missing historical data receive actionable explanations. Existing theme preference persists in localStorage.
 
 ## Preservation and verification

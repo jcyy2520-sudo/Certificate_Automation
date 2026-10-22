@@ -185,6 +185,16 @@ class Webinar extends Model
         return $this->hasMany(Form::class);
     }
 
+    public function isUploadOnly(): bool
+    {
+        return $this->creation_mode === 'uploads';
+    }
+
+    public function documents()
+    {
+        return $this->hasMany(WebinarDocument::class);
+    }
+
     public function participants()
     {
         return $this->hasMany(Participant::class);

@@ -1,4 +1,15 @@
 export function initWebinarSettings() {
+        const mode = document.querySelector('[data-webinar-creation-mode]');
+        const fields = document.querySelector('[data-webinar-fields]');
+        const updateMode = () => {
+            const uploadOnly = mode ? mode.value === 'uploads' : fields?.dataset.uploadOnly === 'true';
+            document.querySelectorAll('[data-standard-only]').forEach(section => {
+                section.hidden = uploadOnly;
+                section.querySelectorAll('input, select, textarea, button').forEach(control => { control.disabled = uploadOnly; });
+            });
+        };
+        mode?.addEventListener('change', updateMode);
+        updateMode();
 
         // Keep the Open/Closed explanation in sync before settings are saved.
         var openSwitch = document.querySelector('[data-webinar-open-switch]');

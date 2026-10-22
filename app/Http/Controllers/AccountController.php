@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Services\AccountService;
+use App\Services\AuditService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
@@ -117,5 +119,28 @@ class AccountController extends Controller
         $request->user()->update($data);
 
         return back()->with('success', 'Profile updated.');
+    }
+
+    public function changePassword(Request $request, AccountService $accounts, AuditService $audit)
+    {
+        $data = $request->validate([
+            'current_password' => ['required', 'string', 'max:1024'],
+            'password' => ['required', 'string', 'confirmed', 'max:1024', 'different:current_password', PasswordRule::min(15)],
+        ]);
+        DB::transaction(function () use ($request, $data, $accounts, $audit): void {
+            $user = User::query()->whereKey($request->user()->id)->lockForUpdate()->firstOrFail();
+            if (! $user->canAccessPlatform() || ! Hash::check($data['current_password'], $user->password)) {
+                throw ValidationException::withMessages(['current_password' => 'Your current password is incorrect.']);
+            }
+            $user->forceFill(['password' => Hash::make($data['password']), 'auth_version' => $user->auth_version + 1, 'remember_token' => Str::random(60)])->save();
+            Password::deleteToken($user);
+            $accounts->cancelPending($user);
+            $audit->record($request, 'account.password_changed', $user);
+        }, attempts: 3);
+        Auth::logout();
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+
+        return redirect()->route('login')->with('success', 'Password changed. Sign in again with your new password. Other sessions will require sign-in again.');
     }
 }

@@ -21,6 +21,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -81,6 +82,10 @@ class WebinarController extends Controller
         $webinar = DB::transaction(function () use ($data): Webinar {
             $webinar = Webinar::query()->create($data);
 
+            if ($webinar->isUploadOnly()) {
+                return $webinar;
+            }
+
             collect([
                 ['type' => 'registration', 'title' => 'Registration', 'status' => 'published'],
                 ['type' => 'pretest', 'title' => 'Pre-assessment', 'status' => 'draft', 'show_score' => true],
@@ -109,11 +114,18 @@ class WebinarController extends Controller
 
         $audit->record($request, 'webinar.created', $webinar);
 
+        if ($webinar->isUploadOnly()) {
+            return redirect()->route('admin.webinars.documents.index', $webinar)->with('success', 'Webinar created. You can now upload forms and documents.');
+        }
+
         return redirect()->route('admin.webinars.show', $webinar)->with('success', 'Webinar created. Open the webinar and registration form when you are ready to accept participants.');
     }
 
     public function show(Webinar $webinar, EligibilityService $eligibility): View
     {
+        if ($webinar->isUploadOnly()) {
+            return view('admin.webinars.documents', ['webinar' => $webinar, 'documents' => $webinar->documents()->latest()->paginate(20)]);
+        }
         $webinar->load([
             'forms' => fn ($query) => $query->select([
                 'id', 'webinar_id', 'type', 'title', 'status', 'opens_at', 'closes_at', 'public_token',
@@ -380,6 +392,18 @@ class WebinarController extends Controller
             $webinar->certificates()->select(['id', 'public_id', 'storage_disk', 'file_path'])->cursor(),
         );
         $privacy->eraseWebinarImports($webinar);
+        // Keep retired/replaced uploads in the inventory until the authorized
+        // permanent webinar deletion. Fail closed before relational deletion.
+        foreach ($webinar->documents()->withTrashed()->cursor() as $document) {
+            $prefix = 'webinar-documents/'.$webinar->id.'/';
+            if (! preg_match('#^'.preg_quote($prefix, '#').'[a-f0-9-]{36}\.(pdf|docx|png|jpg|jpeg)$#D', $document->file_path)) {
+                throw new \RuntimeException('Refusing to delete an unexpected document path.');
+            }
+            $disk = Storage::disk($document->storage_disk);
+            if ($disk->exists($document->file_path) && ! $disk->delete($document->file_path)) {
+                throw new \RuntimeException('A private document could not be deleted. Retry webinar deletion.');
+            }
+        }
 
         DB::transaction(function () use ($webinar): void {
             $lockedWebinar = Webinar::query()->whereKey($webinar->id)->lockForUpdate()->first();
@@ -399,6 +423,13 @@ class WebinarController extends Controller
 
     private function validated(Request $request, ?Webinar $webinar = null): array
     {
+        $mode = $webinar?->creation_mode ?? $request->input('creation_mode', 'standard');
+        $request->validate(['creation_mode' => ['sometimes', Rule::in(['standard', 'uploads'])]]);
+        if ($mode === 'uploads') {
+            $data = $request->validate(['title' => ['required', 'string', 'max:180']]);
+
+            return $data + ($webinar ? [] : ['creation_mode' => 'uploads', 'status' => 'draft', 'timezone' => config('app.timezone'), 'data_retention_days' => Webinar::defaultRetentionDays()]);
+        }
         $resolvedStatus = $this->resolvedStatus($request, $webinar);
 
         $data = $request->validate([

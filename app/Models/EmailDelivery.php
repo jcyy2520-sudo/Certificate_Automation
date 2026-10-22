@@ -54,6 +54,11 @@ class EmailDelivery extends Model
         return $this->belongsTo(Webinar::class);
     }
 
+    public function messageBatch()
+    {
+        return $this->belongsTo(ParticipantMessageBatch::class, 'participant_message_batch_id');
+    }
+
     public function account()
     {
         return $this->belongsTo(User::class, 'account_user_id');

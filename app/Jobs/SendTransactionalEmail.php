@@ -9,6 +9,7 @@ use App\Models\Form;
 use App\Models\Participant;
 use App\Models\User;
 use App\Models\Webinar;
+use App\Services\EligibilityService;
 use App\Services\Email\EmailSendBudget;
 use App\Services\Email\PermanentDeliveryException;
 use App\Services\Email\ProviderRateLimitException;
@@ -56,6 +57,7 @@ class SendTransactionalEmail implements ShouldQueue
             ParticipantMagicLinkService::DELIVERY_TYPE => ['published'],
             ParticipantStatusLinkService::DELIVERY_TYPE => ['published', 'completed'],
             'certificate' => ['published', 'completed'],
+            'participant_message' => ['published', 'completed'],
             'certificate_test' => ['draft', 'published', 'completed'],
             default => [],
         };
@@ -339,9 +341,18 @@ class SendTransactionalEmail implements ShouldQueue
             return true;
         }
 
-        if ($webinar && in_array($delivery->type, ['certificate', 'certificate_test'], true)
+        if ($webinar && in_array($delivery->type, ['certificate', 'certificate_test', 'participant_message'], true)
             && $webinar->creator && ! $webinar->creator->canAccessPlatform()) {
             return true;
+        }
+
+        if ($delivery->type === 'participant_message') {
+            $actor = $delivery->messageBatch?->creator;
+            if (! $webinar || $webinar->isUploadOnly() || ! $participant || $participant->webinar_id !== $webinar->id
+                || ! $actor?->canAccessPlatform() || (! $actor->isAdministrator() && $webinar->created_by !== $actor->id)
+                || ! app(EligibilityService::class)->evaluate($participant)['eligible']) {
+                return true;
+            }
         }
 
         if ($delivery->type === ParticipantMagicLinkService::DELIVERY_TYPE) {

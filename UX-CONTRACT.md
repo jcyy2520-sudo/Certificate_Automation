@@ -1,5 +1,40 @@
 # Webinar workspace contracts
 
+## Authorized extensions (22 October 2026)
+
+The owner's requested improvements add a native creation-mode select. Standard
+keeps the four forms/rules/template. Upload Forms Only creates a closed document
+workspace from a title, without those defaults. The mode is immutable after
+creation. Shared webinar settings own conditional field visibility and disabling.
+Uploaded documents are private attachments, not public response-collection forms.
+Downloads and mutations inherit ownership, webinar unlock/admin audit, MFA and
+password-step-up middleware. Replaced/removed files remain inventoried privately
+until authorized permanent webinar deletion. The existing policy grants platform
+administrators oversight over all webinars; ordinary approved users see only
+their own. Account requests remain subject to verification and admin approval.
+
+`participant-messages.js` owns the message variant of page-only selection/count
+and extends the existing shared confirmation/queue/log workflow. A count precedes
+confirmation; no hidden all-results selection. `ParticipantMessageController`
+and `EligibilityService` own eligibility and idempotency; the existing send job
+rechecks lifecycle/recipient/owner state before each attempt. Message-only emails
+have no certificate or attachment. Unknown provider outcomes require explicit
+reconciliation before a manual retry. Log mail is labeled as captured, not inbox
+delivery. Profile password changes require the current password, rotate session
+credentials/reset links, preserve MFA, and return to sign-in. Passwords are never
+retained in step-up replay payloads.
+
+`navigation-request.js` retries only GET 502/503/504 responses, at most three
+times with cancellable bounded delays. Mutations are never auto-replayed. Native
+501/auth/validation errors remain visible; private entries stay on the page.
+The shared CSS compatibility layer also owns interaction-state surfaces: dark
+hover/focus overrides must outrank Tailwind utility layers, as the resting
+surface overrides already do. Light-mode rules and native selection are kept.
+
+Evidence: `RequestedImprovementsTest.php`, `tests/js/navigation-request.test.js`,
+and `tests/workflow/improvements.spec.js`. Real-record transfer is governed by
+`deploy/render/REAL_DATA_MIGRATION_PLAN.md`, not by code-deployment permission.
+
 Account access follows `MULTI_USER_PLATFORM.md`: public request, explicit email
 verification, administrator approval and separate password setup. Only verified
 requests appear in User Management. Shared auth fields own error associations,

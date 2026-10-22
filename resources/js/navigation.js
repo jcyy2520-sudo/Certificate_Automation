@@ -1,3 +1,4 @@
+import { requestPage } from './navigation-request';
 const mediaType = 'application/vnd.webinar.navigation+json';
 const excluded = /\/(?:login|logout|password|two-factor|unlock|access|export(?:-[a-z]+)?|reconciliation|download|background|status)(?:\/|$)/;
 const forbidden = new Set(['script', 'style', 'iframe', 'object', 'embed', 'base', 'link', 'meta']);
@@ -129,10 +130,10 @@ export function initNavigation(initializePage) {
         const timeout = setTimeout(() => controller.abort('timeout'), isMutation ? 120000 : 30000);
         let completed = false;
         try {
-            const response = await fetch(url, {
+            const response = await requestPage(url, {
                 method: isMutation ? 'POST' : 'GET', body, credentials: 'same-origin', cache: 'no-store', signal: controller.signal,
                 headers: { Accept: 'text/html', 'X-Frontend-Navigation': '1' },
-            });
+            }, () => announce('The server is temporarily unavailable. Retrying this page…'));
             if (!response.ok) throw new Error(response.status === 419 || response.status === 401
                 ? 'Your session expired. Your entries are still here. Open sign-in in another tab, then try again.'
                 : response.status === 403 ? 'You no longer have access to this action. Your entries are still here.'

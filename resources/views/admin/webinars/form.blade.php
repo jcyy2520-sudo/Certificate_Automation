@@ -40,12 +40,22 @@
 @endphp
 
 <x-page-header :title="$webinar->exists ? 'Webinar settings' : 'New webinar'" :crumbs="$crumbs"
-               :subtitle="$webinar->exists ? null : 'Creating a webinar also sets up its four forms, a default requirement, and a certificate template.'" />
+               :subtitle="$webinar->exists ? null : 'Choose the standard workflow or a private workspace for uploaded forms and documents.'" />
 
-<form method="POST" action="{{ $webinar->exists ? route('admin.webinars.update', $webinar) : route('admin.webinars.store') }}" class="w-full max-w-5xl">
+<form novalidate method="POST" action="{{ $webinar->exists ? route('admin.webinars.update', $webinar) : route('admin.webinars.store') }}" class="w-full max-w-5xl">
     @csrf
     @if($webinar->exists)@method('PUT')@endif
 
+    @if(! $webinar->exists)
+    <section class="panel mb-5 p-5">
+        <label class="field-label" for="creation-mode">Webinar type</label>
+        <select id="creation-mode" name="creation_mode" class="field" data-webinar-creation-mode>
+            <option value="standard" @selected(old('creation_mode', 'standard') === 'standard')>Standard Webinar</option>
+            <option value="uploads" @selected(old('creation_mode') === 'uploads')>Upload Forms Only</option>
+        </select>
+        <p class="mt-2 text-sm text-slate-500">Standard creates registration, assessments, evaluation and certificate setup. Upload Forms Only needs a title; add private documents after creation.</p>
+    </section>
+    @endif
     @if(! $webinar->exists)
     <section class="panel mb-5 p-5">
         <label class="flex items-center gap-3 text-sm font-medium"><input type="checkbox" name="password_protected" value="1" data-password-option="creation-password-fields" @checked(old('password_protected'))>Password-protect this webinar</label>
@@ -58,7 +68,7 @@
     </section>
     @endif
 
-    <section class="panel divide-y divide-slate-100">
+    <section class="panel divide-y divide-slate-100" data-webinar-fields data-upload-only="{{ $webinar->isUploadOnly() ? 'true' : 'false' }}">
 
         <details class="group" @if($open['title']) open @endif>
             <summary class="flex cursor-pointer list-none items-start justify-between gap-4 px-5 py-4 hover:bg-slate-50">
@@ -78,7 +88,7 @@
             </div>
         </details>
 
-        <details class="group" @if($open['capacity']) open @endif>
+        <details data-standard-only class="group" @if($open['capacity']) open @endif>
             <summary class="flex cursor-pointer list-none items-start justify-between gap-4 px-5 py-4 hover:bg-slate-50">
                 <div class="min-w-0">
                     <p class="text-[13px] font-medium text-slate-900">Registration capacity</p>
@@ -100,7 +110,7 @@
             </div>
         </details>
 
-        <details class="group" @if($open['description']) open @endif>
+        <details data-standard-only class="group" @if($open['description']) open @endif>
             <summary class="flex cursor-pointer list-none items-start justify-between gap-4 px-5 py-4 hover:bg-slate-50">
                 <div class="min-w-0">
                     <p class="text-[13px] font-medium text-slate-900">Description</p>
@@ -117,7 +127,7 @@
             </div>
         </details>
 
-        <details class="group" @if($open['availability']) open @endif>
+        <details data-standard-only class="group" @if($open['availability']) open @endif>
             <summary class="flex cursor-pointer list-none items-start justify-between gap-4 px-5 py-4 hover:bg-slate-50">
                 <div class="min-w-0">
                     <p class="text-[13px] font-medium text-slate-900">Webinar availability</p>
@@ -152,7 +162,7 @@
             </div>
         </details>
 
-        <details class="group" @if($open['verification']) open @endif>
+        <details data-standard-only class="group" @if($open['verification']) open @endif>
             <summary class="flex cursor-pointer list-none items-start justify-between gap-4 px-5 py-4 hover:bg-slate-50">
                 <div class="min-w-0">
                     <p class="text-[13px] font-medium text-slate-900">Email confirmation</p>
@@ -195,7 +205,7 @@
             </div>
         </details>
 
-        <details class="group" @if($open['retention']) open @endif>
+        <details data-standard-only class="group" @if($open['retention']) open @endif>
             <summary class="flex cursor-pointer list-none items-start justify-between gap-4 px-5 py-4 hover:bg-slate-50">
                 <div class="min-w-0">
                     <p class="text-[13px] font-medium text-slate-900">Privacy retention</p>
@@ -235,7 +245,7 @@
     </section>
 
     <section class="panel mt-6 overflow-hidden">
-        <details class="group" @if($open['schedule']) open @endif>
+        <details data-standard-only class="group" @if($open['schedule']) open @endif>
             <summary class="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 hover:bg-slate-50">
                 <h2 class="section-title">Schedule</h2>
                 <span class="text-[13px] font-medium text-accent-600">

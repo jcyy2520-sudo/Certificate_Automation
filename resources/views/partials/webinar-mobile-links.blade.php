@@ -10,18 +10,24 @@
 
     <div class="space-y-1">
         <p class="mobile-workspace-heading">Webinar workflow</p>
+        <a href="{{ route('admin.webinars.documents.index', $webinar) }}" class="mobile-workspace-item"><x-icon name="file-text" />Uploaded documents</a>
+        @if(! $webinar->isUploadOnly())
         @if($registrationForm = $navForms['registration'] ?? null)
             <a href="{{ route('admin.forms.edit', [$webinar, $navSelectedForm ?? $registrationForm]) }}" class="mobile-workspace-item {{ request()->routeIs('admin.forms.*') ? 'mobile-workspace-item-active' : '' }}"><x-icon name="file-text" />Forms</a>
         @endif
         <a href="{{ route('admin.responses.index', [$webinar, 'type' => $navSelectedType]) }}" class="mobile-workspace-item {{ $isParticipants || $isImports ? 'mobile-workspace-item-active' : '' }}"><x-icon name="grid" />Form Responses</a>
+        <a href="{{ route('admin.webinars.messages.index', $webinar) }}" class="mobile-workspace-item"><x-icon name="mail" />Send a message</a>
+        @endif
     </div>
 
+    @if(! $webinar->isUploadOnly())
     <div class="space-y-1">
         <p class="mobile-workspace-heading">Certificate</p>
         <a href="{{ route('admin.certification.edit', $webinar) }}" class="mobile-workspace-item {{ $isTemplate ? 'mobile-workspace-item-active' : '' }}"><x-icon name="image" />Certificate Setup</a>
         <a href="{{ route('admin.certificates.studio', $webinar) }}" class="mobile-workspace-item {{ $isStudio ? 'mobile-workspace-item-active' : '' }}"><x-icon name="send" />Certificate Studio</a>
     </div>
 
+    @endif
     <div class="space-y-1">
         <p class="mobile-workspace-heading">Webinar</p>
         <a href="{{ route('admin.webinars.show', $webinar) }}" class="mobile-workspace-item {{ $isOverview ? 'mobile-workspace-item-active' : '' }}"><x-icon name="home" />Overview</a>
