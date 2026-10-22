@@ -4,7 +4,7 @@
 
 <x-page-header title="Webinars" :crumbs="['Dashboard' => route('admin.dashboard')]">
     <x-slot:actions>
-        <a class="button-primary" href="{{ route('admin.webinars.create') }}"><x-icon name="plus" class="size-4" />New webinar</a>
+        @if(auth()->user()->canCreateWebinars())<a class="button-primary" href="{{ route('admin.webinars.create') }}"><x-icon name="plus" class="size-4" />New webinar</a>@endif
     </x-slot:actions>
 </x-page-header>
 

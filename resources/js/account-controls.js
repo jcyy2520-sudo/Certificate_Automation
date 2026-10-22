@@ -1,4 +1,26 @@
 export function initAccountControls(signal) {
+document.querySelectorAll('[data-account-dialog-open]').forEach(function (button) {
+    button.addEventListener('click', function () {
+        var dialog = document.getElementById(button.dataset.accountDialogOpen);
+        if (!dialog) return;
+        dialog.showModal();
+        dialog.addEventListener('close', function () { if (button.isConnected) button.focus(); }, { once: true });
+    }, { signal });
+});
+document.querySelectorAll('[data-account-dialog]').forEach(function (dialog) {
+    dialog.querySelector('[data-account-dialog-close]')?.addEventListener('click', function () { dialog.close(); }, { signal });
+    var role = dialog.querySelector('[data-account-role]');
+    var permissions = dialog.querySelector('[data-account-manager-fields]');
+    function updateRole() {
+        if (!role || !permissions) return;
+        permissions.hidden = role.value !== 'webinar_manager';
+        permissions.querySelectorAll('input').forEach(function (input) { input.disabled = permissions.hidden; });
+    }
+    role?.addEventListener('change', updateRole, { signal }); updateRole();
+    signal?.addEventListener('abort', function () { dialog.close(); }, { once: true });
+});
+var reopen = document.querySelector('[data-account-reopen]');
+if (reopen) document.getElementById(reopen.dataset.accountReopen)?.showModal();
 document.querySelectorAll('input[type="password"]').forEach(function (input, index) {
     input.id ||= 'password-control-' + index;
     if ([...document.querySelectorAll('[data-password-toggle]')].some(function (button) { return button.dataset.passwordToggle === input.id; })) return;

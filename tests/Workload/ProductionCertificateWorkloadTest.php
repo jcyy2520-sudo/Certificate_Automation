@@ -11,6 +11,7 @@ use App\Models\Participant;
 use App\Models\User;
 use App\Models\Webinar;
 use App\Services\Email\BrevoTransactionalMailer;
+use App\Services\EmailOutboxRelay;
 use Illuminate\Http\Client\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Queue\WorkerOptions;
@@ -19,6 +20,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /** Opt-in workload: php artisan test tests/Workload/ProductionCertificateWorkloadTest.php */
@@ -45,7 +47,13 @@ class ProductionCertificateWorkloadTest extends TestCase
         return $app;
     }
 
-    public function test_100_selected_recipients_complete_through_serialized_database_jobs_and_the_provider_adapter(): void
+    public static function batchSizes(): array
+    {
+        return [[1], [50], [100], [200], [300, true]];
+    }
+
+    #[DataProvider('batchSizes')]
+    public function test_recipients_complete_through_serialized_database_jobs_and_the_provider_adapter(int $size, bool $bulk = false): void
     {
         $disk = 'production-workload-'.Str::uuid();
         Storage::fake($disk);
@@ -55,10 +63,11 @@ class ProductionCertificateWorkloadTest extends TestCase
             'webinar.certificate_disk' => $disk,
             'webinar.email.queue_connection' => 'database-emails',
             'webinar.email.provider' => 'brevo',
+            'webinar.email.certificate_provider' => 'brevo',
             'services.brevo.key' => 'synthetic-workload-key',
             'services.brevo.base_url' => 'https://api.brevo.com/v3',
             'accounts.email_per_minute' => 30,
-            'accounts.email_per_day' => 0,
+            'accounts.email_per_day' => 300,
         ]);
         $this->app->bind(TransactionalMailer::class, BrevoTransactionalMailer::class);
         $owner = User::factory()->create(['role' => User::USER_ROLE]);
@@ -72,7 +81,7 @@ class ProductionCertificateWorkloadTest extends TestCase
             'name' => 'Workload', 'storage_disk' => $disk, 'background_path' => 'certificate-backgrounds/workload.png', 'is_active' => true,
             'layout' => ['bg_w' => 1200, 'bg_h' => 850, 'name_top' => 55, 'name_left' => 50, 'name_font_size' => 36, 'name_font_family' => 'sans', 'accent' => '#172554'],
         ]);
-        $participants = collect(range(1, 100))->map(fn ($number) => $webinar->participants()->create([
+        $participants = collect(range(1, $size))->map(fn ($number) => $webinar->participants()->create([
             'email' => sprintf('recipient-%03d@example.test', $number),
             'full_name' => $number === 1 ? 'José Niño de la Cruz Jr.' : 'Synthetic Recipient '.$number,
             'verified_at' => now(),
@@ -103,61 +112,78 @@ class ProductionCertificateWorkloadTest extends TestCase
         $started = hrtime(true);
         $requestStarted = hrtime(true);
         $selection = ['participants' => $participants->pluck('public_id')->all(), 'preview_confirmed' => '1'];
-        $this->post(route('admin.certificates.issue-selected', $webinar), $selection)->assertRedirect()->assertSessionHas('success');
+        $selections = $participants->chunk(150)->map(fn ($chunk) => ['participants' => $chunk->pluck('public_id')->all(), 'preview_confirmed' => '1']);
+        if ($bulk) {
+            $this->post(route('admin.certificates.batch', $webinar))->assertRedirect()->assertSessionHas('success');
+            $this->post(route('admin.certificates.batch', $webinar))->assertRedirect()->assertSessionHas('warning');
+        } else {
+            foreach ($selections as $selected) {
+                $this->post(route('admin.certificates.issue-selected', $webinar), $selected)->assertRedirect()->assertSessionHas('success');
+            }
+        }
         $requestSeconds = (hrtime(true) - $requestStarted) / 1e9;
-        $this->assertDatabaseCount('certificates', 100);
+        $this->assertDatabaseCount('certificates', $bulk ? 0 : $size);
         $this->assertDatabaseCount('email_deliveries', 0);
-        $this->assertSame(100, DB::table('jobs')->where('queue', 'default')->count());
+        $this->assertSame($bulk ? 1 : $size, DB::table('jobs')->where('queue', 'default')->count());
         $worker = $this->app->make('queue.worker');
         $options = new WorkerOptions(sleep: 0, maxTries: 3);
-        for ($number = 0; $number < 100; $number++) {
+        for ($number = 0; $number < ($bulk ? 1 : $size); $number++) {
             $worker->runNextJob('database', 'default', $options);
         }
         $generationSeconds = (hrtime(true) - $started) / 1e9;
-        $this->assertSame(100, Certificate::query()->where('status', 'issued')->count(), json_encode([
+        $this->assertSame($size, Certificate::query()->where('status', 'issued')->count(), json_encode([
             'certificate_states' => Certificate::query()->selectRaw('status, count(*) as total')->groupBy('status')->pluck('total', 'status')->all(),
             'queue_states' => DB::table('jobs')->select(['queue', 'attempts', 'available_at'])->get()->toArray(),
             'failed_jobs' => DB::table('failed_jobs')->pluck('exception')->all(),
         ]));
-        $this->assertDatabaseCount('email_deliveries', 100);
+        $this->assertDatabaseCount('email_deliveries', $size);
         $this->assertSame(0, DB::table('jobs')->where('queue', 'default')->count());
-        $this->assertSame(100, DB::table('jobs')->where('queue', 'emails')->count());
+        $this->assertSame($size, DB::table('jobs')->where('queue', 'emails')->count());
         // A repeated browser submission and a redelivered generation job must be harmless.
-        $this->post(route('admin.certificates.issue-selected', $webinar), $selection)->assertRedirect();
+        if (! $bulk) {
+            foreach ($selections as $selected) {
+                $this->post(route('admin.certificates.issue-selected', $webinar), $selected)->assertRedirect();
+            }
+        } else {
+            $this->assertSame($size, (int) $webinar->certificateBatches()->sole()->completed_count);
+            $this->assertSame('completed', $webinar->certificateBatches()->sole()->status);
+        }
         Queue::connection('database')->push(new IssueSelectedCertificate($participants->first()->id));
         $worker->runNextJob('database', 'default', $options);
-        $this->assertDatabaseCount('certificates', 100);
-        $this->assertDatabaseCount('email_deliveries', 100);
+        $this->assertDatabaseCount('certificates', $size);
+        $this->assertDatabaseCount('email_deliveries', $size);
         $cycles = 0;
-        while (DB::table('jobs')->where('queue', 'emails')->exists() && $cycles++ < 8) {
+        while (EmailDelivery::query()->whereIn('status', ['pending', 'processing'])->exists() && $cycles++ < 16) {
+            app(EmailOutboxRelay::class)->relay(500, 120);
             $pending = DB::table('jobs')->where('queue', 'emails')->count();
             for ($number = 0; $number < $pending; $number++) {
                 $worker->runNextJob('database-emails', 'emails', $options);
             }
             $this->travel(61)->seconds();
         }
-        $this->assertCount(100, $accepted);
-        $this->assertSame(100, count(array_unique($accepted)));
-        $this->assertSame(100, EmailDelivery::query()->where('status', 'sent')->count());
-        $this->assertSame(100, Certificate::query()->whereNotNull('sent_at')->count());
+        $this->assertCount($size, $accepted);
+        $this->assertSame($size, count(array_unique($accepted)));
+        $this->assertSame($size, EmailDelivery::query()->where('status', 'sent')->count());
+        $this->assertSame($size, Certificate::query()->whereNotNull('sent_at')->count());
         $this->assertSame(0, EmailDelivery::query()->whereNotNull('payload')->count());
         $this->assertDatabaseCount('jobs', 0);
         $this->assertDatabaseCount('failed_jobs', 0);
-        Http::assertSentCount(101);
+        $this->assertLessThanOrEqual(192 * 1024 * 1024, memory_get_peak_usage(true), 'Synthetic workload must leave room for HTTP, email and scheduler processes.');
+        Http::assertSentCount($size + 1);
         // Duplicate serialized delivery jobs cannot call the adapter again.
         $delivery = EmailDelivery::query()->firstOrFail();
         Queue::connection('database-emails')->push(new SendTransactionalEmail($delivery->id), queue: 'emails');
         $worker->runNextJob('database-emails', 'emails', $options);
-        Http::assertSentCount(101);
+        Http::assertSentCount($size + 1);
         $evidence = [
             'scope' => 'SQLite :memory:, one worker at a time, real database-queue serialization, HTTP-faked Brevo adapter; no external mail',
-            'recipients' => 100, 'issued' => 100, 'mock_provider_accepted' => 100, 'confirmed_inbox_delivery' => false,
+            'recipients' => $size, 'bulk_route' => $bulk, 'issued' => $size, 'mock_provider_accepted' => $size, 'confirmed_inbox_delivery' => false,
             'selection_request_seconds' => round($requestSeconds, 3), 'selection_and_generation_seconds' => round($generationSeconds, 3),
             'total_wall_seconds' => round((hrtime(true) - $started) / 1e9, 3), 'peak_php_memory_bytes' => memory_get_peak_usage(true),
-            'provider_requests' => 101, 'injected_429_responses' => 1, 'minute_budget' => 30, 'simulated_time_cycles' => $cycles,
+            'provider_requests' => $size + 1, 'injected_429_responses' => 1, 'minute_budget' => 30, 'simulated_time_cycles' => $cycles,
             'duplicate_certificates' => 0, 'duplicate_provider_acceptances' => 0, 'remaining_jobs' => 0, 'failed_jobs' => 0,
         ];
-        file_put_contents(storage_path('framework/testing/production-certificate-workload.json'), json_encode($evidence, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        file_put_contents(storage_path('framework/testing/production-certificate-workload-'.$size.'.json'), json_encode($evidence, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         $this->travelBack();
     }
 }

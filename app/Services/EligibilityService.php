@@ -60,23 +60,29 @@ class EligibilityService
             ];
         }
 
-        if ($rules === null) {
-            $participant->loadMissing('webinar.eligibilityRules');
-            $rules = $participant->webinar->eligibilityRules;
-        }
-
-        $participant->loadMissing('submissions.form');
-        $requirements = [];
-
-        foreach ($rules->where('is_required', true) as $rule) {
-            $requirements[$rule->requirement] = $this->meets($participant, $rule);
-        }
+        $requirements = $this->requirementResults($participant, $rules);
 
         return [
             'eligible' => ! in_array(false, $requirements, true),
             'overridden' => false,
             'requirements' => $requirements,
         ];
+    }
+
+    /** Actual rule evidence, including when an organizer override takes precedence. */
+    public function requirementResults(Participant $participant, ?Collection $rules = null): array
+    {
+        if ($rules === null) {
+            $participant->loadMissing('webinar.eligibilityRules');
+            $rules = $participant->webinar->eligibilityRules;
+        }
+        $participant->loadMissing('submissions.form');
+        $requirements = [];
+        foreach ($rules->where('is_required', true) as $rule) {
+            $requirements[$rule->requirement] = $this->meets($participant, $rule);
+        }
+
+        return $requirements;
     }
 
     /** @param Collection<int, Participant> $participants */

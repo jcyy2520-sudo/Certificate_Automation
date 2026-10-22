@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\AdminDeviceService;
 use App\Services\AuditService;
 use App\Services\TwoFactorService;
 use Illuminate\Http\RedirectResponse;
@@ -56,6 +57,7 @@ class TwoFactorChallengeController extends Controller
             $validator = Validator::make($request->all(), [
                 'code' => ['nullable', 'string', 'regex:/^\d{6}$/', 'required_without:recovery_code', 'prohibits:recovery_code'],
                 'recovery_code' => ['nullable', 'string', 'regex:/^[A-Za-z0-9]{5}-[A-Za-z0-9]{5}$/', 'required_without:code', 'prohibits:code'],
+                'trust_device' => ['nullable', 'boolean'],
             ]);
 
             if ($validator->fails()) {
@@ -92,6 +94,13 @@ class TwoFactorChallengeController extends Controller
             // than adopting a changed password on the first protected request.
             $request->session()->put('password_hash_'.Auth::getDefaultDriver(), Auth::guard()->hashPasswordForCookie($user->getAuthPassword()));
             $request->session()->passwordConfirmed();
+            $devices = app(AdminDeviceService::class);
+            $devices->acceptSession($request, $user);
+            if (filled($recoveryCode)) {
+                $devices->revokeAll($user);
+            } elseif ($request->boolean('trust_device')) {
+                $devices->remember($request, $user);
+            }
             $user->forceFill(['last_login_at' => now()])->save();
             $audit->record($request, 'administrator.login', $user);
 

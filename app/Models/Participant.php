@@ -66,6 +66,21 @@ class Participant extends Model
         return $this->hasMany(Certificate::class);
     }
 
+    public function eligibilityReviews()
+    {
+        return $this->hasMany(EligibilityReview::class);
+    }
+
+    public function reviews()
+    {
+        return $this->eligibilityReviews();
+    }
+
+    public function eligibilityDecisions()
+    {
+        return $this->hasMany(EligibilityDecision::class);
+    }
+
     public function certificateApproval()
     {
         return $this->hasOne(CertificateApproval::class);

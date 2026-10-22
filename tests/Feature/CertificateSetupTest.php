@@ -220,7 +220,7 @@ class CertificateSetupTest extends TestCase
 
     public function test_preview_sender_matches_the_selected_provider_without_contacting_it(): void
     {
-        config(['webinar.email.provider' => 'brevo', 'mail.from.name' => 'Fallback sender', 'services.brevo.from_name' => 'Configured Organizer', 'services.brevo.from_address' => 'organizer@example.test']);
+        config(['webinar.email.provider' => 'brevo', 'webinar.email.certificate_provider' => 'brevo', 'mail.from.name' => 'Fallback sender', 'services.brevo.from_name' => 'Configured Organizer', 'services.brevo.from_address' => 'organizer@example.test']);
         $this->get(route('admin.certification.email-preview', $this->webinar))->assertOk()->assertSee('Configured Organizer')->assertSee('organizer@example.test')->assertDontSee('Fallback sender');
         $this->assertDatabaseCount('email_deliveries', 0);
     }

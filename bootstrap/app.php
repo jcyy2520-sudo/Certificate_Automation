@@ -41,5 +41,5 @@ return Application::configure(basePath: dirname(__DIR__))
         );
     })
     ->withExceptions(function (Exceptions $exceptions) {
-        $exceptions->dontFlash(['token', 'webinar_password', 'webinar_password_confirmation']);
+        $exceptions->dontFlash(['token', 'code', 'recovery_code', 'webinar_password', 'webinar_password_confirmation']);
     })->create();

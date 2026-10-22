@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
+use PragmaRX\Google2FA\Google2FA;
 use Tests\TestCase;
 
 class RequiredAdministratorMfaTest extends TestCase
@@ -32,11 +33,13 @@ class RequiredAdministratorMfaTest extends TestCase
     public function test_an_enrolled_administrator_can_access_the_dashboard(): void
     {
         $user = User::factory()->create([
-            'two_factor_secret' => 'test-totp-secret',
+            'two_factor_secret' => app(Google2FA::class)->generateSecretKey(),
             'two_factor_confirmed_at' => now(),
         ]);
 
-        $this->actingAs($user)->get(route('admin.dashboard'))->assertOk();
+        $this->post(route('login.store'), ['email' => $user->email, 'password' => 'password'])->assertRedirect(route('two-factor.challenge'));
+        $this->post(route('two-factor.challenge.store'), ['code' => app(Google2FA::class)->getCurrentOtp($user->two_factor_secret)])->assertRedirect(route('admin.dashboard'));
+        $this->get(route('admin.dashboard'))->assertOk();
     }
 
     public function test_every_private_admin_route_carries_the_mfa_gate(): void

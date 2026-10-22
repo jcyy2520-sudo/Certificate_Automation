@@ -44,7 +44,10 @@ RUN mkdir -p bootstrap/cache \
 # ---------------------------------------------------------------------------
 # Stage 3 — runtime
 # ---------------------------------------------------------------------------
-FROM php:8.3-fpm-alpine AS runtime
+# 21 October 2026 critical PHP security release (CVE-2026-109618/109619).
+# Pin the patched official image; a cached floating 8.3 tag is insufficient.
+FROM php:8.3.36-fpm-alpine@sha256:81cb692948e6de4275f7e107c50a34e963a440660f2c5b8502d11071f7d30338 AS runtime
+RUN php -r 'if (PHP_VERSION_ID < 80336 || PHP_VERSION_ID >= 80400) { fwrite(STDERR, "Unapproved PHP runtime\n"); exit(1); } echo "PHP security baseline verified: ", PHP_VERSION, "\n";'
 
 # nginx + supervisor let one container serve HTTP and run the queue workers and
 # scheduler. That keeps the whole system on a single hosting service; split the

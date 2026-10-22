@@ -1,7 +1,7 @@
 # Approved accounts and webinar ownership
 
 This is an extension of the existing Blade/controller/service application. It
-uses two roles (`administrator`, `user`), native Laravel policies and password
+uses the existing administrator/user roles and an assigned `webinar_manager` role, native Laravel policies and password
 brokers, the existing `created_by` foreign key, and the existing transactional
 email outbox. Platform accounts and webinar participants remain separate.
 
@@ -9,11 +9,9 @@ email outbox. Platform accounts and webinar participants remain separate.
 
 Public requests collect name and normalized email only. The server assigns the
 regular-user role and an unusable random password hash. Duplicate requests have
-the same public response and do not replace the original name. Verification mail
-has an account-level cooldown plus email and IP request limits.
+the same public response and do not replace the original name. A saved request appears immediately in User Management; no preapproval verification email is required. Invitation mail has an account-level cooldown plus email and IP request limits.
 
-The lifecycle is `pending_verification` → `pending_approval` → `approved`, with
-`rejected` and `suspended` as restricted states. `password_setup_at` is separate
+New public requests use `pending_approval` → `approved` → activation. Legacy `pending_verification` requests remain reviewable. Rejected, suspended and invitation-revoked accounts remain restricted. `password_setup_at` is separate
 from approval. Only approved, active, onboarded accounts can sign in. Ordinary
 accounts must also have verified their email. Existing administrators retain
 their credentials and MFA; provisioning remains the interactive `admin:create`
@@ -29,7 +27,7 @@ to copy the fragment into the confirmation form. Do not enable HTTP request-body
 logging on these endpoints. Tokens and password fields are excluded from flashed
 validation input; outbox content is encrypted and cleared after processing.
 
-Administrators review verified requests in **User Management**. Approval,
+The sole administrator reviews saved requests in **User Management**. Admin-created invitations skip approval, accept only regular-user/Webinar Manager roles, and reuse the same expiring password setup link that verifies email on activation. Approval,
 rejection, suspension, reactivation and invitation resend are password-gated and
 audited. Queue handoff failure leaves the committed invitation recoverable by
 the existing relay, with a visible pending-handoff message. Provider failures
@@ -86,7 +84,7 @@ Suspended owners' queued certificate work cannot continue sending.
 
 ## Email operations
 
-Account messages reuse the same provider, sender identity, encrypted outbox,
+Account messages use ACCOUNT_EMAIL_PROVIDER independently of the certificate and general participant transports, and reuse the sender identity, encrypted outbox,
 idempotency keys and retry infrastructure as certificate messages. They use the
 `account-emails` queue on the **existing short-visibility email connection**.
 The default certificate connection and visibility windows are unchanged.
@@ -192,3 +190,14 @@ All data-bearing verification used SQLite `:memory:` or the guarded dedicated
 container runtime was available for the required production-version rehearsal.
 No live provider/inbox, production scheduler/worker, physical-device or assistive
 technology acceptance is implied by these results.
+
+
+## Assigned access, security and audit update (22 October)
+
+The owner remains the only system Administrator; no account-management endpoint promotes another user. Create Account and Edit Access require the current administrator password and enrolled authenticator/recovery factor. Invitations are pending activation, expiring, single use, resendable and revocable. Existing identities, passwords and ownership are not backfilled. Managers and invited viewers see only assigned webinars. Explicit participant/certificate/email flags are checked at routes and again before queued issuance or delivery; issuance always requires send permission because it queues email. Existing regular-user ownership remains compatible.
+
+The Audit Trail is administrator-only, paginated and filterable. Permanent actor IDs have no cascading foreign key; encrypted historical name/email snapshots survive rename/disable/removal. Anonymous failed logins are not attributed to a claimed identity. Ordinary model mutation/deletion is blocked; privileged retention/privacy operations remain narrow.
+
+Administrator trusted devices are random hashed credentials in encrypted Secure HttpOnly host-only cookies, bound to account credentials, browser/OS and a validated public network prefix when available. Password is always required. Unrecognized context requires password plus the existing factor; QR enrollment is separate and per-account. Password/MFA/access changes and suspicious failures revoke trust. Render currently exposes private proxy addresses, so a public network-change signal is unavailable until a safe trusted-proxy boundary is verified; raw forwarding headers are never trusted.
+
+New additive migrations 000200/000300 and eligibility 000400 require the backed-up release procedure. Schema checks, browser tests and synthetic transport tests are separate from hosted/inbox verification. See ELIGIBILITY_FEEDBACK.md for the participant workflow.

@@ -9,10 +9,16 @@ use App\Models\Form;
 use App\Models\Participant;
 use App\Models\User;
 use App\Models\Webinar;
+use App\Policies\WebinarPolicy;
+use App\Services\AuditService;
 use App\Services\EligibilityService;
+use App\Services\Email\BrevoTransactionalMailer;
+use App\Services\Email\EmailBudgetDeferredException;
 use App\Services\Email\EmailSendBudget;
+use App\Services\Email\LogTransactionalMailer;
 use App\Services\Email\PermanentDeliveryException;
 use App\Services\Email\ProviderRateLimitException;
+use App\Services\ParticipantEligibilityService;
 use App\Services\ParticipantMagicLinkService;
 use App\Services\ParticipantStatusLinkService;
 use Carbon\Carbon;
@@ -58,6 +64,7 @@ class SendTransactionalEmail implements ShouldQueue
             ParticipantStatusLinkService::DELIVERY_TYPE => ['published', 'completed'],
             'certificate' => ['published', 'completed'],
             'participant_message' => ['published', 'completed'],
+            'eligibility_notification' => ['published', 'completed'],
             'certificate_test' => ['draft', 'published', 'completed'],
             default => [],
         };
@@ -69,20 +76,20 @@ class SendTransactionalEmail implements ShouldQueue
         if (! $candidate || in_array($candidate->status, ['sent', 'cancelled', 'failed'], true)) {
             return;
         }
-        if ($candidate->attempts > 0 && ($candidate->first_attempted_at ?? $candidate->created_at)->lt(now()->subMinutes(25))) {
-            $exception = new PermanentDeliveryException('Provider outcome unknown: the safe idempotency retry window expired. Reconcile provider logs before explicitly resending.');
-            $this->failed($exception);
-            $this->fail($exception);
-
+        if ($candidate->scheduled_at?->isFuture()) {
             return;
         }
-        try {
-            app(EmailSendBudget::class)->reserve();
-        } catch (\OverflowException) {
-            $this->release(60);
-
-            return;
-        } catch (PermanentDeliveryException $exception) {
+        // Account delivery has its own explicit transport. Enabling verification
+        // must not enable certificate/participant mail or drain their log outbox.
+        if ($candidate->provider !== config('webinar.email.provider')) {
+            $mailer = match ($candidate->provider) {
+                'brevo' => app(BrevoTransactionalMailer::class),
+                'log' => app(LogTransactionalMailer::class),
+                default => throw new \LogicException('Unsupported account email provider.'),
+            };
+        }
+        if ($candidate->attempts > 0 && ($candidate->first_attempted_at ?? $candidate->created_at)->lt(now()->subMinutes(25))) {
+            $exception = new PermanentDeliveryException('Provider outcome unknown: the safe idempotency retry window expired. Reconcile provider logs before explicitly resending.');
             $this->failed($exception);
             $this->fail($exception);
 
@@ -127,8 +134,9 @@ class SendTransactionalEmail implements ShouldQueue
                         || $delivery->recipient_email !== $account->email
                         || ! match ($delivery->type) {
                             'account_verification' => $account->approval_status === 'pending_verification',
-                            'account_setup', 'account_reset' => $account->approval_status === 'approved' && $account->is_active,
+                            'account_setup', 'account_reset' => $account->approval_status === 'approved' && ($account->is_active || $account->password_setup_at === null),
                             'account_rejection' => $account->approval_status === 'rejected',
+                            'account_delivery_test' => $account->canAccessPlatform() && $account->isAdministrator(),
                             default => false,
                         })) {
                         $this->cancel($delivery);
@@ -151,7 +159,9 @@ class SendTransactionalEmail implements ShouldQueue
                     }
 
                     if (! $transport) {
+                        app(EmailSendBudget::class)->reserve($delivery);
                         $delivery->update([
+                            'budget_reserved_on' => $delivery->budget_reserved_on,
                             'processing_at' => now(),
                             'attempts' => (int) $delivery->attempts + 1,
                             'first_attempted_at' => $delivery->first_attempted_at ?? now(),
@@ -180,6 +190,9 @@ class SendTransactionalEmail implements ShouldQueue
                         'last_error' => null,
                         'payload' => null,
                     ]);
+                    app(AuditService::class)->record(request(), 'email.transport_accepted', $delivery,
+                        ['provider' => $delivery->provider, 'delivery_type' => $delivery->type, 'execution' => 'queue'],
+                        actor: $delivery->initiated_by ? User::query()->find($delivery->initiated_by) : null);
 
                     if ($delivery->certificate_id) {
                         Certificate::query()
@@ -194,6 +207,25 @@ class SendTransactionalEmail implements ShouldQueue
                     return;
                 }
             }
+        } catch (EmailBudgetDeferredException $exception) {
+            // No transport attempt began. The durable outbox creates a fresh
+            // job when due; keep the original deadline for attempted work.
+            $unattempted = DB::transaction(function () use ($exception): bool {
+                $current = EmailDelivery::query()->whereKey($this->deliveryId)->lockForUpdate()->first();
+                if ($current && $current->status === 'pending' && (int) $current->attempts === 0) {
+                    $current->update(['scheduled_at' => now()->addSeconds($exception->retryAfter),
+                        'processing_at' => null, 'last_error' => $exception->getMessage()]);
+
+                    return true;
+                }
+
+                return false;
+            });
+            if (! $unattempted) {
+                $this->release(min(60, $exception->retryAfter));
+            }
+
+            return;
         } catch (Throwable $exception) {
             // The send transaction rolled back, but its attempt envelope was
             // already committed. Record only the error, without charging a
@@ -305,6 +337,9 @@ class SendTransactionalEmail implements ShouldQueue
                 'failed_at' => now(),
                 'last_error' => Str::limit($message, 2000, ''),
             ]);
+            app(AuditService::class)->record(request(), 'email.delivery_failed', $delivery,
+                ['provider' => $delivery->provider, 'delivery_type' => $delivery->type, 'execution' => 'queue'],
+                actor: $delivery->initiated_by ? User::query()->find($delivery->initiated_by) : null, outcome: 'failure');
         }, attempts: 3);
     }
 
@@ -345,13 +380,39 @@ class SendTransactionalEmail implements ShouldQueue
             && $webinar->creator && ! $webinar->creator->canAccessPlatform()) {
             return true;
         }
+        if ($webinar && $delivery->initiated_by && in_array($delivery->type, ['certificate', 'certificate_test', 'participant_message'], true)) {
+            $actor = User::query()->find($delivery->initiated_by);
+            $policy = app(WebinarPolicy::class);
+            if (! $actor || ! $policy->permission($actor, $webinar, 'send_emails')
+                || (in_array($delivery->type, ['certificate', 'certificate_test'], true) && ! $policy->permission($actor, $webinar, 'manage_certificates'))) {
+                return true;
+            }
+        }
 
         if ($delivery->type === 'participant_message') {
             $actor = $delivery->messageBatch?->creator;
             if (! $webinar || $webinar->isUploadOnly() || ! $participant || $participant->webinar_id !== $webinar->id
-                || ! $actor?->canAccessPlatform() || (! $actor->isAdministrator() && $webinar->created_by !== $actor->id)
+                || ! $actor?->canAccessPlatform() || ! app(WebinarPolicy::class)->permission($actor, $webinar, 'send_emails')
                 || ! app(EligibilityService::class)->evaluate($participant)['eligible']) {
                 return true;
+            }
+        }
+
+        if (in_array($delivery->type, ['eligibility_notification', ParticipantStatusLinkService::DELIVERY_TYPE], true)
+            && $participant && (int) ($delivery->payload['status_access_version'] ?? 0) !== (int) $participant->status_access_version) {
+            return true;
+        }
+        if ($delivery->type === 'eligibility_notification') {
+            $actor = $delivery->initiated_by ? User::query()->find($delivery->initiated_by) : null;
+            $policy = app(WebinarPolicy::class);
+            if (! $webinar || ! $participant || ! $actor || ! $policy->permission($actor, $webinar, 'send_emails')
+                || ! $policy->permission($actor, $webinar, 'manage_participants')) {
+                return true;
+            }
+            $summary = app(ParticipantEligibilityService::class)->summary($participant);
+            if (! hash_equals($summary['fingerprint'], (string) ($delivery->payload['eligibility_fingerprint'] ?? ''))
+                || $summary['status'] !== ($delivery->payload['eligibility_status'] ?? null)) {
+                return true; // Never send a stale eligibility decision after a correction.
             }
         }
 

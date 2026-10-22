@@ -29,18 +29,35 @@
             </div>
             <form class="mt-4 grid max-w-sm gap-4 border-t border-slate-100 pt-4" method="POST" action="{{ route('admin.two-factor.recovery-codes') }}" data-confirm="Generate a new set? Your current recovery codes stop working.">@csrf
                 <label class="field-label">Current password<input class="field" type="password" name="password" required autocomplete="current-password"></label>
+                <x-current-factor />
                 <button class="button-secondary justify-self-start">Regenerate recovery codes</button>
             </form>
         </section>
 
         <section class="panel p-5">
-            <h2 class="section-title">Turn it off</h2>
-            <p class="mt-1 text-[13px] text-slate-500">Confirm your password to remove the second factor.</p>
+            <h2 class="section-title">Replace your authenticator</h2>
+            <p class="mt-1 text-[13px] text-slate-500">Verify your password and existing authenticator or recovery code. Administrators must enroll a replacement before accessing the platform. If both your authenticator and recovery codes are lost, contact another administrator for a controlled recovery review; a password reset does not remove 2FA.</p>
             <form class="mt-4 grid max-w-sm gap-4" method="POST" action="{{ route('admin.two-factor.disable') }}">@csrf @method('DELETE')
                 <label class="field-label">Current password<input class="field" type="password" name="password" required autocomplete="current-password"></label>
-                <button class="button-danger justify-self-start">Disable two-factor authentication</button>
+                <x-current-factor />
+                <button class="button-danger justify-self-start">Remove authenticator and set up again</button>
             </form>
         </section>
+
+        @if($user->isAdministrator())
+        <section class="panel p-5">
+            <h2 class="section-title">Trusted devices</h2>
+            <p class="mt-2 text-sm text-slate-500">{{ $trustedDevices->count() }} active {{ Str::plural('device', $trustedDevices->count()) }}. A trusted device still needs your password. Browser changes, credential changes or suspicious attempts can require your authenticator again.</p>
+            <ul class="mt-3 space-y-2 text-sm">@foreach($trustedDevices as $device)<li>Verified {{ $device->verified_at->diffForHumans() }}; last used {{ $device->last_used_at->diffForHumans() }}; expires {{ $device->expires_at->format('M j, Y') }}.</li>@endforeach</ul>
+            @if($trustedDevices->isNotEmpty())
+            <form method="POST" action="{{ route('admin.two-factor.devices.revoke') }}" class="mt-4 grid max-w-sm gap-4">@csrf @method('DELETE')
+                <label class="field-label">Current password<input class="field" type="password" name="password" required autocomplete="current-password"></label>
+                <x-current-factor />
+                <button class="button-secondary">Revoke all trusted devices</button>
+            </form>
+            @endif
+        </section>
+        @endif
     @else
         <section class="panel p-5 sm:p-6">
             <div class="flex items-center gap-2.5">

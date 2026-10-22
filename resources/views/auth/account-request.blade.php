@@ -1,6 +1,6 @@
 @extends('layouts.auth')
 @section('heading', 'Request an account')
-@section('subheading', 'Verify your email, then wait for administrator approval.')
+@section('subheading', 'Request access. After administrator approval, an email invitation lets you activate your account.')
 @section('content')
 <form novalidate method="POST" action="{{ route('account.store') }}" class="grid gap-5">
     @csrf

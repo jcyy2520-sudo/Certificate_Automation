@@ -295,7 +295,8 @@ class CertificationManagementTest extends TestCase
         $this->actingAs($this->administrator)->get(route('admin.certificates.studio', $this->webinar))
             ->assertOk()
             ->assertSee('Wrong Spelling')
-            ->assertDontSee('Not Verified');
+            ->assertViewHas('participants', fn ($rows) => ! $rows->contains('full_name', 'Not Verified'))
+            ->assertViewHas('notCurrentlyEligible', fn ($rows) => $rows->contains('full_name', 'Not Verified'));
 
         $this->confirmAdministratorPassword();
         $this->actingAs($this->administrator)

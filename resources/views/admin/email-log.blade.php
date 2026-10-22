@@ -27,6 +27,8 @@
             <label class="chip w-full sm:w-48">
                 <select name="status" data-auto-submit aria-label="Filter by status">
                     <option value="">All statuses</option>
+                    <option value="delivered" @selected(request('status') === 'delivered')>Delivered to mail server</option>
+                    <option value="delivery_failed" @selected(request('status') === 'delivery_failed')>Delivery failed after acceptance</option>
                     @foreach(['pending', 'processing', 'sent', 'failed', 'cancelled'] as $option)
                         <option value="{{ $option }}" @selected(request('status') === $option)>{{ ucfirst($option) }}</option>
                     @endforeach
@@ -34,12 +36,23 @@
             </label>
             <button class="button-secondary"><x-icon name="filter" class="size-4" />Apply</button>
         </form>
-        @if($webinar)
+        @if($webinar && auth()->user()->isAdministrator())
             <a class="button-secondary" href="{{ route('admin.email-logs.index') }}">All webinars</a>
         @endif
     </x-slot:actions>
 </x-page-header>
+<p class="mb-5 text-sm text-slate-500">Queued means waiting for a worker. Provider accepted means Brevo accepted the request; it does not confirm delivery. Use Check delivery to read the provider's delivery or failure events. Mail-server delivery does not guarantee inbox placement or that the recipient read the message. Status checks never send or resend emails.</p>
 
+@if($sendingBudget)
+    <div class="panel mb-5 p-5 text-sm" role="status">
+        <p class="font-semibold">Shared email allowance · {{ $sendingBudget['day'] }} UTC</p>
+        <p class="mt-2">{{ $sendingBudget['accepted'] }} provider accepted · {{ $sendingBudget['reserved'] }} reserved / {{ $sendingBudget['limit'] }} daily allowance · {{ $sendingBudget['remaining'] }} unreserved</p>
+        <p class="mt-2 text-slate-500">Account and participant emails share this allowance. Reservations include uncertain attempts and survive restarts. Untouched messages wait when the allowance is reached. Processing resumes when the service and workers are running.</p>
+        @if($sendingBudget['provider_checked_at'])
+            <p class="mt-2 text-slate-500">Last provider check: {{ $sendingBudget['provider_remaining'] }} credits, {{ $sendingBudget['provider_checked_at'] }} UTC. Provider balance can change outside this system.</p>
+        @endif
+    </div>
+@endif
 <div class="panel overflow-hidden">
     <div class="overflow-x-auto">
         <table class="w-full min-w-[800px] text-left text-sm">
@@ -76,10 +89,14 @@
                         <td class="px-5 py-3 font-mono text-[12px] text-slate-600">{{ $delivery->certificate?->verification_code ?? '—' }}</td>
                         <td class="px-5 py-3"><span class="badge badge-slate">{{ $attemptLabel }}</span></td>
                         <td class="max-w-[28ch] truncate px-5 py-3 text-slate-600" title="{{ $delivery->subject }}">{{ $delivery->subject ?? '—' }}</td>
-                        <td class="px-5 py-3"><span class="badge {{ $statusBadges[$delivery->status] ?? 'badge-slate' }}">{{ $delivery->status === 'sent' ? 'Accepted by provider' : ucfirst($delivery->status) }}</span></td>
+                        <td class="px-5 py-3"><span class="badge {{ in_array($delivery->delivery_outcome, ['hard_bounce', 'blocked', 'invalid', 'error']) ? 'badge-red' : ($statusBadges[$delivery->status] ?? 'badge-slate') }}">{{ $delivery->statusLabel() }}</span></td>
                         <td class="px-5 py-3 tabular-nums text-slate-600">{{ $delivery->attempts ?? 0 }}</td>
                         <td class="max-w-[34ch] px-5 py-3 text-[12px] text-slate-500">
                             <p class="truncate" title="{{ $detail }}">{{ $detail ?: '—' }}</p>
+                            @if($delivery->provider === 'brevo' && $delivery->status === 'sent' && $delivery->provider_message_id && !str_starts_with($delivery->provider_message_id, 'idempotent-duplicate:'))
+                            <form method="POST" action="{{ $webinar ? route('admin.webinars.email-logs.status', [$webinar, $delivery->public_id]) : route('admin.email-logs.status', $delivery->public_id) }}" class="mt-2">@csrf<button class="button-secondary">Check delivery</button></form>
+                            @if($delivery->delivery_checked_at)<p class="mt-2 text-xs">Checked {{ $delivery->delivery_checked_at->diffForHumans() }}</p>@endif
+                            @endif
                             @if($webinar && $delivery->type === 'participant_message' && $delivery->status === 'failed')
                             <form novalidate method="POST" action="{{ route('admin.webinars.messages.retry', [$webinar, $delivery->public_id]) }}" class="mt-2" data-confirm="Retry this failed message? Confirm with the provider first if its previous outcome is unknown." data-confirm-action="Retry message">
                                 @csrf

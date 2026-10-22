@@ -28,6 +28,14 @@ class ParticipantPrivacyService
                 return;
             }
 
+            // New review evidence follows the existing erasure boundary. Keep
+            // inventory until private storage confirms deletion, so retry is safe.
+            foreach ($participant->eligibilityReviews()->lockForUpdate()->get() as $review) {
+                app(EligibilityReviewFiles::class)->delete($review);
+                $review->update(['explanation' => null, 'decision_reason' => null, 'file_path' => null, 'storage_disk' => null, 'extension' => null, 'file_size' => null, 'evidence_status' => null]);
+            }
+            $participant->eligibilityDecisions()->update(['reason' => null]);
+
             // Certificate issuance and magic-link delivery take the same
             // participant lock. Snapshotting only after it is acquired ensures
             // a concurrent worker cannot create a PII-bearing PDF or email just
@@ -212,7 +220,9 @@ class ParticipantPrivacyService
                     $metadata = $log->metadata ?? [];
                     if (array_key_exists('skip_reasons', $metadata)) {
                         unset($metadata['skip_reasons']);
-                        $log->update(['metadata' => $metadata]);
+                        // Narrow privacy redaction is a system operation. Keep
+                        // actor attribution and the event itself immutable.
+                        AuditLog::query()->whereKey($log->id)->update(['metadata' => json_encode($metadata, JSON_THROW_ON_ERROR)]);
                     }
                 }
             });

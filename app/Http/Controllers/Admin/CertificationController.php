@@ -52,8 +52,12 @@ class CertificationController extends Controller
             'rules.*.minimum_score' => ['nullable', 'numeric', 'min:0', 'max:100000'],
         ]);
 
-        DB::transaction(function () use ($data, $webinar): void {
+        $enabled = DB::transaction(function () use ($data, $webinar, $request, $audit): array {
             Webinar::query()->whereKey($webinar->id)->whereNull('deletion_started_at')->lockForUpdate()->firstOrFail();
+            $snapshot = fn () => $webinar->eligibilityRules()->orderBy('requirement')->get()
+                ->mapWithKeys(fn ($rule) => [$rule->requirement => ['is_required' => (bool) $rule->is_required,
+                    'minimum_score' => $rule->minimum_score === null ? null : (float) $rule->minimum_score]])->all();
+            $before = $snapshot();
             foreach (self::REQUIREMENTS as $requirement) {
                 $rule = $data['rules'][$requirement] ?? [];
 
@@ -73,10 +77,12 @@ class CertificationController extends Controller
                     ],
                 );
             }
+            $after = $snapshot();
+            $audit->record($request, 'eligibility_rules.updated', $webinar, ['before' => $before, 'after' => $after]);
+
+            return array_keys($after);
         });
 
-        $enabled = array_keys(array_filter($data['rules'] ?? [], fn ($rule) => ! empty($rule['enabled'])));
-        $audit->record($request, 'eligibility_rules.updated', $webinar, ['requirements' => $enabled]);
         $destination = route('admin.responses.index', [$webinar, 'view' => 'settings']);
 
         if ($enabled === []) {
@@ -409,7 +415,7 @@ class CertificationController extends Controller
 
     private function emailSender(): array
     {
-        return config('webinar.email.provider') === 'brevo'
+        return (config('webinar.email.certificate_provider') ?? config('webinar.email.provider')) === 'brevo'
             ? ['name' => config('services.brevo.from_name'), 'address' => config('services.brevo.from_address')]
             : config('mail.from');
     }

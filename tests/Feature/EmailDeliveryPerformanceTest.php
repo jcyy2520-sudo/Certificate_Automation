@@ -48,6 +48,7 @@ class EmailDeliveryPerformanceTest extends TestCase
 
     public function test_a_successful_delivery_discards_its_large_retry_payload(): void
     {
+        config(['webinar.email.provider' => 'test']);
         $webinar = Webinar::factory()->create();
         $participant = Participant::query()->create([
             'webinar_id' => $webinar->id,

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\AdminDeviceService;
 use App\Services\AuditService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -54,7 +55,8 @@ class AuthController extends Controller
         }
 
         // The password alone never establishes the session when a second factor is confirmed.
-        if ($user->two_factor_confirmed_at) {
+        $trusted = app(AdminDeviceService::class)->trusted($request, $user);
+        if ($user->two_factor_confirmed_at && ! $trusted) {
             // Rotate before storing the half-authenticated identity so a fixed or
             // previously observed session ID cannot be used to submit factor two.
             $request->session()->regenerate();
@@ -69,6 +71,10 @@ class AuthController extends Controller
         Auth::login($user, $remember);
         $request->session()->regenerate();
         $request->session()->passwordConfirmed();
+        if ($trusted) {
+            app(AdminDeviceService::class)->acceptSession($request, $user);
+            $audit->record($request, 'administrator.trusted_device_login', $user);
+        }
         $user->forceFill(['last_login_at' => now()])->save();
         $audit->record($request, 'administrator.login', $user);
 

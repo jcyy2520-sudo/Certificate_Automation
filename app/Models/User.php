@@ -16,6 +16,8 @@ class User extends Authenticatable
 
     public const USER_ROLE = 'user';
 
+    public const MANAGER_ROLE = 'webinar_manager';
+
     protected $attributes = ['auth_version' => 1, 'approval_status' => 'pending_verification'];
 
     /** @use HasFactory<UserFactory> */
@@ -93,6 +95,26 @@ class User extends Authenticatable
         return $this->hasMany(Webinar::class, 'created_by');
     }
 
+    public function assignedWebinars()
+    {
+        return $this->belongsToMany(Webinar::class, 'webinar_user')->withPivot(['manage_participants', 'manage_certificates', 'send_emails', 'assigned_by'])->withTimestamps();
+    }
+
+    public function accountStatusLabel(): string
+    {
+        return match ($this->approval_status) {
+            'pending_verification', 'pending_approval' => 'Pending request',
+            'approved' => $this->password_setup_at === null ? 'Pending activation' : ($this->is_active ? 'Active' : 'Disabled'),
+            'suspended' => 'Disabled', 'invitation_revoked' => 'Invitation revoked', 'rejected' => 'Rejected',
+            default => 'Review required',
+        };
+    }
+
+    public function canCreateWebinars(): bool
+    {
+        return $this->isAdministrator() || ($this->role === self::USER_ROLE && $this->account_source !== 'admin_invitation');
+    }
+
     /** The authorization middleware re-checks this on every protected request. */
     public function isAdministrator(): bool
     {
@@ -104,7 +126,7 @@ class User extends Authenticatable
     {
         return $this->is_active && $this->approval_status === 'approved'
             && $this->password_setup_at !== null
-            && ($this->role === self::ADMINISTRATOR_ROLE || ($this->role === self::USER_ROLE && $this->email_verified_at !== null));
+            && ($this->role === self::ADMINISTRATOR_ROLE || (in_array($this->role, [self::USER_ROLE, self::MANAGER_ROLE], true) && $this->email_verified_at !== null));
     }
 
     public function sendPasswordResetNotification($token): void

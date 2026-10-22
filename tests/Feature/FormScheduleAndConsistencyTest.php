@@ -98,8 +98,10 @@ class FormScheduleAndConsistencyTest extends TestCase
 
         $this->mock(AuditService::class, function (MockInterface $mock): void {
             $mock->shouldReceive('record')
+                ->withArgs(fn ($request, $action) => $action === 'question.created')
                 ->once()
                 ->andThrow(new RuntimeException('simulated audit storage failure'));
+            $mock->shouldReceive('record')->withArgs(fn ($request, $action) => $action === 'operation.failed')->once()->andReturnNull();
         });
         $this->withoutExceptionHandling();
 

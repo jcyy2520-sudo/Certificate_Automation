@@ -5,7 +5,7 @@
 @php $isEmpty = $webinars->isEmpty(); @endphp
 
 <x-page-header title="Dashboard">
-    @if(! $isEmpty)
+    @if(! $isEmpty && auth()->user()->canCreateWebinars())
         <x-slot:actions>
             <a class="button-primary" href="{{ route('admin.webinars.create') }}"><x-icon name="plus" class="size-4" />New webinar</a>
         </x-slot:actions>
@@ -37,9 +37,9 @@
             A webinar carries its own registration, attendance, evaluation and assessment forms — each on a
             separate share link — plus the requirements a participant has to meet before a certificate is issued.
         </p>
-        <a class="button-primary mt-6" href="{{ route('admin.webinars.create') }}">
+        @if(auth()->user()->canCreateWebinars())<a class="button-primary mt-6" href="{{ route('admin.webinars.create') }}">
             <x-icon name="plus" class="size-4" />Create the first webinar
-        </a>
+        </a>@else<p class="mt-6 text-sm text-slate-500">Ask the administrator to assign a webinar to your account.</p>@endif
     </section>
 @else
     <dl class="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-slate-200 bg-slate-200 dark:border-slate-800 dark:bg-slate-800 lg:grid-cols-4">

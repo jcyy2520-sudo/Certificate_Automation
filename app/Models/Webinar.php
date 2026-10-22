@@ -21,7 +21,14 @@ class Webinar extends Model
 
     public function scopeVisibleTo($query, User $user)
     {
-        return $query->when(! $user->isAdministrator(), fn ($q) => $q->where('created_by', $user->id));
+        return $query->when(! $user->isAdministrator(), fn ($q) => $q->where(function ($q) use ($user) {
+            // Preserve the existing regular-user ownership workflow. Managers
+            // and invited regular users receive only explicit assignments.
+            $q->whereIn('id', $user->assignedWebinars()->select('webinars.id'));
+            if ($user->role === User::USER_ROLE && $user->account_source !== 'admin_invitation') {
+                $q->orWhere('created_by', $user->id);
+            }
+        }));
     }
 
     protected static function booted(): void

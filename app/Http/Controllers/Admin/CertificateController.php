@@ -12,11 +12,13 @@ use App\Models\CertificateTemplate;
 use App\Models\EmailDelivery;
 use App\Models\Participant;
 use App\Models\Webinar;
+use App\Policies\WebinarPolicy;
 use App\Services\AuditService;
 use App\Services\CertificateFileService;
 use App\Services\CertificateService;
 use App\Services\EligibilityService;
 use App\Services\NotificationService;
+use App\Services\ParticipantEligibilityService;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -37,13 +39,23 @@ class CertificateController extends Controller
      * live in-browser preview of each generated certificate in the centre, and
      * issue to the selection from the right.
      */
-    public function studio(Request $request, Webinar $webinar, EligibilityService $eligibility): View
+    public function studio(Request $request, Webinar $webinar, EligibilityService $eligibility, ParticipantEligibilityService $feedback): View
     {
         $template = $webinar->certificateTemplates()->where('is_active', true)->first();
 
         $eligibleIds = $eligibility->certificateParticipantsQuery($webinar);
         $filters = $request->validate(['search' => ['nullable', 'string', 'max:200'], 'source' => ['nullable', 'in:eligible,manual'], 'highlight' => ['nullable', 'ulid']]);
         $search = trim($filters['search'] ?? '');
+        $notCurrentlyEligibleQuery = $webinar->participants()->whereNull('privacy_erased_at')
+            ->whereNotIn('participants.id', $eligibility->eligibleParticipantsQuery($webinar))
+            ->when($search !== '', fn ($query) => $query->where(fn ($q) => $q->whereLike('full_name', '%'.$search.'%')->orWhereLike('email', '%'.$search.'%')));
+        $canReviewEligibility = app(WebinarPolicy::class)->permission($request->user(), $webinar, 'manage_participants');
+        $notCurrentlyEligibleCount = $canReviewEligibility ? (clone $notCurrentlyEligibleQuery)->count() : 0;
+        $notCurrentlyEligible = $canReviewEligibility ? $notCurrentlyEligibleQuery->orderBy('id')->limit(50)->get() : collect();
+        $feedback->prepare($notCurrentlyEligible, $webinar);
+        foreach ($notCurrentlyEligible as $person) {
+            $person->feedback = $feedback->summary($person);
+        }
 
         $requestedIds = collect($request->query('participants', []))
             ->filter(fn ($id) => is_string($id) && preg_match('/^[0-9A-HJKMNP-TV-Z]{26}$/i', $id))
@@ -182,6 +194,7 @@ class CertificateController extends Controller
             return view('admin.webinars.partials.studio-roster', [
                 'webinar' => $webinar, 'participants' => $participants, 'selectionScoped' => false,
                 'sentRecent' => $sentRecent, 'sentCount' => $sentCount, 'bulkReadyCount' => $bulkReadyCount,
+                'notCurrentlyEligible' => $notCurrentlyEligible, 'notCurrentlyEligibleCount' => $notCurrentlyEligibleCount, 'canReviewEligibility' => $canReviewEligibility,
             ]);
         }
 
@@ -235,8 +248,8 @@ class CertificateController extends Controller
                 ->whereNotNull('sent_at')
                 ->where('sent_at', '>=', $stalledAfter)
                 ->exists();
-        $emailProviderReady = config('webinar.email.provider') !== 'log'
-            && (config('webinar.email.provider') !== 'brevo' || filled(config('services.brevo.key')));
+        $emailProviderReady = (config('webinar.email.certificate_provider') ?? config('webinar.email.provider')) !== 'log'
+            && ((config('webinar.email.certificate_provider') ?? config('webinar.email.provider')) !== 'brevo' || filled(config('services.brevo.key')));
         $pipelineWarning = match (true) {
             ! $emailProviderReady => 'Email delivery is in test mode. Certificates can be generated, but no message will leave the application until a transactional email provider is configured.',
             $generationStalled && $emailStalled => 'Nothing has moved for two minutes: no certificate was generated and no email was sent. Start the certificate worker ('.$this->workerCommand().') and the email worker ('.$this->emailWorkerCommand().').',
@@ -247,6 +260,7 @@ class CertificateController extends Controller
 
         return view('admin.webinars.certificate-studio', [
             'recipientFilters' => $filters,
+            'notCurrentlyEligible' => $notCurrentlyEligible, 'notCurrentlyEligibleCount' => $notCurrentlyEligibleCount, 'canReviewEligibility' => $canReviewEligibility,
             'webinar' => $webinar,
             'template' => $template,
             'participants' => $participants,

@@ -3,19 +3,40 @@
 namespace App\Services;
 
 use App\Models\AuditLog;
+use App\Models\User;
+use App\Models\Webinar;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
 class AuditService
 {
-    public function record(Request $request, string $action, ?Model $subject = null, array $metadata = []): void
+    public function record(Request $request, string $action, ?Model $subject = null, array $metadata = [], ?User $actor = null, ?string $outcome = null): void
     {
         $ip = $request->ip();
         $userAgent = $request->userAgent();
+        $actor ??= $request->user();
+        $webinar = $request->route('webinar');
+        $webinarId = $subject instanceof Webinar ? $subject->id : ($subject?->getAttribute('webinar_id') ?? ($webinar instanceof Webinar ? $webinar->id : null));
+        $outcome ??= preg_match('/(?:failed|denied|rejected)$/', $action) ? 'failure' : 'success';
+        // Only operational values are copied into generic diffs. Personal
+        // identity snapshots have their own encrypted columns below.
+        $allowed = ['role', 'is_active', 'approval_status', 'status', 'starts_at', 'ends_at', 'archived_at', 'checked_in_at', 'is_required', 'minimum_score', 'type', 'sort_order', 'manage_participants', 'manage_certificates', 'send_emails'];
+        if ($subject && ! $subject->wasRecentlyCreated && $subject->getChanges()) {
+            $before = array_intersect_key($subject->getPrevious(), array_flip($allowed));
+            $after = array_intersect_key($subject->getChanges(), array_flip($allowed));
+            if ($after) {
+                $metadata += ['before' => $before, 'after' => $after];
+            }
+        }
 
         AuditLog::query()->create([
-            'user_id' => $request->user()?->id,
+            'user_id' => $actor?->id,
+            'actor_user_id' => $actor?->id,
+            'actor_name' => $actor?->name,
+            'actor_email' => $actor?->email,
+            'webinar_id' => $webinarId,
+            'outcome' => $outcome,
             'action' => $action,
             'auditable_type' => $subject?->getMorphClass(),
             'auditable_id' => $subject?->getKey(),
@@ -28,6 +49,7 @@ class AuditService
             'user_agent' => filled($userAgent) ? $this->fingerprint($userAgent, 'audit-user-agent') : null,
             'metadata' => $this->sanitizeMetadata($metadata),
         ]);
+        $request->attributes->set('audit_recorded', true);
     }
 
     public function fingerprint(string $value, string $context = 'audit-metadata'): string

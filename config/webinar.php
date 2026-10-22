@@ -14,6 +14,7 @@ return [
     'support_email' => env('SUPPORT_EMAIL') ?: env('MAIL_FROM_ADDRESS'),
     'email' => [
         'provider' => env('TRANSACTIONAL_EMAIL_PROVIDER', 'log'),
+        'certificate_provider' => env('CERTIFICATE_EMAIL_PROVIDER'),
         'queue' => env('EMAIL_QUEUE', 'emails'),
         // Email delivery must never silently inherit the certificate queue's
         // visibility window. The default certificate worker may legitimately

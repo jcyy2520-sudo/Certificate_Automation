@@ -8,6 +8,7 @@
     <label class="field-label">Authentication code
         <input class="field text-center font-mono text-lg tracking-[0.4em]" name="code" inputmode="numeric" autocomplete="one-time-code" autofocus placeholder="000000">
     </label>
+    <label class="flex items-start gap-3 text-sm"><input class="mt-1" type="checkbox" name="trust_device" value="1"><span>Trust this personal device for up to 30 days. Your password is still required. Leave this unchecked on shared computers.</span></label>
     <button class="button-primary w-full">Verify and sign in</button>
 </form>
 

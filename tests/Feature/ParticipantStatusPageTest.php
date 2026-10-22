@@ -181,11 +181,11 @@ class ParticipantStatusPageTest extends TestCase
 
         $response->assertOk()
             ->assertViewHas('evaluation', $expected)
-            ->assertSee('Registration completed')
-            ->assertSee('Attendance recorded')
-            ->assertSee('Pre-assessment completed')
-            ->assertSee('Post-assessment completed')
-            ->assertSee('Evaluation completed')
+            ->assertSee('Registration')
+            ->assertSee('Attendance')
+            ->assertSee('Pre-Test')
+            ->assertSee('Post-Test')
+            ->assertSee('Evaluation')
             ->assertSee('Still required')
             ->assertSee(
                 route('forms.public.status.certificate.download', [$this->form->public_token, $certificate->public_id]),

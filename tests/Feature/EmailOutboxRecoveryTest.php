@@ -114,6 +114,7 @@ class EmailOutboxRecoveryTest extends TestCase
             'scheduled_at' => now()->subMinutes(10),
         ]);
 
+        config(['webinar.email.provider' => 'test']);
         $mailer = \Mockery::mock(TransactionalMailer::class);
         $mailer->shouldReceive('send')->andThrow(new RuntimeException('Brevo request failed with HTTP 401 (unauthorized).'));
 

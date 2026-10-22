@@ -4,7 +4,15 @@ This is the **only end-to-end production deployment path** for the Webinar Platf
 
 This runbook is operational guidance, not authorization to change infrastructure during repository preparation. In particular, a local SQLite result never substitutes for the separate disposable PostgreSQL migration proof.
 
-**Current release gate: PENDING DEPLOYMENT-ENVIRONMENT VALIDATION.** The disposable PostgreSQL migration proof remains pending because this local machine has no PostgreSQL server or container runtime. Complete that proof in the isolated deployment environment before any production migration.
+**22 October final gate: HOLD for data review and deployment-environment validation.**
+The latest source passed 43-migration/rollback rehearsal, application-level hosted
+restore and parallel quota checks in disposable PostgreSQL schemas. The original
+schemas remain unchanged. See `PRODUCTION_READINESS_REVIEW.md` for current proofs
+and limits; older pending-PostgreSQL statements below are historical. The new
+Docker runtime, actual host recovery/capacity and live delivery are unverified.
+The owner prohibits all real email and will supply final raw files before release.
+Do not migrate important databases, import records or deploy until the exact
+reviewed operation and fresh verified backups receive release authorization.
 
 **22 October scope update:** The owner authorizes source publication to
 `jcyy2520-sudo/Certificate_Automation` and a fresh empty **free-only demonstration**

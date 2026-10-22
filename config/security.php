@@ -31,6 +31,7 @@ return [
     ],
 
     'require_admin_two_factor' => (bool) env('SECURITY_REQUIRE_ADMIN_TWO_FACTOR', true),
+    'trusted_device_days' => (int) env('SECURITY_TRUSTED_DEVICE_DAYS', 30),
 
     // Persistent recaller cookies weaken the value of MFA on shared or stolen
     // devices. Operators may opt in only after accepting that risk explicitly.

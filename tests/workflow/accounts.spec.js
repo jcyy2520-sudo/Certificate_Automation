@@ -13,10 +13,7 @@ test('account approval, setup, ownership, optional locks and suspension work thr
     await page.getByLabel('Full name', { exact: true }).fill('Browser Account Owner');
     await page.getByLabel('Email address', { exact: true }).fill('browser.account@example.test');
     await page.getByRole('button', { name: 'Request account', exact: true }).click();
-    await expect(page.getByText('Your request has been received.', { exact: false })).toBeVisible();
-    await page.goto(mail('account_verification'));
-    await page.getByRole('button', { name: 'Verify email address', exact: true }).click();
-    await expect(page.getByText('Email verified.', { exact: false })).toBeVisible();
+    await expect(page.getByText('Your request has been received for administrator review.', { exact: false })).toBeVisible();
     await page.goto('/admin/login');
     await page.getByLabel('Email', { exact: true }).fill('workflow@example.test');
     await page.getByLabel('Password', { exact: true }).fill('Workflow-fixture-2026!');
@@ -70,9 +67,10 @@ test('account approval, setup, ownership, optional locks and suspension work thr
     await owner.goto(ownedUrl + '/responses');
     await expect(owner.getByRole('heading', { name: 'Unlock webinar', exact: true })).toHaveCount(0);
 
+    await page.reload();
     const row = page.locator('tbody tr').filter({ hasText: 'browser.account@example.test' });
-    await row.getByRole('button', { name: 'Suspend', exact: true }).click();
-    await page.getByRole('dialog').getByRole('button', { name: 'Suspend', exact: true }).click();
+    await row.getByRole('button', { name: 'Disable Account', exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Disable Account', exact: true }).click();
     await expect(page.getByText('Account updated.', { exact: false })).toBeVisible();
     await owner.goto(ownedUrl);
     await expect(owner.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();

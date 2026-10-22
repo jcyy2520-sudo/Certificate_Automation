@@ -4,8 +4,10 @@
 
 Administrators collect webinar responses, review eligibility and prepare certificates. English UI, desktop data work with tablet and mobile access. Existing event, privacy, identity and certificate contracts are authoritative.
 
-Approved regular users now manage their own webinars; platform administrators
-review verified account requests and retain audited oversight. Account screens
+The owner remains the only system administrator. Invited Webinar Managers manage
+assigned webinars with explicit participant, certificate and email permissions;
+existing regular-user ownership remains compatible. Public requests appear for
+review immediately; approval sends the shared activation/password setup link. Account screens
 reuse the auth layout and shared field/confirmation/theme controls. User
 Management uses the established table on desktop and labeled stacked records on
 phones so account state and actions remain visible without horizontal scrolling.
@@ -34,6 +36,15 @@ control. This is limited to the response data table; eligibility selection keeps
 its existing table behavior. Existing theme and typography tokens are unchanged.
 
 ## States and accessibility
+
+Participant Eligibility extends the existing private status page, webinar table,
+Studio roster tabs and shared checklist. Eligible, Incomplete / Under Review and
+finalized Not Eligible have text labels. Eligibility never implies issuance or
+delivery. Optional activities remain visible as optional. The Studio's separate
+Not eligible list is read-only; notification selection happens in Participant
+Eligibility with a visible count and the existing confirmation. Review evidence
+is downloaded privately as an attachment; no raw answers or another identity are
+shown. Collection/import/review blockers and stale decisions have explicit states.
 
 The 22 October creation-mode, private-document and message-only extensions reuse
 the existing field, panel, button and confirmation primitives. They add no color,

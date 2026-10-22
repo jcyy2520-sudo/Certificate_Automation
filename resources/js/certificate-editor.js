@@ -540,8 +540,10 @@ export function initCertificateEditor(root = document, signal) {
         const query = ($('[data-certificate-search]')?.value || '').trim().toLowerCase();
         certificateRows.forEach((row) => { row.hidden = !row.dataset.search.includes(query); });
         sentRows.forEach((row) => { row.hidden = !row.dataset.search.includes(query); });
+        const incompleteRows = $$('[data-incomplete-row]');
+        incompleteRows.forEach((row) => { row.hidden = !row.dataset.search.includes(query); });
         // The counter describes whichever list the organizer is looking at.
-        const pool = activeTab === 'sent' ? sentRows : certificateRows;
+        const pool = activeTab === 'sent' ? sentRows : (activeTab === 'incomplete' ? incompleteRows : certificateRows);
         const visible = pool.filter((row) => !row.hidden);
         const visibleCount = $('[data-visible-certificate-count]');
         if (visibleCount) visibleCount.textContent = String(visible.length);
@@ -560,6 +562,7 @@ export function initCertificateEditor(root = document, signal) {
         });
         $('[data-tab-panel="working"]')?.classList.toggle('hidden', next !== 'working');
         $('[data-tab-panel="sent"]')?.classList.toggle('hidden', next !== 'sent');
+        $('[data-tab-panel="incomplete"]')?.classList.toggle('hidden', next !== 'incomplete');
         filterRows();
     }
     $$('[data-recipient-tab]').forEach((button) => button.addEventListener('click', () => setRecipientTab(button.dataset.recipientTab)));

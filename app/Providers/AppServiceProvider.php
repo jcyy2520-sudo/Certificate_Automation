@@ -160,5 +160,13 @@ class AppServiceProvider extends ServiceProvider
                 Limit::perMinute((int) config('security.rate_limits.participant_access_confirm_ip_per_minute'))->by("participant-confirm:ip:{$ipKey}"),
             ];
         });
+        RateLimiter::for('participant-review', function (Request $request): array {
+            $key = (string) config('app.key');
+
+            return [
+                Limit::perMinute(3)->by('participant-review:session:'.$request->session()->getId()),
+                Limit::perHour(15)->by('participant-review:ip:'.hash_hmac('sha256', (string) $request->ip(), $key)),
+            ];
+        });
     }
 }

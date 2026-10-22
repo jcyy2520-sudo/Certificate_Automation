@@ -1,5 +1,11 @@
 @props(['webinar'])
 @php
+    $navigationPolicy = app(\App\Policies\WebinarPolicy::class);
+    $navCanParticipants = $navigationPolicy->permission(auth()->user(), $webinar, 'manage_participants');
+    $navCanCertificates = $navigationPolicy->permission(auth()->user(), $webinar, 'manage_certificates');
+    $navCanSend = $navigationPolicy->permission(auth()->user(), $webinar, 'send_emails');
+    $navCanAudit = auth()->user()->isAdministrator() || auth()->user()->role === \App\Models\User::MANAGER_ROLE;
+    $navCanSettings = auth()->user()->isAdministrator() || (auth()->user()->canCreateWebinars() && (int) $webinar->created_by === (int) auth()->id());
     // Reuse eager-loaded forms if available, or fetch the light projection keyed by type.
     $navForms = ($webinar->relationLoaded('forms')
         ? $webinar->forms
@@ -74,13 +80,14 @@
     <nav class="flex-1 space-y-1 overflow-y-auto px-3 py-4">
 
         <div class="space-y-1 pb-3">
-            <a href="{{ route('admin.webinars.documents.index', $webinar) }}" class="wn-item {{ request()->routeIs('admin.webinars.documents.*') ? 'wn-item-active' : '' }}"><x-icon name="file-text" class="size-[15px]" /><span class="webinar-nav-label">Uploaded documents</span></a>
+            @if($navCanParticipants)<a href="{{ route('admin.webinars.documents.index', $webinar) }}" class="wn-item {{ request()->routeIs('admin.webinars.documents.*') ? 'wn-item-active' : '' }}"><x-icon name="file-text" class="size-[15px]" /><span class="webinar-nav-label">Uploaded documents</span></a>@endif
             @if(! $webinar->isUploadOnly())
             @if($registrationForm = $navForms['registration'] ?? null)
-                <a href="{{ route('admin.forms.edit', [$webinar, $navSelectedForm ?? $registrationForm]) }}" class="wn-item {{ request()->routeIs('admin.forms.*') ? 'wn-item-active' : '' }}" @if(request()->routeIs('admin.forms.*')) aria-current="page" @endif><x-icon name="file-text" class="size-[15px]" /><span class="webinar-nav-label">Forms</span></a>
+                @if($navCanParticipants)<a href="{{ route('admin.forms.edit', [$webinar, $navSelectedForm ?? $registrationForm]) }}" class="wn-item {{ request()->routeIs('admin.forms.*') ? 'wn-item-active' : '' }}" @if(request()->routeIs('admin.forms.*')) aria-current="page" @endif><x-icon name="file-text" class="size-[15px]" /><span class="webinar-nav-label">Forms</span></a>@endif
             @endif
-            <a href="{{ route('admin.responses.index', [$webinar, 'type' => $navSelectedType]) }}" class="wn-item {{ $isParticipants || $isImports ? 'wn-item-active' : '' }}" @if($isParticipants || $isImports) aria-current="page" @endif><x-icon name="grid" class="size-[15px]" /><span class="webinar-nav-label">Form Responses</span></a>
-            <a href="{{ route('admin.webinars.messages.index', $webinar) }}" class="wn-item {{ request()->routeIs('admin.webinars.messages.*') ? 'wn-item-active' : '' }}"><x-icon name="mail" class="size-[15px]" /><span class="webinar-nav-label">Send a message</span></a>
+            @if($navCanParticipants)<a href="{{ route('admin.responses.index', [$webinar, 'type' => $navSelectedType]) }}" class="wn-item {{ $isParticipants || $isImports ? 'wn-item-active' : '' }}" @if($isParticipants || $isImports) aria-current="page" @endif><x-icon name="grid" class="size-[15px]" /><span class="webinar-nav-label">Form Responses</span></a>@endif
+            @if($navCanParticipants)<a href="{{ route('admin.webinars.eligibility.index', $webinar) }}" class="wn-item {{ request()->routeIs('admin.webinars.eligibility.*') ? 'wn-item-active' : '' }}"><x-icon name="check" class="size-[15px]" /><span class="webinar-nav-label">Participant Eligibility</span></a>@endif
+            @if($navCanSend)<a href="{{ route('admin.webinars.messages.index', $webinar) }}" class="wn-item {{ request()->routeIs('admin.webinars.messages.*') ? 'wn-item-active' : '' }}"><x-icon name="mail" class="size-[15px]" /><span class="webinar-nav-label">Send a message</span></a>@endif
             @endif
         </div>
 
@@ -92,12 +99,12 @@
                 <x-icon name="chevron-down" class="wn-chevron size-4 text-slate-400" />
             </summary>
             <div class="mt-0.5 space-y-0.5 pb-1 pl-1">
-                <a href="{{ route('admin.certification.edit', $webinar) }}" class="wn-item {{ $isTemplate ? 'wn-item-active' : '' }}" @if($isTemplate) aria-current="page" @endif>
+                @if($navCanCertificates)<a href="{{ route('admin.certification.edit', $webinar) }}" class="wn-item {{ $isTemplate ? 'wn-item-active' : '' }}" @if($isTemplate) aria-current="page" @endif>
                     <x-icon name="image" class="size-[15px]" /><span class="webinar-nav-label">Certificate Setup</span>
-                </a>
-                <a href="{{ route('admin.certificates.studio', $webinar) }}" class="wn-item {{ $isStudio ? 'wn-item-active' : '' }}" @if($isStudio) aria-current="page" @endif>
+                </a>@endif
+                @if($navCanCertificates)<a href="{{ route('admin.certificates.studio', $webinar) }}" class="wn-item {{ $isStudio ? 'wn-item-active' : '' }}" @if($isStudio) aria-current="page" @endif>
                     <x-icon name="send" class="size-[15px]" /><span class="webinar-nav-label">Certificate Studio</span>
-                </a>
+                </a>@endif
             </div>
         </details>
 
@@ -112,18 +119,19 @@
                 <a href="{{ route('admin.webinars.show', $webinar) }}" class="wn-item {{ $isOverview ? 'wn-item-active' : '' }}" @if($isOverview) aria-current="page" @endif>
                     <x-icon name="home" class="size-[15px]" /><span class="webinar-nav-label">Overview</span>
                 </a>
-                <a href="{{ route('admin.webinars.reports', $webinar) }}" class="wn-item {{ $isReports ? 'wn-item-active' : '' }}" @if($isReports) aria-current="page" @endif>
+                @if($navCanParticipants)<a href="{{ route('admin.webinars.reports', $webinar) }}" class="wn-item {{ $isReports ? 'wn-item-active' : '' }}" @if($isReports) aria-current="page" @endif>
                     <x-icon name="bar-chart" class="size-[15px]" /><span class="webinar-nav-label">Reports &amp; analytics</span>
-                </a>
-                <a href="{{ route('admin.webinars.edit', $webinar) }}" class="wn-item {{ $isSettings ? 'wn-item-active' : '' }}" @if($isSettings) aria-current="page" @endif>
+                </a>@endif
+                @if($navCanSettings)<a href="{{ route('admin.webinars.edit', $webinar) }}" class="wn-item {{ $isSettings ? 'wn-item-active' : '' }}" @if($isSettings) aria-current="page" @endif>
                     <x-icon name="edit" class="size-[15px]" /><span class="webinar-nav-label">Webinar settings</span>
-                </a>
-                <a href="{{ route('admin.webinars.email-logs.index', $webinar) }}" class="wn-item {{ request()->routeIs('admin.webinars.email-logs.*') ? 'wn-item-active' : '' }}" @if(request()->routeIs('admin.webinars.email-logs.*')) aria-current="page" @endif>
+                </a>@endif
+                @if($navCanSend)<a href="{{ route('admin.webinars.email-logs.index', $webinar) }}" class="wn-item {{ request()->routeIs('admin.webinars.email-logs.*') ? 'wn-item-active' : '' }}" @if(request()->routeIs('admin.webinars.email-logs.*')) aria-current="page" @endif>
                     <x-icon name="mail" class="size-[15px]" /><span class="webinar-nav-label">Email delivery log</span>
-                </a>
-                <a href="{{ route('admin.participants.export', $webinar) }}" class="wn-item" download>
+                </a>@endif
+                @if($navCanAudit)<a href="{{ route('admin.webinars.audit', $webinar) }}" class="wn-item {{ request()->routeIs('admin.webinars.audit') ? 'wn-item-active' : '' }}" @if(request()->routeIs('admin.webinars.audit')) aria-current="page" @endif><x-icon name="shield" class="size-[15px]" /><span class="webinar-nav-label">Audit Trail</span></a>@endif
+                @if($navCanParticipants)<a href="{{ route('admin.participants.export', $webinar) }}" class="wn-item" download>
                     <x-icon name="download" class="size-[15px]" /><span class="webinar-nav-label">Export pre-send roster</span>
-                </a>
+                </a>@endif
             </div>
         </details>
     </nav>

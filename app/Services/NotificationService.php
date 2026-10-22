@@ -25,18 +25,21 @@ class NotificationService
         mixed $expiresAt = null,
         ?string $idempotencyKey = null,
         ?User $account = null,
+        array $context = [],
     ): EmailDelivery {
         $delivery = EmailDelivery::query()->create([
             'webinar_id' => $webinar?->id,
             'account_user_id' => $account?->id,
+            'initiated_by' => auth()->id() ?? $certificate?->requested_by,
             'participant_id' => $participant?->id,
             'certificate_id' => $certificate?->id,
             'type' => $type,
-            'provider' => config('webinar.email.provider'),
+            'provider' => $account ? config('accounts.email_provider', config('webinar.email.provider'))
+                : (in_array($type, ['certificate', 'certificate_test', 'eligibility_notification', ParticipantStatusLinkService::DELIVERY_TYPE], true) ? (config('webinar.email.certificate_provider') ?? config('webinar.email.provider')) : config('webinar.email.provider')),
             'idempotency_key' => $idempotencyKey ?? (string) Str::uuid(),
             'recipient_email' => $recipient,
             'subject' => $subject,
-            'payload' => ['html' => $html, 'attachments' => $attachments, 'account_version' => $account?->auth_version],
+            'payload' => ['html' => $html, 'attachments' => $attachments, 'account_version' => $account?->auth_version] + $context,
             // Set the default explicitly so EmailDelivery can establish its
             // database-backed active-delivery claim before INSERT. Database
             // defaults are applied too late for Eloquent model events.
@@ -49,10 +52,10 @@ class NotificationService
         // Never let a worker observe a delivery whose certificate transaction
         // later rolls back. This also prevents sending a certificate before its
         // durable file and issued status are committed.
-        if ($account) {
-            DB::afterCommit(function () use ($delivery): void {
+        if ($account || $type === 'eligibility_notification') {
+            DB::afterCommit(function () use ($delivery, $account): void {
                 try {
-                    SendTransactionalEmail::dispatch($delivery->id)->onQueue(config('accounts.email_queue'));
+                    SendTransactionalEmail::dispatch($delivery->id)->onQueue($account ? config('accounts.email_queue') : config('webinar.email.queue'));
                 } catch (\Throwable) {
                     // The relay can recover the committed row. Do not log a
                     // queue exception that could contain activation tokens.

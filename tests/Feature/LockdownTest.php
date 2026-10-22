@@ -43,6 +43,7 @@ class LockdownTest extends TestCase
             'f/{token}/status/access/confirm',
             'f/{token}/status/certificates/{certificatePublicId}/download',
             'f/{token}/status/view',
+            'f/{token}/status/reviews/{reviewPublicId}/evidence',
             'f/{token}/submitted',
             'up',
         ], $unauthenticated, 'A new route escaped the admin middleware group.');

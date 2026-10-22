@@ -6,6 +6,7 @@ use App\Models\Form;
 use App\Models\Participant;
 use App\Models\ParticipantAccessToken;
 use App\Models\Webinar;
+use Carbon\CarbonInterface;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -25,10 +26,9 @@ final class ParticipantStatusLinkService
     public function request(Webinar $webinar, string $email): void
     {
         $email = Str::lower(trim($email));
-        $rawToken = bin2hex(random_bytes(32));
         $expiresAt = now()->addMinutes($this->tokenLifetimeMinutes());
 
-        DB::transaction(function () use ($webinar, $email, $rawToken, $expiresAt): void {
+        DB::transaction(function () use ($webinar, $email, $expiresAt): void {
             $lockedWebinar = $this->lockAvailableWebinar($webinar);
 
             if (! $lockedWebinar) {
@@ -58,36 +58,7 @@ final class ParticipantStatusLinkService
                 return;
             }
 
-            ParticipantAccessToken::query()->create([
-                'participant_id' => $participant->id,
-                'webinar_id' => $lockedWebinar->id,
-                'form_id' => null,
-                'token_hash' => $this->tokenHash($rawToken),
-                'purpose' => self::PURPOSE,
-                'expires_at' => $expiresAt,
-            ]);
-
-            $keptIds = ParticipantAccessToken::query()
-                ->where('participant_id', $participant->id)
-                ->where('purpose', self::PURPOSE)
-                ->whereNull('used_at')
-                ->where('expires_at', '>', now())
-                ->latest('id')
-                ->take($this->maximumLiveTokens())
-                ->pluck('id');
-
-            ParticipantAccessToken::query()
-                ->where('participant_id', $participant->id)
-                ->where('purpose', self::PURPOSE)
-                ->whereNull('used_at')
-                ->where('expires_at', '>', now())
-                ->whereNotIn('id', $keptIds)
-                ->update(['used_at' => now()]);
-
-            // URL fragments are not sent to the web server, reverse proxy, or
-            // access log. The confirmation page moves it into a protected POST.
-            $confirmationUrl = route('forms.public.status.access.confirm', $form->public_token)
-                .'#token='.$rawToken;
+            $confirmationUrl = $this->createLink($lockedWebinar, $participant, $expiresAt);
             $html = view('emails.participant-status-access', [
                 'confirmationUrl' => $confirmationUrl,
                 'expiresInMinutes' => $this->tokenLifetimeMinutes(),
@@ -101,8 +72,26 @@ final class ParticipantStatusLinkService
                 'Your secure participant status link',
                 $html,
                 expiresAt: $expiresAt,
+                context: ['status_access_version' => (int) $participant->status_access_version],
             );
         }, attempts: 3);
+    }
+
+    /** Caller holds webinar, then participant locks. Tokens are never returned to an admin UI. */
+    public function createLink(Webinar $webinar, Participant $participant, CarbonInterface $expiresAt): string
+    {
+        abort_unless($participant->webinar_id === $webinar->id && ! $participant->privacy_erased_at && ! $participant->trashed(), 404);
+        $form = $webinar->forms()->orderBy('id')->firstOrFail();
+        $rawToken = bin2hex(random_bytes(32));
+        ParticipantAccessToken::query()->create([
+            'participant_id' => $participant->id, 'webinar_id' => $webinar->id, 'form_id' => null,
+            'token_hash' => $this->tokenHash($rawToken), 'purpose' => self::PURPOSE, 'expires_at' => $expiresAt,
+        ]);
+        $kept = $participant->accessTokens()->where('purpose', self::PURPOSE)->whereNull('used_at')
+            ->where('expires_at', '>', now())->latest('id')->take($this->maximumLiveTokens())->pluck('id');
+        $participant->accessTokens()->where('purpose', self::PURPOSE)->whereNull('used_at')->whereNotIn('id', $kept)->update(['used_at' => now()]);
+
+        return route('forms.public.status.access.confirm', $form->public_token).'#token='.$rawToken;
     }
 
     /** Atomically spend a webinar-bound token and establish a session grant. */
@@ -175,6 +164,7 @@ final class ParticipantStatusLinkService
             'webinar_id' => $webinar->id,
             'participant_id' => $participant->id,
             'email_fingerprint' => $this->emailFingerprint((string) $participant->email),
+            'version' => (int) $participant->status_access_version,
             'expires_at' => now()->addMinutes($this->sessionLifetimeMinutes())->timestamp,
         ]);
 
@@ -208,7 +198,7 @@ final class ParticipantStatusLinkService
                 ->first();
         }, attempts: 3);
 
-        if (! $participant
+        if (! $participant || (int) ($grant['version'] ?? 0) !== (int) $participant->status_access_version
             || ! hash_equals($grant['email_fingerprint'], $this->emailFingerprint((string) $participant->email))) {
             $request->session()->forget($key);
 

@@ -9,3 +9,4 @@ Schedule::command('imports:prune-stale')->hourly()->withoutOverlapping();
 Schedule::command('privacy:erase-expired-participants')->dailyAt('02:00')->withoutOverlapping();
 Schedule::command('security:prune-email-deliveries')->dailyAt('02:30')->withoutOverlapping();
 Schedule::command('security:prune-audit-logs')->dailyAt('03:00')->withoutOverlapping();
+Schedule::command('security:prune-admin-devices')->dailyAt('03:15')->withoutOverlapping();

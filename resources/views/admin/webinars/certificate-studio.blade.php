@@ -55,7 +55,7 @@
 
 <div class="flex h-dvh min-h-0 flex-col bg-slate-100" data-studio data-has-background="{{ $hasBackground ? 1 : 0 }}" data-initial-participant="{{ $firstParticipant?->public_id }}" data-status-url="{{ $statusUrl }}" data-preview-url="{{ route('admin.certification.preview', $webinar) }}" data-recipients-url="{{ route('admin.certificates.studio.recipients', $webinar) }}" data-manual-url="{{ route('admin.certificates.manual.store', $webinar) }}">
     <div class="studio-approval-notice flex shrink-0 flex-wrap items-center justify-between gap-2 px-4 py-2 text-xs">
-        <span>Eligible participants appear automatically. Manual recipients are certificate exceptions. <a class="font-semibold underline" href="{{ route('admin.responses.index', [$webinar, 'view' => 'eligibility']) }}">View eligibility</a>.</span>
+        <span>Eligible participants appear automatically. Manual recipients are certificate exceptions.@if($canReviewEligibility) <a class="font-semibold underline" href="{{ route('admin.webinars.eligibility.index', $webinar) }}">View eligibility</a>.@endif</span>
         <button type="button" class="studio-button-secondary" data-add-recipient><x-icon name="plus" class="size-4" />Add Recipient Manually</button>
     </div>
 
@@ -113,7 +113,7 @@
             @endif
             <a class="studio-button-secondary hidden sm:inline-flex" href="{{ route('admin.webinars.certificates.export-zip', $webinar) }}" title="Download all issued certificate PDFs as a ZIP archive"><x-icon name="archive" class="size-4" />Export ZIP</a>
             <a class="studio-button-secondary hidden sm:inline-flex" target="_blank" rel="noopener" href="{{ route('admin.certification.preview', [$webinar, 'participant' => $firstParticipant?->public_id]) }}" data-preview-pdf><x-icon name="download" class="size-4" />Preview PDF</a>
-            <button type="button" class="studio-button-success" data-open-send-confirm disabled><x-icon name="send" class="size-4" /><span class="hidden sm:inline" data-send-label>Send certificates</span><span class="sm:hidden">Send</span></button>
+            <button type="button" class="studio-button-success" data-open-send-confirm @unless(app(\App\Policies\WebinarPolicy::class)->permission(auth()->user(), $webinar, 'send_emails')) hidden @endunless disabled><x-icon name="send" class="size-4" /><span class="hidden sm:inline" data-send-label>Send certificates</span><span class="sm:hidden">Send</span></button>
             <button type="button" class="studio-mobile-panel-button lg:hidden" data-toggle-panel="people" aria-label="Open recipients"><x-icon name="users" class="size-4" /></button>
             <button type="button" class="studio-mobile-panel-button lg:hidden" data-toggle-panel="editor" aria-label="Open editor"><x-icon name="type" class="size-4" /></button>
         </div>
@@ -201,6 +201,7 @@
                     <div class="recipient-tabs mt-2 flex rounded-lg bg-slate-100 p-0.5" role="tablist" aria-label="Recipient lists">
                         <button type="button" role="tab" aria-selected="true" data-recipient-tab="working" class="is-active">To send<span class="ml-1.5 tabular-nums opacity-60" data-recipient-working-total>{{ number_format($participants->total()) }}</span></button>
                         <button type="button" role="tab" aria-selected="false" data-recipient-tab="sent" class="">Sent<span class="ml-1.5 tabular-nums opacity-60" data-recipient-sent-total>{{ number_format($sentCount) }}</span></button>
+                        @if($canReviewEligibility)<button type="button" role="tab" aria-selected="false" data-recipient-tab="incomplete">Not eligible<span class="ml-1 tabular-nums opacity-60" data-recipient-incomplete-total>{{ number_format($notCurrentlyEligibleCount) }}</span></button>@endif
                     </div>
                     <button type="button" class="mt-2 text-xs text-accent-700 underline" data-refresh-recipients>Refresh recipients</button><p class="mt-2 text-xs text-red-700" data-recipient-refresh-error role="alert" hidden></p><a class="mt-2 block text-xs underline" data-recipient-password-confirm hidden href="{{ route('admin.password.confirm') }}" target="_blank" rel="noopener">Confirm password to complete removal</a>
                     <label class="field-label mt-2" for="studio-recipient-source">Recipient source</label><select class="field" id="studio-recipient-source" data-recipient-source><option value="">All sources</option><option value="eligible">Eligible</option><option value="manual">Manual</option></select>
@@ -220,6 +221,7 @@
 
                 {{-- Delivered certificates: read-only, separated behind their own tab. --}}
                 @include('admin.webinars.partials.studio-sent')
+                @if($canReviewEligibility) @include('admin.webinars.partials.studio-incomplete') @endif
 
                 @if($pipelineWarning)
                     <div class="shrink-0 border-t border-slate-100 p-3">

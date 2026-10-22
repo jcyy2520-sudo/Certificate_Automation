@@ -119,6 +119,8 @@ class StudioRecipientsTest extends TestCase
         $this->assertFalse($certificate->eligibility_snapshot['requirements']['posttest']);
         $this->assertStringStartsWith('%PDF', Storage::disk('local')->get($certificate->file_path));
         $delivery = $certificate->deliveries()->sole();
+        $this->assertStringContainsString('#token=', $delivery->payload['html']);
+        $this->assertSame('certificate', $delivery->type);
         $mailer = $this->mock(TransactionalMailer::class);
         $mailer->shouldReceive('send')->once()->withArgs(fn ($email, $subject, $html, $attachments, $key) => $email === 'manual@example.test' && count($attachments) === 1 && filled($key))->andReturn('synthetic-provider-id');
         (new SendTransactionalEmail($delivery->id))->handle($mailer);

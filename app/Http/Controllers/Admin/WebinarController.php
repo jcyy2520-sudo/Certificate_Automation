@@ -5,14 +5,17 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\CertificateBatch;
 use App\Models\CertificateTemplate;
+use App\Models\EligibilityReview;
 use App\Models\EligibilityRule;
 use App\Models\EmailDelivery;
 use App\Models\Form;
 use App\Models\Submission;
 use App\Models\User;
 use App\Models\Webinar;
+use App\Policies\WebinarPolicy;
 use App\Services\AuditService;
 use App\Services\CertificateFileService;
+use App\Services\EligibilityReviewFiles;
 use App\Services\EligibilityService;
 use App\Services\ParticipantPrivacyService;
 use App\Support\LocalDateTime;
@@ -123,6 +126,17 @@ class WebinarController extends Controller
 
     public function show(Webinar $webinar, EligibilityService $eligibility): View
     {
+        $user = request()->user();
+        if (! $user->isAdministrator() && ! ($user->canCreateWebinars() && (int) $webinar->created_by === (int) $user->id)) {
+            $policy = app(WebinarPolicy::class);
+
+            return view('admin.webinars.assigned-overview', [
+                'webinar' => $webinar,
+                'canParticipants' => $policy->permission($user, $webinar, 'manage_participants'),
+                'canCertificates' => $policy->permission($user, $webinar, 'manage_certificates'),
+                'canSend' => $policy->permission($user, $webinar, 'send_emails'),
+            ]);
+        }
         if ($webinar->isUploadOnly()) {
             return view('admin.webinars.documents', ['webinar' => $webinar, 'documents' => $webinar->documents()->latest()->paginate(20)]);
         }
@@ -179,8 +193,8 @@ class WebinarController extends Controller
             ->whereNotNull('participants.email')
             ->where('participants.email', '!=', '')
             ->count());
-        $emailProviderReady = config('webinar.email.provider') !== 'log'
-            && (config('webinar.email.provider') !== 'brevo' || filled(config('services.brevo.key')));
+        $emailProviderReady = (config('webinar.email.certificate_provider') ?? config('webinar.email.provider')) !== 'log'
+            && ((config('webinar.email.certificate_provider') ?? config('webinar.email.provider')) !== 'brevo' || filled(config('services.brevo.key')));
         $readiness = [
             'uses_default_requirements' => $usesDefaultCertificateRequirements,
             'required_requirements' => $requiredRequirements,
@@ -190,7 +204,7 @@ class WebinarController extends Controller
             'ready_recipient_count' => $readyRecipientCount,
             'missing_email_count' => $missingEmailCount,
             'email_provider_ready' => $emailProviderReady,
-            'email_provider' => config('webinar.email.provider'),
+            'email_provider' => (config('webinar.email.certificate_provider') ?? config('webinar.email.provider')),
             'active_batch' => $activeBatch,
         ];
 
@@ -392,6 +406,9 @@ class WebinarController extends Controller
             $webinar->certificates()->select(['id', 'public_id', 'storage_disk', 'file_path'])->cursor(),
         );
         $privacy->eraseWebinarImports($webinar);
+        foreach (EligibilityReview::query()->where('webinar_id', $webinar->id)->cursor() as $review) {
+            app(EligibilityReviewFiles::class)->delete($review);
+        }
         // Keep retired/replaced uploads in the inventory until the authorized
         // permanent webinar deletion. Fail closed before relational deletion.
         foreach ($webinar->documents()->withTrashed()->cursor() as $document) {

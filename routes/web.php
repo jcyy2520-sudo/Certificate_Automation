@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AccountController;
+use App\Http\Controllers\Admin\AuditTrailController;
 use App\Http\Controllers\Admin\CertificateController as AdminCertificateController;
 use App\Http\Controllers\Admin\CertificationController as AdminCertificationController;
 use App\Http\Controllers\Admin\EmailDeliveryController as AdminEmailDeliveryController;
@@ -9,6 +10,7 @@ use App\Http\Controllers\Admin\FormResponseController;
 use App\Http\Controllers\Admin\ImportController as AdminImportController;
 use App\Http\Controllers\Admin\ManualCertificateRecipientController;
 use App\Http\Controllers\Admin\ParticipantController as AdminParticipantController;
+use App\Http\Controllers\Admin\ParticipantEligibilityController;
 use App\Http\Controllers\Admin\ParticipantMessageController;
 use App\Http\Controllers\Admin\UserManagementController;
 use App\Http\Controllers\Admin\WebinarController as AdminWebinarController;
@@ -17,14 +19,17 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CertificateVerificationController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ParticipantAccessController;
+use App\Http\Controllers\ParticipantReviewController;
 use App\Http\Controllers\ParticipantStatusController;
 use App\Http\Controllers\PasswordConfirmationController;
 use App\Http\Controllers\PublicFormController;
 use App\Http\Controllers\TwoFactorChallengeController;
 use App\Http\Controllers\TwoFactorController;
 use App\Http\Controllers\WebinarAccessController;
+use App\Http\Middleware\AuditAccountOperations;
 use App\Http\Middleware\AuthorizeWebinarManagement;
 use App\Http\Middleware\EnsureAdministrator;
+use App\Http\Middleware\EnsureAdminSessionContext;
 use App\Http\Middleware\EnsureApprovedAccount;
 use App\Http\Middleware\EnsureRecentPassword;
 use App\Http\Middleware\EnsureTwoFactorEnabled;
@@ -43,6 +48,8 @@ Route::post('/f/{token}/status/access/request', [ParticipantStatusController::cl
 Route::get('/f/{token}/status/access/confirm', [ParticipantStatusController::class, 'confirm'])->where('token', '[a-z0-9]{24}')->middleware('throttle:60,1')->name('forms.public.status.access.confirm');
 Route::post('/f/{token}/status/access/confirm', [ParticipantStatusController::class, 'consume'])->where('token', '[a-z0-9]{24}')->middleware('throttle:participant-access-confirm')->name('forms.public.status.access.consume');
 Route::get('/f/{token}/status/view', [ParticipantStatusController::class, 'show'])->where('token', '[a-z0-9]{24}')->middleware('throttle:public-form-view')->name('forms.public.status.view');
+Route::post('/f/{token}/status/reviews', [ParticipantReviewController::class, 'store'])->where('token', '[a-z0-9]{24}')->middleware('throttle:participant-review')->name('forms.public.status.review.store');
+Route::get('/f/{token}/status/reviews/{reviewPublicId}/evidence', [ParticipantReviewController::class, 'evidence'])->where(['token' => '[a-z0-9]{24}', 'reviewPublicId' => '[0-9A-HJKMNP-TV-Z]{26}'])->middleware('throttle:30,1')->name('forms.public.status.review.evidence');
 Route::get('/f/{token}/status/certificates/{certificatePublicId}/download', [ParticipantStatusController::class, 'download'])->where(['token' => '[a-z0-9]{24}', 'certificatePublicId' => '[0-9A-HJKMNP-TV-Z]{26}'])->middleware('throttle:30,1')->name('forms.public.status.certificate.download');
 
 Route::get('/certificates/verify/{code}', CertificateVerificationController::class)->where('code', '[A-Za-z0-9-]{12,40}')->middleware('throttle:30,1')->name('certificates.verify');
@@ -70,7 +77,7 @@ Route::middleware('guest')->group(function () {
     Route::post('/admin/two-factor-challenge', [TwoFactorChallengeController::class, 'store'])->middleware('throttle:admin-two-factor-challenge')->name('two-factor.challenge.store');
 });
 
-Route::middleware(['auth', EnsureApprovedAccount::class, 'auth.session', EnsureTwoFactorEnabled::class, AuthorizeWebinarManagement::class, RejectDeletedWebinar::class])
+Route::middleware(['auth', EnsureApprovedAccount::class, 'auth.session', EnsureTwoFactorEnabled::class, EnsureAdminSessionContext::class, AuditAccountOperations::class, AuthorizeWebinarManagement::class, RejectDeletedWebinar::class])
     ->scopeBindings()->prefix('admin')->name('admin.')->group(function () {
         Route::post('/logout', [AuthController::class, 'destroy'])->name('logout');
         Route::get('/', DashboardController::class)->name('dashboard');
@@ -78,7 +85,11 @@ Route::middleware(['auth', EnsureApprovedAccount::class, 'auth.session', EnsureT
         Route::put('/profile', [AccountController::class, 'updateProfile'])->name('profile.update');
         Route::put('/profile/password', [AccountController::class, 'changePassword'])->middleware([EnsureRecentPassword::class, 'throttle:admin-password-confirm'])->name('profile.password');
         Route::get('/users', [UserManagementController::class, 'index'])->middleware(EnsureAdministrator::class)->name('users.index');
+        Route::get('/audit-trail', [AuditTrailController::class, 'index'])->middleware(EnsureAdministrator::class)->name('audit.index');
+        Route::get('/participant-eligibility', [ParticipantEligibilityController::class, 'selectWebinar'])->name('eligibility.select');
         Route::post('/users/{user}', [UserManagementController::class, 'update'])->middleware([EnsureAdministrator::class, EnsureRecentPassword::class, 'throttle:admin-sensitive'])->name('users.update');
+        Route::post('/users', [UserManagementController::class, 'store'])->middleware([EnsureAdministrator::class, EnsureRecentPassword::class, 'throttle:admin-sensitive'])->name('users.store');
+        Route::put('/users/{user}/access', [UserManagementController::class, 'access'])->middleware([EnsureAdministrator::class, EnsureRecentPassword::class, 'throttle:admin-sensitive'])->name('users.access');
         Route::get('/webinar-access/{webinar}', [WebinarAccessController::class, 'administrative'])->middleware(EnsureAdministrator::class)->withoutMiddleware(AuthorizeWebinarManagement::class)->name('webinars.administrative-access');
         Route::post('/webinar-access/{webinar}', [WebinarAccessController::class, 'authorizeAccess'])->middleware([EnsureAdministrator::class, EnsureRecentPassword::class])->withoutMiddleware(AuthorizeWebinarManagement::class)->name('webinars.administrative-access.store');
         Route::get('/webinars/{webinar}/unlock', [WebinarAccessController::class, 'unlock'])->name('webinars.unlock');
@@ -90,8 +101,18 @@ Route::middleware(['auth', EnsureApprovedAccount::class, 'auth.session', EnsureT
         Route::post('/security/two-factor', [TwoFactorController::class, 'enable'])->middleware('throttle:admin-sensitive')->name('two-factor.enable');
         Route::post('/security/two-factor/recovery-codes', [TwoFactorController::class, 'regenerateRecoveryCodes'])->middleware('throttle:admin-sensitive')->name('two-factor.recovery-codes');
         Route::delete('/security/two-factor', [TwoFactorController::class, 'disable'])->middleware('throttle:admin-sensitive')->name('two-factor.disable');
+        Route::delete('/security/trusted-devices', [TwoFactorController::class, 'revokeDevices'])->middleware([EnsureRecentPassword::class, 'throttle:admin-sensitive'])->name('two-factor.devices.revoke');
 
         Route::resource('webinars', AdminWebinarController::class)->except('destroy');
+        Route::get('/webinars/{webinar}/audit', [AuditTrailController::class, 'webinar'])->name('webinars.audit');
+        Route::get('/webinars/{webinar}/eligibility', [ParticipantEligibilityController::class, 'index'])->name('webinars.eligibility.index');
+        Route::post('/webinars/{webinar}/eligibility/filter', [ParticipantEligibilityController::class, 'filter'])->name('webinars.eligibility.filter');
+        Route::post('/webinars/{webinar}/eligibility/notify', [ParticipantEligibilityController::class, 'notify'])->middleware([EnsureRecentPassword::class, 'throttle:admin-sensitive'])->name('webinars.eligibility.notify');
+        Route::get('/webinars/{webinar}/eligibility/{participant}', [ParticipantEligibilityController::class, 'show'])->name('webinars.eligibility.show');
+        Route::post('/webinars/{webinar}/eligibility/{participant}/finalize', [ParticipantEligibilityController::class, 'finalize'])->middleware([EnsureRecentPassword::class, 'throttle:admin-sensitive'])->name('webinars.eligibility.finalize');
+        Route::post('/webinars/{webinar}/eligibility/{participant}/revoke-links', [ParticipantEligibilityController::class, 'revoke'])->middleware([EnsureRecentPassword::class, 'throttle:admin-sensitive'])->name('webinars.eligibility.revoke');
+        Route::post('/webinars/{webinar}/eligibility/{participant}/reviews/{review}/decision', [ParticipantEligibilityController::class, 'decide'])->middleware([EnsureRecentPassword::class, 'throttle:admin-sensitive'])->name('webinars.eligibility.decide');
+        Route::get('/webinars/{webinar}/eligibility/{participant}/reviews/{review}/evidence', [ParticipantEligibilityController::class, 'evidence'])->middleware(EnsureRecentPassword::class)->name('webinars.eligibility.evidence');
         Route::get('/webinars/{webinar}/messages', [ParticipantMessageController::class, 'index'])->name('webinars.messages.index');
         Route::post('/webinars/{webinar}/messages', [ParticipantMessageController::class, 'store'])->middleware([EnsureRecentPassword::class, 'throttle:admin-sensitive'])->name('webinars.messages.store');
         Route::post('/webinars/{webinar}/messages/{delivery}/retry', [ParticipantMessageController::class, 'retry'])->middleware([EnsureRecentPassword::class, 'throttle:admin-sensitive'])->name('webinars.messages.retry');
@@ -145,7 +166,9 @@ Route::middleware(['auth', EnsureApprovedAccount::class, 'auth.session', EnsureT
         Route::delete('/webinars/{webinar}/participants/{participant}', [AdminParticipantController::class, 'destroy'])->middleware(EnsureRecentPassword::class)->name('participants.destroy');
 
         Route::get('/email-logs', [AdminEmailDeliveryController::class, 'index'])->middleware(EnsureAdministrator::class)->name('email-logs.index');
+        Route::post('/email-logs/{delivery:public_id}/status', [AdminEmailDeliveryController::class, 'refresh'])->middleware([EnsureAdministrator::class, EnsureRecentPassword::class, 'throttle:admin-sensitive'])->name('email-logs.status');
         Route::get('/webinars/{webinar}/email-logs', [AdminEmailDeliveryController::class, 'webinar'])->name('webinars.email-logs.index');
+        Route::post('/webinars/{webinar}/email-logs/{emailDelivery:public_id}/status', [AdminEmailDeliveryController::class, 'refreshWebinar'])->middleware([EnsureRecentPassword::class, 'throttle:admin-sensitive'])->name('webinars.email-logs.status');
 
         Route::get('/webinars/{webinar}/imports', [AdminImportController::class, 'index'])->name('webinars.imports.index');
         Route::get('/webinars/{webinar}/imports/upload', [AdminImportController::class, 'create'])->name('webinars.imports.create');

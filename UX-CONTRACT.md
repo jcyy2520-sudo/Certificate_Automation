@@ -11,7 +11,8 @@ Downloads and mutations inherit ownership, webinar unlock/admin audit, MFA and
 password-step-up middleware. Replaced/removed files remain inventoried privately
 until authorized permanent webinar deletion. The existing policy grants platform
 administrators oversight over all webinars; ordinary approved users see only
-their own. Account requests remain subject to verification and admin approval.
+their own or explicitly assigned webinars. Public requests appear before approval;
+approved requests and administrator invitations verify email during shared password setup.
 
 `participant-messages.js` owns the message variant of page-only selection/count
 and extends the existing shared confirmation/queue/log workflow. A count precedes
@@ -35,14 +36,24 @@ Evidence: `RequestedImprovementsTest.php`, `tests/js/navigation-request.test.js`
 and `tests/workflow/improvements.spec.js`. Real-record transfer is governed by
 `deploy/render/REAL_DATA_MIGRATION_PLAN.md`, not by code-deployment permission.
 
-Account access follows `MULTI_USER_PLATFORM.md`: public request, explicit email
-verification, administrator approval and separate password setup. Only verified
-requests appear in User Management. Shared auth fields own error associations,
+Account access follows `MULTI_USER_PLATFORM.md`: public request, administrator
+approval and shared email activation/password setup. Pending requests appear
+immediately. Admin invitations bypass approval and cannot grant Administrator.
+Shared auth fields own error associations,
 password visibility and first-invalid focus. Shared admin confirmations own
 account/protection actions. Approval returns to the resulting account-status
 view. Administrator webinar access is an explicit audited grant. Webinar locks
 are secondary to ownership and do not apply to public participant forms. Email
 states describe queue/attempt/provider acceptance, never unverified inbox delivery.
+
+Participant eligibility follows `ELIGIBILITY_FEEDBACK.md`. The existing
+EligibilityService remains the sole source of certificate qualification.
+ParticipantEligibilityService presents safe evidence and a separately finalized
+communication status; it does not grant eligibility. ParticipantStatusLinkService
+owns expiring one-time fragments, scoped sessions and revocation versions. Review
+requests retain original evidence, and verified import corrections reuse
+CsvImportService. Each manual notification uses the existing outbox/queue/log,
+requires selection and confirmation, and revalidates its evidence before sending.
 
 | Capability | Canonical owner | Source of truth | Allowed variants | Verification |
 |---|---|---|---|---|

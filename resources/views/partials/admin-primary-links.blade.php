@@ -11,6 +11,7 @@
     $railNav[] = ['route' => 'admin.profile', 'icon' => 'users', 'label' => 'Profile', 'active' => request()->routeIs('admin.profile*')];
     if (auth()->user()->isAdministrator()) {
         $railNav[] = ['route' => 'admin.users.index', 'icon' => 'users', 'label' => 'User Management', 'active' => request()->routeIs('admin.users.*')];
+        $railNav[] = ['route' => 'admin.audit.index', 'icon' => 'shield', 'label' => 'Audit Trail', 'active' => request()->routeIs('admin.audit.*')];
     }
 @endphp
 

@@ -6,6 +6,7 @@ use App\Models\Certificate;
 use App\Services\AuditService;
 use App\Services\CertificateFileService;
 use App\Services\EligibilityService;
+use App\Services\ParticipantEligibilityService;
 use App\Services\ParticipantStatusLinkService;
 use App\Services\PublicFormResolver;
 use Illuminate\Http\RedirectResponse;
@@ -91,6 +92,7 @@ final class ParticipantStatusController extends Controller
         PublicFormResolver $forms,
         ParticipantStatusLinkService $statusLinks,
         EligibilityService $eligibility,
+        ParticipantEligibilityService $feedback,
     ): View|RedirectResponse {
         $form = $forms->resolve($token);
         $participant = $statusLinks->participant($request, $form->webinar);
@@ -101,27 +103,18 @@ final class ParticipantStatusController extends Controller
                 ->with('participant_status_error', true);
         }
 
-        $participant->load([
-            'submissions.form:id,webinar_id,type,title',
-            'certificates' => fn ($query) => $query
-                ->where('status', 'issued')
-                ->whereNotNull('issued_at')
-                ->whereNull('revoked_at')
-                ->select([
-                    'id', 'public_id', 'participant_id', 'webinar_id', 'verification_code',
-                    'status', 'issued_at', 'revoked_at', 'privacy_erased_at',
-                ]),
-        ]);
+        $participant->load(['submissions' => fn ($q) => $q->select(['id', 'form_id', 'participant_id', 'status', 'score', 'submitted_at', 'metadata']), 'submissions.form:id,webinar_id,type,title']);
         $evaluation = $eligibility->evaluate($participant);
-        $certificate = $participant->certificates->first(
-            fn (Certificate $certificate): bool => $certificate->isPubliclyValid(),
-        );
+        $summary = $feedback->summary($participant);
+        $certificate = $summary['certificate'];
 
         return view('public.status', [
             'form' => $form,
             'participant' => $participant,
             'evaluation' => $evaluation,
             'certificate' => $certificate,
+            'summary' => $summary,
+            'reviews' => $participant->eligibilityReviews()->latest('id')->get(),
         ]);
     }
 

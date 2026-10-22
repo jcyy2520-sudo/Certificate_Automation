@@ -63,17 +63,9 @@ class MultiUserPlatformTest extends TestCase
         $this->post(route('account.store'), ['name' => 'Student Owner', 'email' => ' STUDENT@example.test ', 'role' => 'administrator', 'is_active' => true])->assertRedirect(route('account.status'));
         $user = User::query()->where('email', 'student@example.test')->firstOrFail();
         $this->assertSame(User::USER_ROLE, $user->role);
-        $this->assertSame('pending_verification', $user->approval_status);
+        $this->assertSame('pending_approval', $user->approval_status);
         $this->assertFalse($user->is_active);
-        $this->actingAs($admin)->get(route('admin.users.index'))->assertOk()->assertDontSee('Student Owner');
-        $this->post(route('admin.users.update', $user), ['action' => 'approve'])->assertSessionHasErrors();
-        auth()->logout();
-        $url = $this->invitationUrl('account_verification');
-        $this->get($url)->assertOk();
-        $this->assertNull($user->fresh()->email_verified_at);
-        $this->verifyInvitation($url)->assertRedirect(route('account.status'));
-        $this->verifyInvitation($url)->assertForbidden();
-        $this->actingAs($admin)->get(route('admin.users.index'))->assertSee('Student Owner');
+        $this->actingAs($admin)->get(route('admin.users.index'))->assertOk()->assertSee('Student Owner')->assertSee('Pending request');
         $this->post(route('admin.users.update', $user), ['action' => 'approve'])->assertSessionHasNoErrors();
         $this->assertSame('approved', $user->fresh()->approval_status);
         $this->assertFalse($user->fresh()->canAccessPlatform());
@@ -96,26 +88,21 @@ class MultiUserPlatformTest extends TestCase
     public function test_repeated_registration_is_neutral_and_does_not_replace_name_or_send_repeated_email(): void
     {
         $data = ['name' => 'Original Owner', 'email' => 'same@example.test'];
-        $this->post(route('account.store'), $data)->assertRedirect();
-        $this->post(route('account.store'), [...$data, 'name' => 'Attacker'])->assertRedirect();
+        for ($i = 0; $i < 5; $i++) {
+            $this->travel(61)->seconds();
+            $this->post(route('account.store'), [...$data, 'name' => $i ? 'Attacker' : 'Original Owner'])->assertRedirect();
+        }
         $this->assertDatabaseCount('users', 1);
-        $this->assertDatabaseCount('email_deliveries', 1);
-        $this->assertDatabaseHas('users', ['name' => 'Original Owner']);
-        $this->travel(3)->minutes();
-        $this->post(route('account.store'), $data)->assertRedirect();
-        $this->assertDatabaseCount('email_deliveries', 2);
-        $this->assertSame('cancelled', EmailDelivery::query()->oldest('id')->first()->status);
-        $this->post(route('account.store'), $data)->assertRedirect();
-        $this->post(route('account.store'), $data)->assertRedirect();
+        $this->assertDatabaseCount('email_deliveries', 0);
+        $this->assertDatabaseHas('users', ['name' => 'Original Owner', 'approval_status' => 'pending_approval']);
         $this->post(route('account.store'), $data)->assertStatus(429);
     }
 
     public function test_expired_verification_and_setup_links_cannot_activate_accounts(): void
     {
-        app(AccountService::class)->request('Expiring Owner', 'expiring@example.test');
-        $url = $this->invitationUrl('account_verification');
-        $this->travel(61)->minutes();
-        $this->verifyInvitation($url)->assertForbidden();
+        $legacy = $this->member(['approval_status' => 'pending_verification', 'is_active' => false, 'password_setup_at' => null]);
+        $legacy->forceFill(['verification_token_hash' => hash('sha256', str_repeat('a', 64)), 'verification_expires_at' => now()->subMinute()])->save();
+        $this->post(route('account.verify.consume', $legacy), ['token' => str_repeat('a', 64)])->assertForbidden();
         $user = $this->member(['password_setup_at' => null]);
         app(AccountService::class)->invite($user, true);
         $setup = $this->invitationUrl('account_setup');
@@ -232,7 +219,7 @@ class MultiUserPlatformTest extends TestCase
         $pending = $this->member(['approval_status' => 'pending_approval', 'is_active' => false, 'password_setup_at' => null]);
         $this->actingAs($admin)->post(route('admin.users.update', $pending), ['action' => 'reject'])->assertSessionHasNoErrors();
         $this->assertSame('rejected', $pending->fresh()->approval_status);
-        $this->post(route('admin.users.update', $admin), ['action' => 'suspend'])->assertSessionHasErrors();
+        $this->post(route('admin.users.update', $admin), ['action' => 'suspend'])->assertForbidden();
         $this->assertTrue($admin->fresh()->isAdministrator());
     }
 

@@ -1,4 +1,118 @@
-# Production readiness review — 21 October 2026
+# Production readiness review — final verification, 22 October 2026
+
+**Current decision: NO-GO for real-recipient production release. Development and
+isolated verification are complete; real-data reconciliation/ownership approval,
+the new hosted runtime and actual email delivery remain release gates. Nothing
+has been deployed, imported or sent by this final verification task.**
+
+The owner now prohibits ALL real sending, including the previously authorized
+account smoke test. Keep this hold until fresh explicit authorization. The owner
+will provide final source files before release. The historical 21 October report
+below does not supersede this update.
+
+## Final verified implementation
+
+- Public requests appear immediately in User Management; approval and direct
+  admin invitations share secure expiring single-use activation/password setup.
+  Direct invitations assign only non-admin roles, explicit webinar access and
+  permissions. Existing hosted access remains one active approved Administrator
+  and one inactive regular account awaiting verification; no roles changed.
+- Global audit is Administrator-only. Assigned Webinar Managers can read only
+  their authorized webinar's trail. Route, filter, pagination and actor choices
+  are scoped on the backend; managers do not see actor email/network/browser
+  fingerprints. Administrator sees global activity and each webinar's own view.
+  Audit actors retain permanent IDs and encrypted historical identity snapshots.
+- Participant eligibility/checklists, private expiring/revocable record links,
+  record-review evidence/corrections and manually queued notifications reuse the
+  existing eligibility/import/email pipeline. Certificate eligibility remains
+  separate from issuance and provider delivery; optional Evaluation stays optional.
+- Durable daily mail reservations survive cache flushes/restarts and share a
+  maximum 300-credit allowance across all Brevo account/participant mail. The
+  configured 250-credit release budget leaves headroom. Provider credit GETs fail
+  closed; excess unattempted work remains queued with a future schedule and fresh
+  outbox job. Existing uncertain-send/idempotency protections remain intact.
+  Legacy accepted rows without attempt markers are counted conservatively.
+- Email UI distinguishes queued, processing, provider accepted, delayed, delivered
+  to recipient mail server, failed and unknown outcomes. Provider-event refresh
+  only reads status. Acceptance/delivery never claims inbox placement or reading.
+- Certificate font subsetting and renderer cycle cleanup reduce batch memory and
+  attachment size without shortening names or changing template placement. Three
+  synthetic ordinary/accented/long-name PDFs were extracted, bounded and visually
+  inspected; each has one page, complete text and the expected name position.
+- Eligibility rule changes and their before/after audit now commit atomically.
+
+## Final evidence and limits
+
+| Check | Verified result | Limit |
+| --- | --- | --- |
+| Full PHP suite on official checksum-verified PHP 8.3.36 | 600 tests  / 6,456 assertions passed | Isolated SQLite; no real delivery |
+| Pint, JS, frontend | Full Pint; 12 JS; Vite build passed | PDF.js large-chunk advisory remains |
+| Chromium | 20 real-HTTP workflows + 33 static snapshot tests passed | Desktop/tablet/mobile viewports; no physical-device/AT certification |
+| Serialized queue workloads | 1/50/100/200/300 recipients; 5 tests  / 4,037 assertions | Mocked Brevo, sequential workers, simulated throttle time |
+| 300-recipient actual bulk route | 300 PDFs, 300 acceptances, 301 mocked POSTs (one 429), zero duplicates or unfinished jobs | 108.302s synthetic wall time; 98 MiB peak whole-suite allocation is not Render capacity evidence |
+| Quota concurrency | Two real PostgreSQL workers contending for one credit: one reserved, one deferred | Disposable schema; no real mail |
+| Schema/preservation | 43 migrations and rollback/reapply passed on disposable PostgreSQL; local restored copy upgrade preserved old projections | Original local/hosted schemas remain 34/39 |
+| Recovery | Fresh 71-entry local archive restored/hashed; hosted logical archive restored with 30 unchanged legacy table projections and four readable encrypted values | Application logical restore, not provider PITR/full pg_dump restore |
+| Deployment helpers/cache | 12 Python tests; isolated config/route/view caches passed | Docker unavailable locally; new image not built/deployed |
+| Dependencies/publication | Composer locked audit 0 advisories/abandoned; npm audit 0; 503 text files scanned with no known-secret matches/private artifact paths | Advisory/known-secret checks do not prove absence of all defects |
+
+The provider was checked using GET only: Brevo Free plan, 300 available credits,
+configured sender active. No live send, provider acceptance, inbox delivery or
+DKIM/SPF outcome was verified. Source Docker is pinned to the official patched
+PHP 8.3.36 image/digest with a baseline guard; its actual Render runtime remains
+unverified. The default local PHP installation remains 8.3.16; testing used a
+private portable patched runtime without changing other projects' tooling.
+
+## Data reconciliation and preservation
+
+All 86 independent-audit recipients already exist in the 217 local participants
+and match by exact normalized email, with registration/pre/post evidence and
+ordinary eligibility in agreement. Five names still need organizer confirmation.
+Thirteen post-before-pre sequences match source evidence and are not excluded
+by the current rules. The 87th system recipient is an existing manual exception;
+52 held import issues remain. No count was forced and no issue was dismissed.
+Local 217 participants / 408 submissions/one certificate/three email histories,
+hosted zero webinars/participants/certificates and all credentials remain intact.
+
+**Verification incident:** an initial PHP development-server launcher dropped its
+test DB environment. An attempted account insert failed; 14 synthetic failed-login
+audit entries were appended locally (IDs 94–107). All 93 original audit records and
+all 27 other original tables are unchanged, integrity is OK and FK errors are 0.
+The added entries were preserved. A replacement browser router refuses real DB
+or live-mail settings before boot; negative isolation regressions and the repaired
+full browser run passed. Do not silently erase these audit entries.
+
+Local and hosted user IDs refer to different email identities. A real transfer
+must use an approved identity/ownership map, preserve historical actor attribution,
+and re-encrypt with the target key. Never copy IDs blindly or replace APP_KEY.
+See [the transfer plan](deploy/render/REAL_DATA_MIGRATION_PLAN.md) and the private
+dry-run reconciliation report for exact evidence/IDs. No real correction or
+cross-engine import has been executed.
+
+## Remaining release gates
+
+1. Final raw-file/name/held-issue/manual-exception review and approval of exact
+   corrections and owner/actor mapping. A validated cross-engine transfer remains
+   to be rehearsed; no blanket import is authorized by a count of 86.
+2. Fresh backups and explicit migration/release approval; reviewed source commit,
+   clean image build, deployed PHP/extensions, TLS/cookies/MFA, private storage,
+   worker/scheduler restart recovery and capacity checks on the actual host.
+3. Fresh authorization for a controlled live mailbox test and confirmation of
+   provider acceptance, recipient delivery and attachment/link validity. No send
+   may occur under the current hold.
+4. Hosting acceptance: Render Free sleeps after idle periods and stops its
+   in-container workers/scheduler. Durable jobs resume on wake, but continuous
+   processing/availability and production-parity capacity are not established.
+   No paid upgrade or sleep-evasion traffic is authorized. Trusted-device security
+   uses its secure account/browser token; Render's private proxy IP does not prove
+   public-network-change detection.
+
+Private final logs/proofs are under `storage/framework/testing/final-readiness/`.
+The source remains uncommitted/unpublished and live release remains d021f60.
+
+---
+
+## Historical 21 October review
 
 **Recommendation: NO-GO for production. This session completes preparation and isolated review, not deployment approval.**
 

@@ -46,6 +46,7 @@ class EmailDelivery extends Model
             'sent_at' => 'datetime',
             'failed_at' => 'datetime',
             'first_attempted_at' => 'datetime',
+            'delivery_checked_at' => 'datetime',
         ];
     }
 
@@ -66,10 +67,19 @@ class EmailDelivery extends Model
 
     public function statusLabel(): string
     {
+        if ($this->status === 'sent' && $this->provider === 'brevo' && $this->delivery_outcome) {
+            return match ($this->delivery_outcome) {
+                'delivered' => 'Delivered to mail server',
+                'hard_bounce', 'blocked', 'invalid', 'error' => 'Delivery failed',
+                'soft_bounce', 'deferred' => 'Delivery delayed',
+                default => 'Provider accepted',
+            };
+        }
+
         return match ($this->status) {
             'sent' => $this->provider === 'log' ? 'Captured locally' : 'Provider accepted',
             'processing' => 'Sending attempt',
-            'pending' => (int) $this->attempts > 0 ? 'Retry pending' : 'Queued',
+            'pending' => (int) $this->attempts > 0 ? 'Retry pending' : ($this->scheduled_at?->isFuture() ? 'Queued for later' : 'Queued'),
             default => ucfirst($this->status),
         };
     }

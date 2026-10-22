@@ -176,15 +176,15 @@ class TwoFactorAuthenticationTest extends TestCase
         $this->post(route('two-factor.challenge.store'), ['code' => '123456'])->assertRedirect(route('login'));
     }
 
-    public function test_two_factor_can_be_disabled_with_the_current_password(): void
+    public function test_two_factor_removal_requires_the_current_password_and_existing_factor(): void
     {
         $user = $this->userWithTwoFactor();
 
-        $this->actingAs($user)->delete(route('admin.two-factor.disable'), ['password' => 'wrong-password'])
+        $this->actingAs($user)->delete(route('admin.two-factor.disable'), ['password' => 'wrong-password', 'code' => '123456'])
             ->assertSessionHasErrors('password');
         $this->assertNotNull($user->fresh()->two_factor_confirmed_at);
 
-        $this->actingAs($user)->delete(route('admin.two-factor.disable'), ['password' => 'password'])
+        $this->actingAs($user)->delete(route('admin.two-factor.disable'), ['password' => 'password', 'code' => app(Google2FA::class)->getCurrentOtp($user->two_factor_secret)])
             ->assertRedirect(route('admin.two-factor.show'));
 
         $user->refresh();
@@ -199,7 +199,7 @@ class TwoFactorAuthenticationTest extends TestCase
         $codes = $twoFactor->generateRecoveryCodes();
         $user = $this->userWithTwoFactor(['two_factor_recovery_codes' => $twoFactor->hashRecoveryCodes($codes)]);
 
-        $this->actingAs($user)->post(route('admin.two-factor.recovery-codes'), ['password' => 'password'])
+        $this->actingAs($user)->post(route('admin.two-factor.recovery-codes'), ['password' => 'password', 'code' => app(Google2FA::class)->getCurrentOtp($user->two_factor_secret)])
             ->assertSessionHas('two_factor.recovery_codes');
 
         $this->assertFalse($twoFactor->consumeRecoveryCode($user->fresh(), $codes[0]));
@@ -214,6 +214,7 @@ class TwoFactorAuthenticationTest extends TestCase
 
         $this->actingAs($user)->post(route('admin.two-factor.recovery-codes'), [
             'password' => 'wrong-password',
+            'code' => '123456',
         ])->assertSessionHasErrors('password');
 
         $this->assertSame($before, $user->fresh()->two_factor_recovery_codes);

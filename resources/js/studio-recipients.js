@@ -76,13 +76,13 @@ export function initStudioRecipients(root = document, signal) {
             if (current !== generation || signal?.aborted) return;
             const next = buildNode(body.body);
             const selected = new Set([...root.querySelectorAll('[data-queue-check]:checked')].map((input) => input.dataset.queueCheck));
-            for (const selector of ['[data-certificate-list]', '[data-studio-send-inputs]', '[data-recipient-pagination]', '[data-tab-panel="sent"]']) {
+            for (const selector of ['[data-certificate-list]', '[data-studio-send-inputs]', '[data-recipient-pagination]', '[data-tab-panel="sent"]', '[data-tab-panel="incomplete"]']) {
                 const existing = $(selector); const replacement = next.querySelector(selector);
                 if (existing && replacement) existing.replaceChildren(...replacement.childNodes);
             }
             root.querySelectorAll('[data-queue-check]').forEach((input) => { input.checked = !input.disabled && selected.has(input.dataset.queueCheck); });
             root.dispatchEvent(new CustomEvent('studio:recipients-refreshed', { detail: { focusId } }));
-            for (const selector of ['[data-recipient-sent-total]', '[data-bulk-ready-count]']) {
+            for (const selector of ['[data-recipient-sent-total]', '[data-recipient-incomplete-total]', '[data-bulk-ready-count]']) {
                 if ($(selector) && next.querySelector(selector)) $(selector).textContent = next.querySelector(selector).textContent;
             }
             const bulk = $('[data-bulk-send]');

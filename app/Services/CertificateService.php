@@ -8,7 +8,9 @@ use App\Models\CertificateBatch;
 use App\Models\CertificateBatchItem;
 use App\Models\CertificateTemplate;
 use App\Models\Participant;
+use App\Models\User;
 use App\Models\Webinar;
+use App\Policies\WebinarPolicy;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -84,6 +86,10 @@ class CertificateService
     ): Certificate {
         return DB::transaction(function () use ($participant, $batch, $diskName, $layout): Certificate {
             $webinar = $this->lockedIssuableWebinar($participant->webinar_id);
+            $requester = $batch?->created_by ?? auth()->id();
+            $existingRequester = Certificate::query()->where('participant_id', $participant->id)->where('status', 'processing')->whereNull('revoked_at')->value('requested_by');
+            $requester ??= $existingRequester;
+            $this->assertRequester($requester, $webinar);
             $lockedParticipant = Participant::query()
                 ->whereKey($participant->getKey())
                 ->where('webinar_id', $webinar->id)
@@ -160,6 +166,7 @@ class CertificateService
                         'layout' => $layout ?: $template->layout,
                         'storage_disk' => $diskName,
                         'status' => 'processing',
+                        'requested_by' => $requester,
                     ]));
                 } catch (UniqueConstraintViolationException $exception) {
                     if (! str_contains($exception->getMessage(), 'certificates_verification_code_hash_unique')
@@ -199,6 +206,7 @@ class CertificateService
             }
 
             $lockedCertificate = Certificate::query()->whereKey($certificate->id)->lockForUpdate()->firstOrFail();
+            $this->assertRequester($lockedCertificate->requested_by, $webinar);
 
             if ($lockedCertificate->status === 'issued') {
                 return $lockedCertificate;
@@ -254,6 +262,9 @@ class CertificateService
             ]);
             $lockedCertificate->setRelation('webinar', $webinar);
             $lockedCertificate->setRelation('template', $template);
+            app(AuditService::class)->record(request(), 'certificate.generated', $lockedCertificate,
+                ['execution' => app()->runningInConsole() ? 'queue' : 'request'],
+                actor: $lockedCertificate->requested_by ? User::query()->find($lockedCertificate->requested_by) : null);
 
             if (filled($participant->email)) {
                 $statusForm = $webinar->forms()->where('type', 'registration')->first(['public_token']);
@@ -267,7 +278,7 @@ class CertificateService
                         'participant' => $participant,
                         'certificate' => $lockedCertificate,
                         'customMessage' => $webinar->certificateEmailMessage($lockedCertificate->recipient_name),
-                        'statusUrl' => $statusForm ? route('forms.public.status', $statusForm->public_token) : null,
+                        'statusUrl' => $statusForm ? app(ParticipantStatusLinkService::class)->createLink($webinar, $participant, now()->addDay()) : null,
                     ])->render(),
                     $lockedCertificate,
                     [['name' => 'certificate.pdf', 'content' => base64_encode($contents)]],
@@ -277,6 +288,20 @@ class CertificateService
 
             return $lockedCertificate;
         }, attempts: 3);
+    }
+
+    private function assertRequester(?int $id, Webinar $webinar): void
+    {
+        // Null preserves historical system work. All new authenticated requests
+        // retain their actor and must still be authorized when the worker runs.
+        if ($id === null) {
+            return;
+        }
+        $actor = User::query()->find($id);
+        $policy = app(WebinarPolicy::class);
+        if (! $actor || ! $policy->permission($actor, $webinar, 'manage_certificates') || ! $policy->permission($actor, $webinar, 'send_emails')) {
+            throw new RuntimeException('The account that requested issuance no longer has permission.');
+        }
     }
 
     private function lockedIssuableWebinar(int $webinarId): Webinar
@@ -565,19 +590,28 @@ class CertificateService
         $ratio = $template->aspectRatio();
         $height = 595.0;
         $width = round($height * $ratio, 2);
-        $pdf = Pdf::setPaper([0, 0, $width, $height]);
-        $fitted = app(CertificateNameLayout::class)->fit((string) $certificate->recipient_name, $certificate->layout ?? $template->layout ?? [], $ratio, $pdf->getDomPDF());
-        // Validate existing as well as new artwork before loadView/output can
-        // decode it. Encoded byte size alone does not bound image memory use.
-        $backgroundDataUri = $this->backgroundDataUri($template);
-        $pdf->loadView('certificates.pdf-custom', [
-            'certificate' => $certificate,
-            'backgroundDataUri' => $backgroundDataUri,
-            'fittedFontSize' => $fitted['font_size'],
-            'nameWidthPercent' => $fitted['width_percent'],
-        ]);
+        // Embed only the used glyphs; full font files made a name-only PDF
+        // hundreds of KiB and multiplied queue payload/HTTP memory per recipient.
+        $pdf = Pdf::setPaper([0, 0, $width, $height])->setOption('isFontSubsettingEnabled', true);
+        try {
+            $fitted = app(CertificateNameLayout::class)->fit((string) $certificate->recipient_name, $certificate->layout ?? $template->layout ?? [], $ratio, $pdf->getDomPDF());
+            // Validate existing as well as new artwork before loadView/output can
+            // decode it. Encoded byte size alone does not bound image memory use.
+            $backgroundDataUri = $this->backgroundDataUri($template);
+            $pdf->loadView('certificates.pdf-custom', [
+                'certificate' => $certificate,
+                'backgroundDataUri' => $backgroundDataUri,
+                'fittedFontSize' => $fitted['font_size'],
+                'nameWidthPercent' => $fitted['width_percent'],
+            ]);
 
-        return $pdf->output();
+            return $pdf->output();
+        } finally {
+            // Dompdf's frame/canvas graph is cyclic. Do not retain hundreds of
+            // decoded documents until PHP's automatic cycle threshold fires.
+            unset($pdf);
+            gc_collect_cycles();
+        }
     }
 
     /** Read an uploaded certificate background off disk and inline it as a data URI, so dompdf never needs filesystem/chroot access to render it. */

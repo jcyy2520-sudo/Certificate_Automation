@@ -5,6 +5,8 @@
 @include('admin.webinars.partials.studio-pagination')
 <span data-recipient-working-total>{{ number_format($participants->total()) }}</span>
 @include('admin.webinars.partials.studio-sent')
+@if($canReviewEligibility) @include('admin.webinars.partials.studio-incomplete') @endif
+<span data-recipient-incomplete-total>{{ number_format($notCurrentlyEligibleCount) }}</span>
 <span data-recipient-sent-total>{{ number_format($sentCount) }}</span>
 <span data-bulk-ready-count>{{ $bulkReadyCount }}</span>
 </body></html>

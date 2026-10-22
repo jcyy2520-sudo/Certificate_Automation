@@ -10,30 +10,32 @@
 
     <div class="space-y-1">
         <p class="mobile-workspace-heading">Webinar workflow</p>
-        <a href="{{ route('admin.webinars.documents.index', $webinar) }}" class="mobile-workspace-item"><x-icon name="file-text" />Uploaded documents</a>
+        @if($navCanParticipants)<a href="{{ route('admin.webinars.documents.index', $webinar) }}" class="mobile-workspace-item"><x-icon name="file-text" />Uploaded documents</a>@endif
         @if(! $webinar->isUploadOnly())
         @if($registrationForm = $navForms['registration'] ?? null)
-            <a href="{{ route('admin.forms.edit', [$webinar, $navSelectedForm ?? $registrationForm]) }}" class="mobile-workspace-item {{ request()->routeIs('admin.forms.*') ? 'mobile-workspace-item-active' : '' }}"><x-icon name="file-text" />Forms</a>
+            @if($navCanParticipants)<a href="{{ route('admin.forms.edit', [$webinar, $navSelectedForm ?? $registrationForm]) }}" class="mobile-workspace-item {{ request()->routeIs('admin.forms.*') ? 'mobile-workspace-item-active' : '' }}"><x-icon name="file-text" />Forms</a>@endif
         @endif
-        <a href="{{ route('admin.responses.index', [$webinar, 'type' => $navSelectedType]) }}" class="mobile-workspace-item {{ $isParticipants || $isImports ? 'mobile-workspace-item-active' : '' }}"><x-icon name="grid" />Form Responses</a>
-        <a href="{{ route('admin.webinars.messages.index', $webinar) }}" class="mobile-workspace-item"><x-icon name="mail" />Send a message</a>
+        @if($navCanParticipants)<a href="{{ route('admin.responses.index', [$webinar, 'type' => $navSelectedType]) }}" class="mobile-workspace-item {{ $isParticipants || $isImports ? 'mobile-workspace-item-active' : '' }}"><x-icon name="grid" />Form Responses</a>@endif
+        @if($navCanParticipants)<a href="{{ route('admin.webinars.eligibility.index', $webinar) }}" class="mobile-workspace-item {{ request()->routeIs('admin.webinars.eligibility.*') ? 'mobile-workspace-item-active' : '' }}"><x-icon name="check" />Participant Eligibility</a>@endif
+        @if($navCanSend)<a href="{{ route('admin.webinars.messages.index', $webinar) }}" class="mobile-workspace-item"><x-icon name="mail" />Send a message</a>@endif
         @endif
     </div>
 
     @if(! $webinar->isUploadOnly())
     <div class="space-y-1">
         <p class="mobile-workspace-heading">Certificate</p>
-        <a href="{{ route('admin.certification.edit', $webinar) }}" class="mobile-workspace-item {{ $isTemplate ? 'mobile-workspace-item-active' : '' }}"><x-icon name="image" />Certificate Setup</a>
-        <a href="{{ route('admin.certificates.studio', $webinar) }}" class="mobile-workspace-item {{ $isStudio ? 'mobile-workspace-item-active' : '' }}"><x-icon name="send" />Certificate Studio</a>
+        @if($navCanCertificates)<a href="{{ route('admin.certification.edit', $webinar) }}" class="mobile-workspace-item {{ $isTemplate ? 'mobile-workspace-item-active' : '' }}"><x-icon name="image" />Certificate Setup</a>@endif
+        @if($navCanCertificates)<a href="{{ route('admin.certificates.studio', $webinar) }}" class="mobile-workspace-item {{ $isStudio ? 'mobile-workspace-item-active' : '' }}"><x-icon name="send" />Certificate Studio</a>@endif
     </div>
 
     @endif
     <div class="space-y-1">
         <p class="mobile-workspace-heading">Webinar</p>
         <a href="{{ route('admin.webinars.show', $webinar) }}" class="mobile-workspace-item {{ $isOverview ? 'mobile-workspace-item-active' : '' }}"><x-icon name="home" />Overview</a>
-        <a href="{{ route('admin.webinars.reports', $webinar) }}" class="mobile-workspace-item {{ $isReports ? 'mobile-workspace-item-active' : '' }}"><x-icon name="bar-chart" />Reports &amp; analytics</a>
-        <a href="{{ route('admin.webinars.edit', $webinar) }}" class="mobile-workspace-item {{ $isSettings ? 'mobile-workspace-item-active' : '' }}"><x-icon name="edit" />Webinar settings</a>
-        <a href="{{ route('admin.webinars.email-logs.index', $webinar) }}" class="mobile-workspace-item {{ request()->routeIs('admin.webinars.email-logs.*') ? 'mobile-workspace-item-active' : '' }}"><x-icon name="mail" />Email delivery log</a>
-        <a href="{{ route('admin.participants.export', $webinar) }}" class="mobile-workspace-item" download><x-icon name="download" />Export pre-send roster</a>
+        @if($navCanParticipants)<a href="{{ route('admin.webinars.reports', $webinar) }}" class="mobile-workspace-item {{ $isReports ? 'mobile-workspace-item-active' : '' }}"><x-icon name="bar-chart" />Reports &amp; analytics</a>@endif
+        @if($navCanSettings)<a href="{{ route('admin.webinars.edit', $webinar) }}" class="mobile-workspace-item {{ $isSettings ? 'mobile-workspace-item-active' : '' }}"><x-icon name="edit" />Webinar settings</a>@endif
+        @if($navCanSend)<a href="{{ route('admin.webinars.email-logs.index', $webinar) }}" class="mobile-workspace-item {{ request()->routeIs('admin.webinars.email-logs.*') ? 'mobile-workspace-item-active' : '' }}"><x-icon name="mail" />Email delivery log</a>@endif
+        @if($navCanAudit)<a href="{{ route('admin.webinars.audit', $webinar) }}" class="mobile-workspace-item {{ request()->routeIs('admin.webinars.audit') ? 'mobile-workspace-item-active' : '' }}"><x-icon name="shield" />Audit Trail</a>@endif
+        @if($navCanParticipants)<a href="{{ route('admin.participants.export', $webinar) }}" class="mobile-workspace-item" download><x-icon name="download" />Export pre-send roster</a>@endif
     </div>
 </nav>

@@ -5,7 +5,11 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\EmailDelivery;
 use App\Models\Webinar;
+use App\Services\AuditService;
+use App\Services\Email\BrevoDeliveryStatus;
+use App\Services\Email\EmailSendBudget;
 use Illuminate\Contracts\Database\Eloquent\Builder;
+use Illuminate\Http\Request;
 use Illuminate\View\View;
 
 /**
@@ -16,6 +20,21 @@ use Illuminate\View\View;
  */
 class EmailDeliveryController extends Controller
 {
+    public function refreshWebinar(Request $request, Webinar $webinar, EmailDelivery $emailDelivery, BrevoDeliveryStatus $provider, AuditService $audit)
+    {
+        abort_unless($emailDelivery->webinar_id === $webinar->id, 404);
+
+        return $this->refresh($request, $provider, $audit, $emailDelivery);
+    }
+
+    public function refresh(Request $request, BrevoDeliveryStatus $provider, AuditService $audit, EmailDelivery $delivery)
+    {
+        $provider->refresh($delivery);
+        $audit->record($request, 'email.status_checked', $delivery, ['delivery_outcome' => $delivery->delivery_outcome]);
+
+        return back()->with('success', 'Delivery status checked. '.$delivery->statusLabel().'. No email was sent or retried.');
+    }
+
     public function index(): View
     {
         return $this->renderLog(
@@ -38,11 +57,15 @@ class EmailDeliveryController extends Controller
         $status = request()->string('status')->value();
         if (in_array($status, ['pending', 'processing', 'sent', 'failed', 'cancelled'], true)) {
             $query->where('status', $status);
+        } elseif ($status === 'delivered') {
+            $query->where('delivery_outcome', 'delivered');
+        } elseif ($status === 'delivery_failed') {
+            $query->whereIn('delivery_outcome', ['hard_bounce', 'blocked', 'invalid', 'error']);
         }
 
         $deliveries = $query
             ->with('certificate:id,verification_code')
-            ->select(['id', 'public_id', 'webinar_id', 'certificate_id', 'type', 'provider', 'recipient_email', 'subject', 'status', 'attempts', 'provider_message_id', 'last_error', 'scheduled_at', 'sent_at', 'failed_at', 'created_at'])
+            ->select(['id', 'public_id', 'webinar_id', 'certificate_id', 'type', 'provider', 'recipient_email', 'subject', 'status', 'attempts', 'provider_message_id', 'last_error', 'scheduled_at', 'sent_at', 'failed_at', 'created_at', 'delivery_outcome', 'delivery_checked_at'])
             ->latest('id')
             ->paginate(30)
             ->withQueryString();
@@ -61,6 +84,7 @@ class EmailDeliveryController extends Controller
             'logUrl' => $currentUrl,
             'deliveries' => $deliveries,
             'originalIds' => $originalIds,
+            'sendingBudget' => auth()->user()->isAdministrator() ? app(EmailSendBudget::class)->summary() : null,
         ]);
     }
 

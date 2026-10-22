@@ -32,7 +32,7 @@ test('Certificate Setup previews draft copy, saves it, and confirms a sample-onl
     await expect(page.getByText('One sample email was queued', { exact: false })).toBeVisible();
     await page.getByRole('link', { name: 'View pending, sent and failed deliveries', exact: true }).click();
     await expect(page.locator('tbody')).toContainText('Certificate test (administrator only)');
-    await expect(page.locator('tbody')).toContainText('Pending');
+    await expect(page.locator('tbody')).toContainText('Queued');
     await page.goto('/admin/webinars/1/certification');
     await page.evaluate(() => localStorage.setItem('theme', 'light'));
     await page.reload();
