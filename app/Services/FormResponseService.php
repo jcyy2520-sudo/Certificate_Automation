@@ -12,6 +12,8 @@ class FormResponseService
 {
     public const TYPES = ['registration' => 'Registration', 'pretest' => 'Pre-Test', 'posttest' => 'Post-Test', 'evaluation' => 'Evaluation'];
 
+    private array $sourceMaps = [];
+
     public function columns(Form $form): array
     {
         $columns = $this->nativeColumns($form);
@@ -120,6 +122,41 @@ class FormResponseService
         }
 
         return $values;
+    }
+
+    /** Original source cells for review/export; analytics use values() for declared choices. */
+    public function displayValues(Submission $submission, array $columns): array
+    {
+        $values = $this->values($submission, $columns);
+        $data = $submission->imported_data ?? [];
+        foreach ($data['schema'] ?? [] as $key => $column) {
+            $index = $column['source_index'] ?? null;
+            if ($index !== null && isset($columns[$key], $data['original'][$index])) {
+                $values[$key] = [(string) $data['original'][$index]['value']];
+            }
+        }
+
+        return $values;
+    }
+
+    /** Matching identity remains canonical; response screens show the exact source identity. */
+    public function sourceIdentity(Submission $submission): array
+    {
+        $data = $submission->imported_data ?? [];
+        $identity = $data['identity'] ?? null;
+        if ($identity === null && isset($submission->metadata['import_id'])) {
+            $cacheKey = $submission->form_id.':'.$submission->metadata['import_id'];
+            $map = $this->sourceMaps[$cacheKey] ??= Import::query()->whereKey($submission->metadata['import_id'])
+                ->where('form_id', $submission->form_id)->first()?->column_map['map'] ?? [];
+            $identity = [];
+            foreach (['full_name' => 'name', 'email' => 'email', 'submitted_at' => 'submitted_at', 'score' => 'score'] as $field => $key) {
+                if (isset($map[$field], $data['original'][$map[$field]])) {
+                    $identity[$key] = (string) $data['original'][$map[$field]]['value'];
+                }
+            }
+        }
+
+        return ($identity ?? []) + ['name' => $submission->participant->full_name, 'email' => $submission->participant->email, 'submitted_at' => null, 'score' => null];
     }
 
     /** Stream the dataset in bounded chunks; retain at most 20 text examples per question. */

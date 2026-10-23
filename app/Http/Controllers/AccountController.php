@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Middleware\EnsureApprovedAccount;
 use App\Models\User;
 use App\Services\AccountEmailReadiness;
 use App\Services\AccountService;
@@ -132,13 +133,15 @@ class AccountController extends Controller
 
     public function changePassword(Request $request, AccountService $accounts, AuditService $audit)
     {
+        $requirePassword = config('security.require_sensitive_action_password_confirmation', true);
         $data = $request->validate([
-            'current_password' => ['required', 'string', 'max:1024'],
-            'password' => ['required', 'string', 'confirmed', 'max:1024', 'different:current_password', PasswordRule::min(15)],
+            'current_password' => $requirePassword ? ['required', 'string', 'max:1024'] : ['exclude'],
+            'password' => ['required', 'string', 'confirmed', 'max:1024', ...($requirePassword ? ['different:current_password'] : []), PasswordRule::min(15)],
         ]);
-        DB::transaction(function () use ($request, $data, $accounts, $audit): void {
+        DB::transaction(function () use ($request, $data, $accounts, $audit, $requirePassword): void {
             $user = User::query()->whereKey($request->user()->id)->lockForUpdate()->firstOrFail();
-            if (! $user->canAccessPlatform() || ! Hash::check($data['current_password'], $user->password)) {
+            if (! $user->canAccessPlatform() || (int) $request->session()->get(EnsureApprovedAccount::SESSION_VERSION, 1) !== $user->auth_version
+                || ($requirePassword && ! Hash::check($data['current_password'], $user->password))) {
                 throw ValidationException::withMessages(['current_password' => 'Your current password is incorrect.']);
             }
             $user->forceFill(['password' => Hash::make($data['password']), 'auth_version' => $user->auth_version + 1, 'remember_token' => Str::random(60)])->save();

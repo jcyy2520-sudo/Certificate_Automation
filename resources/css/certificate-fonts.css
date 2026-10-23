@@ -1,0 +1,61 @@
+/* Static OFL fonts shared with the PDF renderer. See resources/fonts/certificates/SOURCES.json. */
+@font-face {
+    font-family: 'Montserrat';
+    src: url('../fonts/certificates/montserrat/Montserrat-Regular.ttf') format('truetype');
+    font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+    font-family: 'Montserrat';
+    src: url('../fonts/certificates/montserrat/Montserrat-Bold.ttf') format('truetype');
+    font-weight: 700; font-style: normal; font-display: swap;
+}
+@font-face {
+    font-family: 'Montserrat';
+    src: url('../fonts/certificates/montserrat/Montserrat-Italic.ttf') format('truetype');
+    font-weight: 400; font-style: italic; font-display: swap;
+}
+@font-face {
+    font-family: 'Montserrat';
+    src: url('../fonts/certificates/montserrat/Montserrat-BoldItalic.ttf') format('truetype');
+    font-weight: 700; font-style: italic; font-display: swap;
+}
+@font-face {
+    font-family: 'Lato';
+    src: url('../fonts/certificates/lato/Lato-Regular.ttf') format('truetype');
+    font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+    font-family: 'Lato';
+    src: url('../fonts/certificates/lato/Lato-Bold.ttf') format('truetype');
+    font-weight: 700; font-style: normal; font-display: swap;
+}
+@font-face {
+    font-family: 'Lato';
+    src: url('../fonts/certificates/lato/Lato-Italic.ttf') format('truetype');
+    font-weight: 400; font-style: italic; font-display: swap;
+}
+@font-face {
+    font-family: 'Lato';
+    src: url('../fonts/certificates/lato/Lato-BoldItalic.ttf') format('truetype');
+    font-weight: 700; font-style: italic; font-display: swap;
+}
+@font-face {
+    font-family: 'Cormorant Garamond';
+    src: url('../fonts/certificates/cormorant/CormorantGaramond-Regular.ttf') format('truetype');
+    font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+    font-family: 'Cormorant Garamond';
+    src: url('../fonts/certificates/cormorant/CormorantGaramond-Bold.ttf') format('truetype');
+    font-weight: 700; font-style: normal; font-display: swap;
+}
+@font-face {
+    font-family: 'Cormorant Garamond';
+    src: url('../fonts/certificates/cormorant/CormorantGaramond-Italic.ttf') format('truetype');
+    font-weight: 400; font-style: italic; font-display: swap;
+}
+@font-face {
+    font-family: 'Cormorant Garamond';
+    src: url('../fonts/certificates/cormorant/CormorantGaramond-BoldItalic.ttf') format('truetype');
+    font-weight: 700; font-style: italic; font-display: swap;
+}

@@ -9,6 +9,7 @@ use App\Models\ParticipantMessageBatch;
 use App\Models\Webinar;
 use App\Services\AuditService;
 use App\Services\EligibilityService;
+use App\Services\LocalDelivery;
 use App\Services\NotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -72,7 +73,9 @@ class ParticipantMessageController extends Controller
         }, attempts: 3);
         $audit->record($request, 'participant-message.queued', $webinar, ['recipient_count' => $count]);
 
-        return redirect()->route('admin.webinars.email-logs.index', $webinar)->with('success', "Message queued for {$count} recipients. Repeated submission does not create additional deliveries.");
+        return redirect()->route('admin.webinars.email-logs.index', $webinar)->with('success', app(LocalDelivery::class)->enabled()
+            ? "Immediate sending completed for {$count} selected eligible recipients. Check each result here. Failed attempts require an explicit retry; log mode captures messages locally. No non-eligible messages were sent."
+            : "Message queued for {$count} recipients. Repeated submission does not create additional deliveries.");
     }
 
     public function retry(Request $request, Webinar $webinar, string $delivery, EligibilityService $eligibility, NotificationService $notifications, AuditService $audit)
@@ -97,7 +100,9 @@ class ParticipantMessageController extends Controller
         }, attempts: 3);
         $audit->record($request, 'participant-message.retry', $webinar, ['delivery' => $delivery, 'provider_reconciled' => $request->boolean('provider_reconciled')]);
 
-        return back()->with('success', 'Message retry queued. See the email logs for its result.');
+        return back()->with('success', app(LocalDelivery::class)->enabled()
+            ? 'Message retry processed immediately. See the email logs for its result.'
+            : 'Message retry queued. See the email logs for its result.');
     }
 
     private function assertSendable(Webinar $webinar): void

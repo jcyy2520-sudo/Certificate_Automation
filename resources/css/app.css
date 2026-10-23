@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@import './certificate-fonts.css';
 @import '@fontsource-variable/inter';
 
 /* Form management shares the existing typography, palette, fields and panels. */

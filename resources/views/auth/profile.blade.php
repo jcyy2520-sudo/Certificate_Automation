@@ -11,8 +11,10 @@
 <form novalidate method="POST" action="{{ route('admin.profile.password') }}" class="panel mt-6 grid max-w-xl gap-5 p-5" data-confirm="Change your password and sign out? Other sessions will also require sign-in again." data-confirm-action="Change password" data-confirm-title="Change password">
     @csrf @method('PUT')
     <h2 class="section-title">Change password</h2>
-    <p class="text-sm text-slate-500">Use at least 15 characters and a password you do not use elsewhere. Two-factor authentication remains enabled.</p>
-    <x-account-field name="current_password" label="Current password" type="password" autocomplete="current-password" />
+    <p class="text-sm text-slate-500">Use at least 15 characters and a password you do not use elsewhere. Your two-factor authentication setting stays unchanged.</p>
+    @if(config('security.require_sensitive_action_password_confirmation', true))
+        <x-account-field name="current_password" label="Current password" type="password" autocomplete="current-password" />
+    @endif
     <x-account-field name="password" label="New password" type="password" autocomplete="new-password" />
     <x-account-field name="password_confirmation" label="Confirm new password" type="password" autocomplete="new-password" />
     <button class="button-primary justify-self-start">Change password</button>

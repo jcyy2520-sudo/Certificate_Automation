@@ -32,7 +32,7 @@ class TestAccountEmail extends Command
 
                 return $existing;
             }
-            $subject = 'Certificate Automation — account email delivery test';
+            $subject = config('branding.name', 'Certimate').' — account email delivery test';
             $message = 'This is the account-email delivery test you authorized. Account verification, approval and recovery emails now use the account email service. This message does not approve an account, reset a password, or send a certificate. No action is required.';
             $url = null;
             $label = null;

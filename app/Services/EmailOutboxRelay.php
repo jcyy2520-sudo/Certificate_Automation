@@ -98,6 +98,7 @@ final class EmailOutboxRelay
     private function isDue(EmailDelivery $delivery, $cutoff): bool
     {
         return $delivery->status === 'pending'
+            && ($delivery->payload['delivery_mode'] ?? null) !== 'immediate'
             && filled($delivery->recipient_email)
             && filled($delivery->payload)
             // A delivery that has already been attempted belongs to the job

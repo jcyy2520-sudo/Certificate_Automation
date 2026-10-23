@@ -34,6 +34,23 @@ test('manual Studio recipients add, validate, edit and remove without losing the
     await expect(row.locator('[data-recipient-source-label]')).toHaveText('Manual');
     expect(await page.evaluate(() => window.studioDocumentMarker)).toBe('same-studio-document');
     await row.locator('[data-preview-select]').click();
+    await expect(page.locator('[data-open-name-correction] [data-adjustment-name]')).toHaveText('Studio Browser Exception');
+    await expect(page.locator('[data-adjustment-email]')).toHaveText('studio-exception@example.test');
+    await page.getByRole('button', { name: 'Add Recipient Manually', exact: true }).click();
+    await dialog.getByLabel('Full Name', { exact: true }).fill('Second Browser Recipient');
+    await dialog.getByLabel('Email Address', { exact: true }).fill('second-switch@example.test');
+    await dialog.getByRole('button', { name: 'Add to Studio', exact: true }).click();
+    const another = page.locator('[data-certificate-row]').filter({ hasText: 'Second Browser Recipient' });
+    await expect(another).toBeVisible();
+    await row.locator('[data-preview-select]').click();
+    await expect(page.locator('[data-open-name-correction] [data-adjustment-name]')).toHaveText('Studio Browser Exception');
+    await another.locator('[data-preview-select]').click();
+    await expect(page.locator('[data-open-name-correction] [data-adjustment-name]')).toHaveText('Second Browser Recipient');
+    await expect(page.locator('[data-adjustment-email]')).toHaveText('second-switch@example.test');
+    await row.locator('[data-queue-check]').check();
+    await expect(page.locator('[data-open-name-correction] [data-adjustment-name]')).toHaveText('Studio Browser Exception');
+    await expect(page.locator('[data-adjustment-email]')).toHaveText('studio-exception@example.test');
+
     await page.getByRole('spinbutton', { name: 'Vertical position', exact: true }).fill('47');
     await page.getByRole('spinbutton', { name: 'Vertical position', exact: true }).blur();
     await row.locator('[data-queue-check]').check();
@@ -66,6 +83,12 @@ test('manual Studio recipients add, validate, edit and remove without losing the
     await expect(corrected).toBeVisible();
     await expect(corrected).toContainText('corrected-studio@example.test');
     await expect(page.locator('[data-cert-name]')).toHaveText('Corrected Browser Exception');
+    await expect(page.locator('[data-open-name-correction] [data-adjustment-name]')).toHaveText('Corrected Browser Exception');
+    await expect(page.locator('[data-adjustment-email]')).toHaveText('corrected-studio@example.test');
+    await page.locator('[data-open-name-correction]').click();
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByLabel('Full Name', { exact: true })).toHaveValue('Corrected Browser Exception');
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
     await page.locator('[data-open-send-confirm]').click();
     await expect(page.locator('[data-send-confirm]')).toBeVisible();
     await page.locator('[data-cancel-send]').click();

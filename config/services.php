@@ -32,7 +32,7 @@ return [
         'key' => env('BREVO_API_KEY'),
         'base_url' => env('BREVO_API_URL', 'https://api.brevo.com/v3'),
         'from_address' => env('MAIL_FROM_ADDRESS', 'hello@example.com'),
-        'from_name' => env('MAIL_FROM_NAME', env('APP_NAME', 'Webinar Platform')),
+        'from_name' => env('MAIL_FROM_NAME', 'Certimate'),
     ],
 
     'slack' => [

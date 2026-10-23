@@ -19,6 +19,7 @@ test('account approval, setup, ownership, optional locks and suspension work thr
     await page.getByLabel('Password', { exact: true }).fill('Workflow-fixture-2026!');
     await page.getByRole('button', { name: 'Sign in', exact: true }).click();
     await page.goto('/admin/users');
+    await expect(page.locator('input[autocomplete="current-password"]')).toHaveCount(0);
     await expect(page.locator('tbody')).toContainText('Browser Account Owner');
     await page.getByRole('button', { name: 'Approve', exact: true }).click();
     await expect(page.getByRole('dialog')).toBeVisible();

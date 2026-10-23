@@ -1,9 +1,7 @@
 <?php
 
-use App\Models\EmailDelivery;
 use App\Models\Import;
 use App\Models\ImportIssue;
-use App\Models\Participant;
 use App\Models\Submission;
 use App\Models\User;
 use App\Models\Webinar;
@@ -18,13 +16,6 @@ if (! $app->environment('testing') || config('database.default') !== 'sqlite' ||
     || str_replace('\\', '/', config('database.connections.sqlite.database')) !== str_replace('\\', '/', $expected)
     || config('webinar.email.provider') !== 'log' || config('webinar.email.certificate_provider') !== 'log') {
     throw new RuntimeException('Eligibility fixtures require the isolated browser database and log transport.');
-}
-if (($argv[1] ?? '') === 'notification') {
-    $p = Participant::query()->where('email', 'eligibility.pending@example.test')->sole();
-    $delivery = EmailDelivery::query()->where('participant_id', $p->id)->where('type', 'eligibility_notification')->latest('id')->firstOrFail();
-    preg_match('/href="([^"]+)"/', $delivery->payload['html'], $match);
-    echo html_entity_decode($match[1]);
-    exit;
 }
 $owner = User::query()->where('email', 'workflow@example.test')->sole();
 $webinar = Webinar::create(['title' => 'Eligibility workflow fixture', 'slug' => 'eligibility-'.bin2hex(random_bytes(6)), 'created_by' => $owner->id,

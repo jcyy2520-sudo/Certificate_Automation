@@ -58,6 +58,8 @@ class TwoFactorAuthenticationTest extends TestCase
 
     public function test_enabling_two_factor_requires_the_current_password(): void
     {
+        config(['security.require_sensitive_action_password_confirmation' => true]);
+        $this->withSession(['auth.password_confirmed_at' => now()->timestamp]);
         $user = User::factory()->create();
         $this->actingAs($user)->get(route('admin.two-factor.show'));
         $secret = Crypt::decryptString(session('two_factor.pending_secret'));
@@ -178,6 +180,8 @@ class TwoFactorAuthenticationTest extends TestCase
 
     public function test_two_factor_removal_requires_the_current_password_and_existing_factor(): void
     {
+        config(['security.require_sensitive_action_password_confirmation' => true]);
+        $this->withSession(['auth.password_confirmed_at' => now()->timestamp]);
         $user = $this->userWithTwoFactor();
 
         $this->actingAs($user)->delete(route('admin.two-factor.disable'), ['password' => 'wrong-password', 'code' => '123456'])
@@ -207,6 +211,8 @@ class TwoFactorAuthenticationTest extends TestCase
 
     public function test_regenerating_recovery_codes_requires_the_current_password(): void
     {
+        config(['security.require_sensitive_action_password_confirmation' => true]);
+        $this->withSession(['auth.password_confirmed_at' => now()->timestamp]);
         $twoFactor = app(TwoFactorService::class);
         $codes = $twoFactor->generateRecoveryCodes();
         $user = $this->userWithTwoFactor(['two_factor_recovery_codes' => $twoFactor->hashRecoveryCodes($codes)]);

@@ -126,8 +126,9 @@ export function initNavigation(initializePage) {
         }
         const disabled = form ? [...form.querySelectorAll('button[type="submit"], button:not([type]), input[type="submit"]')].filter((button) => !button.disabled) : [];
         disabled.forEach((button) => { button.disabled = true; button.setAttribute('aria-busy', 'true'); });
-        if (!background) { progress(true); announce(isMutation ? 'Saving changes…' : 'Loading page…'); }
-        const timeout = setTimeout(() => controller.abort('timeout'), isMutation ? 120000 : 30000);
+        const immediateSend = isMutation && form.hasAttribute('data-immediate-send');
+        if (!background) { progress(true); announce(immediateSend ? 'Sending selected emails. Please keep this page open…' : (isMutation ? 'Saving changes…' : 'Loading page…')); }
+        const timeout = setTimeout(() => controller.abort('timeout'), immediateSend ? 1800000 : (isMutation ? 120000 : 30000));
         let completed = false;
         try {
             const response = await requestPage(url, {

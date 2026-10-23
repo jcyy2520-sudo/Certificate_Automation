@@ -19,7 +19,7 @@
                         <article class="studio-person-row" data-certificate-row="{{ $participant->public_id }}" data-person-row="{{ $participant->public_id }}" data-search="{{ Str::lower($participant->full_name.' '.$participant->email) }}" data-source="{{ $participant->recipient_source }}" data-manual-editable="{{ $participant->manual_editable ? 1 : 0 }}" data-manual-active="{{ $participant->certificateApproval?->source === 'manual' && ! $participant->certificateApproval->removed_at ? 1 : 0 }}" data-manual-update-url="{{ route('admin.certificates.manual.update', [$webinar, $participant]) }}" data-status="{{ $status }}" title="{{ $state->label() }}" data-name-update-url="{{ route('admin.participants.name', [$webinar, $participant]) }}">
                             <div class="flex items-center gap-2.5">
                                 <label class="shrink-0" title="{{ $status === 'ready' ? 'Include this certificate when sending' : $state->label().' — this recipient cannot be selected again' }}"><input type="checkbox" class="size-4 rounded border-slate-300 text-accent-700" data-queue-check="{{ $participant->public_id }}" @checked($selectionScoped && $status === 'ready') @disabled($status !== 'ready')></label>
-                                <button type="button" class="flex min-w-0 flex-1 items-center gap-2.5 text-left" data-preview-select="{{ $participant->public_id }}">
+                                <button type="button" class="flex min-w-0 flex-1 items-center gap-2.5 text-left" data-preview-select="{{ $participant->public_id }}" data-recipient-name="{{ $participant->full_name }}" data-recipient-email="{{ $participant->email }}">
                                     <span class="studio-avatar">{{ Str::upper(Str::substr($participant->full_name ?: 'P', 0, 1)) }}</span>
                                     <span class="min-w-0 flex-1">
                                         <span class="block truncate text-[12px] font-semibold text-slate-900" data-participant-name>{{ $participant->full_name ?: 'Unnamed participant' }}</span>
@@ -32,7 +32,20 @@
                                 <span class="text-[10px] text-slate-500" data-recipient-source-label>{{ ucfirst($participant->recipient_source) }}</span>
                                 <span class="studio-status-chip" data-status-badge title="{{ $state->label() }}">{{ $statusShort }}</span>
                             </div>
-                            @if($certificate?->status === 'failed')
+                            @if($participant->correction_pending)
+                                <span hidden data-correction-info data-layout="{{ json_encode($certificate->layout ?? []) }}" data-stored-preview="{{ route('admin.certificates.download', [$certificate, 'preview' => 1]) }}"></span>
+                                <p class="mt-2 pl-8 text-[11px] text-slate-600">Corrected PDF ready to resend. The earlier delivery remains in Sent history.</p>
+                                <a class="mt-1 block pl-8 text-[11px] font-semibold text-accent-700 underline" target="_blank" rel="noopener" href="{{ route('admin.certificates.download', [$certificate, 'preview' => 1]) }}">Preview corrected PDF</a>
+                            @endif
+                            @if($certificate?->status === 'processing' && app(\App\Services\LocalDelivery::class)->enabled())
+                                <form method="POST" action="{{ route('admin.certificates.issue-selected', $webinar) }}" class="mt-2 pl-8" data-immediate-send data-confirm="Generate this previously queued certificate and attempt its email now? Only this recipient will be processed." data-confirm-title="Send this certificate now" data-confirm-action="Send now">
+                                    @csrf
+                                    <input type="hidden" name="participants[]" value="{{ $participant->public_id }}">
+                                    <input type="hidden" name="preview_confirmed" value="1">
+                                    <input type="hidden" name="designs_json" value="{{ json_encode([$participant->public_id => $certificate->layout]) }}">
+                                    <button class="text-xs font-semibold text-accent-700 underline">Send now</button>
+                                </form>
+                            @elseif($certificate?->status === 'failed')
                                 <form method="POST" action="{{ route('admin.certificates.issue-selected', $webinar) }}" class="mt-2 pl-8" data-confirm="Queue certificate generation again for this recipient using the saved name placement? Check Preview PDF before continuing." data-confirm-title="Retry certificate generation" data-confirm-action="Retry generation">
                                     @csrf
                                     <input type="hidden" name="participants[]" value="{{ $participant->public_id }}">

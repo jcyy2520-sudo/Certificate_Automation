@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html><head><title>Certificate recipients</title></head><body data-app-layout="studio-roster">
+<html><head><title>Certificate recipients — {{ config('branding.name') }}</title></head><body data-app-layout="studio-roster">
 @include('admin.webinars.partials.studio-send-inputs')
 @include('admin.webinars.partials.studio-recipient-rows')
 @include('admin.webinars.partials.studio-pagination')

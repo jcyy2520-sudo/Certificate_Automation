@@ -20,14 +20,14 @@ test('admin invitation, individual activation, assigned access and audit filters
     await dialog.getByLabel('Email Address', { exact: true }).fill('invited.browser@example.test');
     await dialog.getByLabel('Workflow browser fixture', { exact: true }).check();
     await dialog.getByLabel('Manage participants, responses, forms and documents', { exact: true }).check();
-    await dialog.getByLabel('Your current password', { exact: true }).fill('Inviter-fixture-2026!');
+    await expect(dialog.getByLabel('Your current password', { exact: true })).toHaveCount(0);
     await dialog.getByLabel('Authenticator code', { exact: true }).fill('invalid');
     await dialog.getByRole('button', { name: 'Create and invite', exact: true }).click();
     dialog = page.getByRole('dialog', { name: 'Create Account', exact: true });
     await expect(dialog).toBeVisible();
     await expect(dialog.getByRole('alert')).toContainText('code');
     await expect(dialog.getByLabel('Full Name', { exact: true })).toHaveValue('Invited Browser Manager');
-    await expect(dialog.getByLabel('Your current password', { exact: true })).toHaveValue('');
+    await expect(dialog.getByLabel('Your current password', { exact: true })).toHaveCount(0);
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.screenshot({ path: 'storage/framework/testing/invitation-desktop-light.png', fullPage: true });
     await page.keyboard.press('Escape');
@@ -36,7 +36,7 @@ test('admin invitation, individual activation, assigned access and audit filters
     await page.getByRole('button', { name: 'Create Account', exact: true }).click();
     await page.screenshot({ path: 'storage/framework/testing/invitation-mobile-dark.png', fullPage: true });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await dialog.getByLabel('Your current password', { exact: true }).fill('Inviter-fixture-2026!');
+    await expect(dialog.getByLabel('Your current password', { exact: true })).toHaveCount(0);
     await dialog.getByLabel('Authenticator code', { exact: true }).fill(fixture('otp', '1'));
     await dialog.getByRole('button', { name: 'Create and invite', exact: true }).click();
     await expect(page.getByText('Account created. Activation email queued;', { exact: false })).toBeVisible();

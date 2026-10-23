@@ -13,8 +13,14 @@ use Symfony\Component\HttpFoundation\Response;
 
 class PasswordConfirmationController extends Controller
 {
-    public function show(Request $request, PendingSensitiveAction $pending): View
+    public function show(Request $request, PendingSensitiveAction $pending): View|RedirectResponse
     {
+        if (! config('security.require_sensitive_action_password_confirmation', true)) {
+            $pending->forget($request);
+
+            return redirect()->intended(route('admin.dashboard'));
+        }
+
         return view('auth.confirm-password', [
             'pendingAction' => $pending->pending($request),
         ]);
@@ -25,6 +31,11 @@ class PasswordConfirmationController extends Controller
         AuditService $audit,
         PendingSensitiveAction $pending,
     ): RedirectResponse|Response {
+        if (! config('security.require_sensitive_action_password_confirmation', true)) {
+            $pending->forget($request);
+
+            return redirect()->intended(route('admin.dashboard'));
+        }
         $validator = Validator::make($request->all(), [
             'password' => ['required', 'string', 'max:1024', 'current_password'],
         ]);

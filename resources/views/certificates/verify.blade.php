@@ -4,7 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex">
-    <title>Certificate verification</title>
+    <title>Certificate verification — {{ config('branding.name') }}</title>
+    @include('partials.brand-meta')
     @include('partials.theme-init')
     @vite(['resources/css/app.css', 'resources/js/standalone.js'])
 </head>
@@ -31,6 +32,7 @@
 
     <main class="mx-auto flex min-h-screen max-w-2xl items-center px-4 py-8 sm:px-6 sm:py-12">
         <section class="w-full rounded-2xl bg-white dark:bg-[#12141a] p-5 sm:p-8 shadow-sm ring-1 ring-slate-200 dark:ring-slate-800">
+            <div class="mb-6"><x-brand /></div>
             <p class="text-sm font-semibold uppercase tracking-wider {{ $state[1] }}">{{ $state[0] }}</p>
             <h1 class="mt-3 text-2xl font-bold sm:text-3xl">{{ $privacyUnavailable ? 'Certificate verification' : $certificate->webinar->title }}</h1>
             <p class="mt-3 text-slate-600 dark:text-slate-400">{{ $state[2] }}</p>

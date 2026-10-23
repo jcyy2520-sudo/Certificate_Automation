@@ -338,7 +338,7 @@ class SendTransactionalEmail implements ShouldQueue
                 'last_error' => Str::limit($message, 2000, ''),
             ]);
             app(AuditService::class)->record(request(), 'email.delivery_failed', $delivery,
-                ['provider' => $delivery->provider, 'delivery_type' => $delivery->type, 'execution' => 'queue'],
+                ['provider' => $delivery->provider, 'delivery_type' => $delivery->type, 'execution' => $this->job ? 'queue' : 'request'],
                 actor: $delivery->initiated_by ? User::query()->find($delivery->initiated_by) : null, outcome: 'failure');
         }, attempts: 3);
     }
@@ -410,7 +410,8 @@ class SendTransactionalEmail implements ShouldQueue
                 return true;
             }
             $summary = app(ParticipantEligibilityService::class)->summary($participant);
-            if (! hash_equals($summary['fingerprint'], (string) ($delivery->payload['eligibility_fingerprint'] ?? ''))
+            if (app(EligibilityService::class)->canPrepareCertificate($participant)
+                || ! hash_equals($summary['fingerprint'], (string) ($delivery->payload['eligibility_fingerprint'] ?? ''))
                 || $summary['status'] !== ($delivery->payload['eligibility_status'] ?? null)) {
                 return true; // Never send a stale eligibility decision after a correction.
             }

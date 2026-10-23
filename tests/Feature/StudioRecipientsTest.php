@@ -5,13 +5,18 @@ namespace Tests\Feature;
 use App\Contracts\TransactionalMailer;
 use App\Jobs\IssueSelectedCertificate;
 use App\Jobs\SendTransactionalEmail;
+use App\Models\Certificate;
 use App\Models\CertificateApproval;
+use App\Models\Import;
+use App\Models\ImportIssue;
 use App\Models\Participant;
 use App\Models\User;
 use App\Models\Webinar;
+use App\Services\AuditService;
 use App\Services\CertificateService;
 use App\Services\EligibilityService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -119,7 +124,7 @@ class StudioRecipientsTest extends TestCase
         $this->assertFalse($certificate->eligibility_snapshot['requirements']['posttest']);
         $this->assertStringStartsWith('%PDF', Storage::disk('local')->get($certificate->file_path));
         $delivery = $certificate->deliveries()->sole();
-        $this->assertStringContainsString('#token=', $delivery->payload['html']);
+        $this->assertStringNotContainsString('href=', $delivery->payload['html']);
         $this->assertSame('certificate', $delivery->type);
         $mailer = $this->mock(TransactionalMailer::class);
         $mailer->shouldReceive('send')->once()->withArgs(fn ($email, $subject, $html, $attachments, $key) => $email === 'manual@example.test' && count($attachments) === 1 && filled($key))->andReturn('synthetic-provider-id');
@@ -311,5 +316,240 @@ class StudioRecipientsTest extends TestCase
         $this->assertSame($bytes, Storage::disk('local')->get($original->file_path));
         $this->assertDatabaseCount('certificates', 2);
         $this->assertDatabaseCount('email_deliveries', 2);
+    }
+
+    public function test_local_selected_send_processes_only_its_recipient_and_substitutes_email_placeholders(): void
+    {
+        $recipient = $this->manual();
+        $other = $this->webinar->participants()->create(['email' => 'excluded@example.test', 'full_name' => 'Excluded Non Eligible']);
+        $queued = app(CertificateService::class)->queue($recipient);
+        config(['operations.local_immediate_delivery' => true]);
+        $this->get(route('admin.certificates.studio', $this->webinar))->assertOk()->assertSee('Send now');
+        Queue::fake([SendTransactionalEmail::class]);
+        $mailer = \Mockery::mock(TransactionalMailer::class);
+        $mailer->shouldReceive('send')->once()->withArgs(function ($email, $subject, $html, $attachments) use ($recipient) {
+            $this->assertSame($recipient->email, $email);
+            $this->assertStringContainsString($this->webinar->title, $subject);
+            $this->assertStringContainsString($recipient->full_name, $html);
+            $this->assertStringNotContainsString('{{', $subject.$html);
+            $this->assertCount(1, $attachments);
+
+            return true;
+        })->andReturn('mock-provider-acceptance');
+        $this->app->instance(TransactionalMailer::class, $mailer);
+        $this->post(route('admin.certificates.issue-selected', $this->webinar), ['participants' => [$recipient->public_id], 'preview_confirmed' => '1'])
+            ->assertSessionHasNoErrors()->assertSessionHas('success');
+        $this->assertDatabaseHas('certificates', ['id' => $queued->id, 'participant_id' => $recipient->id, 'status' => 'issued']);
+        $this->assertDatabaseHas('email_deliveries', ['participant_id' => $recipient->id, 'type' => 'certificate', 'status' => 'sent']);
+        $this->assertDatabaseMissing('email_deliveries', ['participant_id' => $other->id]);
+        $this->assertDatabaseCount('email_deliveries', 1);
+        Queue::assertNothingPushed();
+        $this->post(route('admin.certificates.issue-selected', $this->webinar), ['participants' => [$recipient->public_id], 'preview_confirmed' => '1'])->assertRedirect();
+        $this->assertDatabaseCount('email_deliveries', 1);
+    }
+
+    public function test_local_all_ready_batch_does_not_notify_noneligible_participants(): void
+    {
+        $recipient = $this->manual();
+        $other = $this->webinar->participants()->create(['email' => 'excluded-batch@example.test', 'full_name' => 'Excluded From Batch']);
+        config(['operations.local_immediate_delivery' => true]);
+        Queue::fake([SendTransactionalEmail::class]);
+        $mailer = \Mockery::mock(TransactionalMailer::class);
+        $mailer->shouldReceive('send')->once()->withArgs(fn ($email, $subject, $html, $attachments) => $email === $recipient->email && count($attachments) === 1)->andReturn('mock-batch-acceptance');
+        $this->app->instance(TransactionalMailer::class, $mailer);
+        $this->post(route('admin.certificates.batch', $this->webinar))->assertSessionHasNoErrors()->assertSessionHas('success');
+        $this->assertDatabaseHas('certificate_batches', ['status' => 'completed']);
+        $this->assertDatabaseHas('email_deliveries', ['participant_id' => $recipient->id, 'status' => 'sent', 'type' => 'certificate']);
+        $this->assertDatabaseMissing('email_deliveries', ['participant_id' => $other->id]);
+        $this->assertDatabaseCount('email_deliveries', 1);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_local_stale_generation_warning_uses_send_now_and_never_requests_a_worker(): void
+    {
+        $recipient = $this->manual();
+        $certificate = app(CertificateService::class)->queue($recipient);
+        Certificate::whereKey($certificate->id)->update(['updated_at' => now()->subMinutes(3)]);
+        config(['operations.local_immediate_delivery' => true, 'webinar.email.certificate_provider' => 'brevo',
+            'services.brevo.key' => 'synthetic-key-never-used']);
+        $this->get(route('admin.certificates.studio', $this->webinar))->assertOk()
+            ->assertSee('Use Send now on that recipient')->assertSee('Nothing will be sent automatically.')
+            ->assertDontSee('Start the certificate worker')->assertDontSee('php artisan queue:work');
+        $this->assertSame('processing', $certificate->fresh()->status);
+        $this->assertDatabaseCount('email_deliveries', 0);
+        Queue::assertNothingPushed();
+        config(['operations.local_immediate_delivery' => false]);
+        $this->get(route('admin.certificates.studio', $this->webinar))->assertOk()->assertSee('Start the certificate worker');
+    }
+
+    public function test_sent_tab_exposes_confirmed_resend_only_for_currently_eligible_recipients_without_sending_on_view(): void
+    {
+        $manual = $this->manual();
+        $eligible = $this->webinar->participants()->create(['full_name' => 'Corrected Recipient', 'email' => 'corrected@example.test']);
+        $this->qualifies($eligible);
+        $ineligible = $this->webinar->participants()->create(['full_name' => 'Incomplete Recipient', 'email' => 'incomplete@example.test']);
+        $certificates = collect([$eligible, $manual, $ineligible])->map(function ($participant) {
+            $certificate = Certificate::create([
+                'webinar_id' => $this->webinar->id, 'participant_id' => $participant->id,
+                'certificate_template_id' => $this->webinar->certificateTemplates()->sole()->id,
+                'verification_code' => 'CERT-'.str_pad((string) $participant->id, 12, '0', STR_PAD_LEFT),
+                'recipient_name' => $participant->full_name, 'status' => 'issued', 'storage_disk' => 'local',
+                'issued_at' => now(), 'sent_at' => now(),
+            ]);
+            app(AuditService::class)->record(request(), 'certificate.signature_corrected', $certificate);
+
+            return $certificate;
+        });
+
+        foreach (['admin.certificates.studio', 'admin.certificates.studio.recipients'] as $route) {
+            $response = $route === 'admin.certificates.studio'
+                ? $this->get(route($route, $this->webinar))
+                : $this->post(route($route, $this->webinar));
+            $response->assertOk()->assertSee('Resend corrected certificate')
+                ->assertSee('data-confirm-title="Resend this certificate?"', false)
+                ->assertSee(route('admin.certificates.resend', $certificates[0]), false)
+                ->assertDontSee(route('admin.certificates.resend', $certificates[1]), false)
+                ->assertDontSee(route('admin.certificates.resend', $certificates[2]), false);
+        }
+        $this->assertDatabaseCount('email_deliveries', 0);
+        Queue::assertNothingPushed();
+    }
+
+    private function correctedSentRecipient(string $suffix): Certificate
+    {
+        $person = $this->webinar->participants()->create(['full_name' => 'Correction Recipient '.$suffix, 'email' => 'correction'.$suffix.'@example.test']);
+        $this->qualifies($person);
+        $certificate = Certificate::create([
+            'webinar_id' => $this->webinar->id, 'participant_id' => $person->id,
+            'certificate_template_id' => $this->webinar->certificateTemplates()->sole()->id,
+            'verification_code' => 'CERT-'.str_pad($suffix, 12, '0', STR_PAD_LEFT), 'recipient_name' => $person->full_name,
+            'status' => 'issued', 'issued_at' => now(), 'sent_at' => now(), 'storage_disk' => 'local',
+        ]);
+        $certificate->update(['file_path' => 'certificates/'.$certificate->public_id.'.pdf']);
+        Storage::disk('local')->put($certificate->file_path, '%PDF-1.4 synthetic corrected attachment '.$suffix);
+        app(AuditService::class)->record(request(), 'certificate.signature_corrected', $certificate);
+
+        return $certificate;
+    }
+
+    public function test_86_person_correction_plan_creates_no_mail_until_each_step_and_replays_are_idempotent(): void
+    {
+        config(['operations.local_immediate_delivery' => true]);
+        $certificates = collect(range(1, 86))->map(fn ($number) => $this->correctedSentRecipient((string) $number));
+        $page = $this->get(route('admin.certificates.studio', $this->webinar))->assertOk()->assertSee('Preview corrected PDF');
+        $this->assertCount(86, $page->viewData('participants'));
+        $this->getJson(route('admin.certificates.studio.status', $this->webinar))->assertOk()->assertJsonPath('certificates.0.status', 'ready');
+        $plan = $this->postJson(route('admin.certificates.send-plan', $this->webinar), [
+            'mode' => 'resend', 'certificates' => $certificates->pluck('id')->all(),
+        ])->assertOk()->assertJsonCount(86, 'items')->json();
+        $this->assertDatabaseCount('email_deliveries', 0);
+        foreach ($certificates as $index => $certificate) {
+            $payload = ['plan_token' => $plan['plan_token'], 'index' => $index];
+            $this->postJson($plan['step_url'], $payload)->assertOk()->assertJsonPath('outcome', 'captured');
+            $this->postJson($plan['step_url'], $payload)->assertOk()->assertJsonPath('outcome', 'captured');
+            $this->assertDatabaseCount('email_deliveries', $index + 1);
+            $delivery = $certificate->deliveries()->sole();
+            $this->assertSame($certificate->participant->email, $delivery->recipient_email);
+            $this->assertSame('sent', $delivery->status);
+            $this->travel(5)->seconds();
+        }
+        $this->assertDatabaseCount('certificates', 86);
+        $this->get(route('admin.certificates.studio', $this->webinar))->assertOk()->assertViewHas('participants', fn ($people) => $people->isEmpty());
+        $this->assertDatabaseMissing('email_deliveries', ['type' => 'eligibility_notification']);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_correction_plan_rejects_mixed_ineligible_selection_and_cannot_be_used_for_another_webinar(): void
+    {
+        config(['operations.local_immediate_delivery' => true]);
+        $certificate = $this->correctedSentRecipient('1');
+        $this->postJson(route('admin.certificates.send-plan', $this->webinar), [
+            'mode' => 'resend', 'certificates' => [$certificate->id, 999999],
+        ])->assertUnprocessable();
+        $plan = $this->postJson(route('admin.certificates.send-plan', $this->webinar), [
+            'mode' => 'resend', 'certificates' => [$certificate->id],
+        ])->assertOk()->json();
+        $other = Webinar::factory()->create(['created_by' => $this->owner->id]);
+        $this->postJson(route('admin.certificates.send-step', $other), ['plan_token' => $plan['plan_token'], 'index' => 0])->assertUnprocessable();
+        $this->assertDatabaseCount('email_deliveries', 0);
+        $certificate->participant->submissions()->update(['score' => 0]);
+        $this->postJson(route('admin.certificates.send-plan', $this->webinar), [
+            'mode' => 'resend', 'certificates' => [$certificate->id],
+        ])->assertUnprocessable();
+        Queue::assertNothingPushed();
+    }
+
+    public function test_selected_progress_plan_issues_only_its_one_claimed_recipient(): void
+    {
+        config(['operations.local_immediate_delivery' => true]);
+        Queue::fake([SendTransactionalEmail::class]);
+        $person = $this->webinar->participants()->create(['full_name' => 'New Eligible', 'email' => 'neweligible@example.test']);
+        $this->qualifies($person);
+        $plan = $this->postJson(route('admin.certificates.send-plan', $this->webinar), [
+            'mode' => 'selected', 'participants' => [$person->public_id],
+        ])->assertOk()->assertJsonCount(1, 'items')->json();
+        $this->assertDatabaseCount('certificates', 0);
+        $this->postJson($plan['step_url'], ['plan_token' => $plan['plan_token'], 'index' => 0])->assertOk()->assertJsonPath('outcome', 'captured');
+        $this->assertDatabaseCount('certificates', 1);
+        $this->assertDatabaseCount('email_deliveries', 1);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_selecting_a_corrected_recipient_in_to_send_resends_the_exact_file_without_reissuing(): void
+    {
+        config(['operations.local_immediate_delivery' => true]);
+        $certificate = $this->correctedSentRecipient('1');
+        $before = $certificate->fresh()->getRawOriginal();
+        $pdf = Storage::disk('local')->get($certificate->file_path);
+        $mailer = \Mockery::mock(TransactionalMailer::class);
+        $mailer->shouldReceive('send')->once()->withArgs(fn ($email, $subject, $html, $attachments) => $email === $certificate->participant->email && base64_decode($attachments[0]['content']) === $pdf)->andReturn('mock-correction');
+        $this->app->instance(TransactionalMailer::class, $mailer);
+        $plan = $this->postJson(route('admin.certificates.send-plan', $this->webinar), [
+            'mode' => 'selected', 'participants' => [$certificate->participant->public_id],
+        ])->assertOk()->assertJsonPath('items.0.mode', 'resend')->json();
+        $this->postJson($plan['step_url'], ['plan_token' => $plan['plan_token'], 'index' => 0])->assertOk()->assertJsonPath('outcome', 'captured');
+        $this->assertDatabaseCount('certificates', 1);
+        $this->assertSame($before, $certificate->fresh()->getRawOriginal());
+        $this->assertSame($pdf, Storage::disk('local')->get($certificate->file_path));
+        $this->get(route('admin.certificates.studio', $this->webinar))->assertOk()->assertViewHas('participants', fn ($people) => $people->isEmpty());
+        Queue::assertNothingPushed();
+    }
+
+    public function test_held_import_rows_block_new_bulk_issuance_but_not_explicit_corrected_resends(): void
+    {
+        config(['operations.local_immediate_delivery' => true]);
+        $certificate = $this->correctedSentRecipient('1');
+        $import = Import::create([
+            'webinar_id' => $this->webinar->id, 'form_id' => $this->webinar->forms()->first()->id,
+            'original_filename' => 'held-synthetic.csv', 'file_hash' => str_repeat('a', 64), 'file_size' => 1, 'imported_by' => $this->owner->id,
+        ]);
+        ImportIssue::create(['import_id' => $import->id, 'webinar_id' => $this->webinar->id,
+            'row_number' => 1, 'issue_type' => 'unmatched', 'issue_message' => 'Synthetic unresolved row']);
+        $this->postJson(route('admin.certificates.send-plan', $this->webinar), ['mode' => 'ready'])->assertUnprocessable();
+        $plan = $this->postJson(route('admin.certificates.send-plan', $this->webinar), [
+            'mode' => 'selected', 'participants' => [$certificate->participant->public_id],
+        ])->assertOk()->assertJsonPath('items.0.mode', 'resend')->json();
+        $this->postJson($plan['step_url'], ['plan_token' => $plan['plan_token'], 'index' => 0])->assertOk()->assertJsonPath('outcome', 'captured');
+        $this->assertSame(1, $this->webinar->importIssues()->whereNull('resolved_at')->count());
+        $this->assertDatabaseCount('email_deliveries', 1);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_uncertain_progress_step_halts_and_its_replay_never_calls_the_provider_again(): void
+    {
+        config(['operations.local_immediate_delivery' => true]);
+        $certificate = $this->correctedSentRecipient('1');
+        $mailer = \Mockery::mock(TransactionalMailer::class);
+        $mailer->shouldReceive('send')->once()->andThrow(new ConnectionException('Synthetic connection interruption'));
+        $this->app->instance(TransactionalMailer::class, $mailer);
+        $plan = $this->postJson(route('admin.certificates.send-plan', $this->webinar), [
+            'mode' => 'resend', 'certificates' => [$certificate->id],
+        ])->assertOk()->json();
+        $payload = ['plan_token' => $plan['plan_token'], 'index' => 0];
+        $this->postJson($plan['step_url'], $payload)->assertOk()->assertJsonPath('outcome', 'unknown')->assertJsonPath('halt', true);
+        $this->postJson($plan['step_url'], $payload)->assertOk()->assertJsonPath('outcome', 'unknown');
+        $this->assertDatabaseCount('email_deliveries', 1);
+        $this->assertSame(1, $certificate->deliveries()->sole()->attempts);
+        Queue::assertNothingPushed();
     }
 }

@@ -3,11 +3,14 @@
 namespace Tests\Feature;
 
 use App\Contracts\TransactionalMailer;
+use App\Jobs\IssueSelectedCertificate;
 use App\Jobs\SendTransactionalEmail;
+use App\Models\Certificate;
 use App\Models\CertificateTemplate;
 use App\Models\Participant;
 use App\Models\User;
 use App\Models\Webinar;
+use App\Services\CertificateFonts;
 use App\Services\CertificateService;
 use App\Services\CsvImportService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -15,6 +18,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 use Tests\Concerns\ApprovesCertificateFixtures;
 use Tests\TestCase;
@@ -176,6 +180,106 @@ class CertificateAccuracyTest extends TestCase
         (new SendTransactionalEmail($delivery->id))->handle($mailer);
         $this->assertSame('cancelled', $delivery->fresh()->status);
         $this->post(route('admin.certificates.resend', $certificate))->assertSessionHas('error');
+    }
+
+    public function test_selected_arial_equivalent_reaches_the_pdf_and_its_email_attachment(): void
+    {
+        Queue::fake();
+        $participant = $this->webinar->participants()->create(['email' => 'font-fidelity@example.test',
+            'full_name' => 'Synthetic Font Fidelity Recipient', 'verified_at' => now()]);
+        $design = array_replace($this->template->layout, ['name_font_family' => 'arial']);
+        $this->post(route('admin.certificates.issue-selected', $this->webinar), [
+            'participants' => [$participant->public_id], 'preview_confirmed' => '1',
+            'designs_json' => json_encode([$participant->public_id => $design]),
+        ])->assertSessionHasNoErrors()->assertRedirect();
+        $certificate = Certificate::where('participant_id', $participant->id)->sole();
+        $this->assertSame('arial', $certificate->layout['name_font_family']);
+        (new IssueSelectedCertificate($participant->id))->handle(app(CertificateService::class));
+        $certificate->refresh();
+        $pdf = Storage::disk('local')->get($certificate->file_path);
+        $this->saveQa('arial-selected.pdf', $pdf);
+        $this->assertSame($pdf, base64_decode($certificate->deliveries()->sole()->payload['attachments'][0]['content']));
+        $this->assertStringContainsString('DejaVuSans', $pdf);
+        $this->assertStringNotContainsString('/BaseFont /Times-', $pdf);
+    }
+
+    public static function fontCases(): array
+    {
+        $cases = [];
+        foreach (['sans' => 'DejaVuSans', 'arial' => 'DejaVuSans', 'serif' => 'DejaVuSerif', 'times' => 'DejaVuSerif', 'mono' => 'DejaVuSansMono', 'montserrat' => 'Montserrat', 'lato' => 'Lato', 'cormorant' => 'CormorantGaramond'] as $key => $face) {
+            foreach (['regular', 'bold'] as $weight) {
+                foreach (['regular', 'italic'] as $style) {
+                    $suffix = $weight === 'bold' ? 'Bold' : '';
+                    if ($style === 'italic') {
+                        $suffix .= in_array($face, ['DejaVuSans', 'DejaVuSansMono'], true) ? 'Oblique' : 'Italic';
+                    }
+                    if ($suffix === '' && ! str_starts_with($face, 'DejaVu')) {
+                        $suffix = 'Regular';
+                    }
+                    $cases[$key.'-'.$weight.'-'.$style] = [$key, $weight, $style, $face.($suffix ? '-'.$suffix : '')];
+                }
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('fontCases')]
+    public function test_every_font_variant_is_embedded_in_the_generated_pdf_and_attachment(string $key, string $weight, string $style, string $expectedFace): void
+    {
+        Queue::fake();
+        $this->template->update(['layout' => array_replace($this->template->layout, [
+            'name_font_family' => $key, 'name_font_weight' => $weight, 'name_font_style' => $style,
+        ])]);
+        $participant = $this->webinar->participants()->create(['email' => 'font-matrix@example.test',
+            'full_name' => 'Jose Niño de la Cruz Jr.', 'verified_at' => now()]);
+        $certificate = app(CertificateService::class)->issue($participant);
+        $pdf = Storage::disk('local')->get($certificate->file_path);
+        $this->saveQa($key.'-'.$weight.'-'.$style.'.pdf', $pdf);
+        preg_match_all('/\/BaseFont\s*\/([^\s<>()\[\]]+)/', $pdf, $fonts);
+        $this->assertNotEmpty($fonts[1]);
+        foreach ($fonts[1] as $font) {
+            $this->assertMatchesRegularExpression('/^[A-Z]{6}\+'.preg_quote($expectedFace, '/').'$/', $font);
+        }
+        $this->assertSame($key, $certificate->layout['name_font_family']);
+        $this->assertSame($pdf, base64_decode($certificate->deliveries()->sole()->payload['attachments'][0]['content']));
+        $definition = app(CertificateFonts::class)->definition($certificate->layout);
+        [$baseline, $size] = $this->pdfNamePosition($pdf);
+        $expectedBaseline = 595 * $certificate->layout['name_top'] / 100 + (1 + $definition['ascent'] - $definition['descent']) / 2 * $size;
+        $this->assertEqualsWithDelta($expectedBaseline, $baseline, 0.002, 'The PDF name must use the shared browser baseline.');
+        $html = view('certificates.pdf-custom', ['certificate' => $certificate, 'backgroundDataUri' => null])->render();
+        $this->assertStringNotContainsString('&#039;', $html);
+        $this->assertStringNotContainsString('&quot;', $html);
+        Queue::assertPushed(SendTransactionalEmail::class, 1);
+    }
+
+    public function test_the_template_name_area_constrains_recipient_adjustments_without_shortening_the_name(): void
+    {
+        Queue::fake();
+        $this->template->update(['layout' => array_replace($this->template->layout, ['name_max_width' => 65, 'name_bottom' => 49.5])]);
+        $layout = ['name_top' => 42.4, 'name_left' => 42.94, 'name_font_size' => 80, 'name_font_family' => 'arial'];
+        $participant = $this->webinar->participants()->create(['email' => 'name-area@example.test', 'full_name' => 'Maria Alexandra Cristina Isabel Santos de los Reyes Jr.', 'verified_at' => now()]);
+        $certificate = app(CertificateService::class)->issue($participant, layout: $layout);
+        [$baseline, $size] = $this->pdfNamePosition(Storage::disk('local')->get($certificate->file_path));
+        $definition = app(CertificateFonts::class)->definition($layout);
+        $this->assertLessThan(80, $size);
+        $this->assertGreaterThanOrEqual(12, $size);
+        $this->assertLessThanOrEqual(595 * 0.495 - 4 + 0.002, $baseline + $definition['descent'] * $size);
+        $this->assertSame($participant->full_name, $certificate->recipient_name);
+        $this->assertSame($layout, $certificate->layout);
+    }
+
+    private function pdfNamePosition(string $pdf): array
+    {
+        preg_match_all('/<<[^>]*\/Length\s+(\d+)[^>]*>>\s*stream\r?\n/s', $pdf, $streams, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
+        foreach ($streams as $match) {
+            $stream = substr($pdf, $match[0][1] + strlen($match[0][0]), (int) $match[1][0]);
+            $content = @gzuncompress($stream) ?: $stream;
+            if (preg_match('/BT [\d.-]+ ([\d.-]+) Td \/F\d+ ([\d.]+) Tf/', $content, $position)) {
+                return [595 - (float) $position[1], (float) $position[2]];
+            }
+        }
+        $this->fail('No drawn PDF name baseline was found.');
     }
 
     private function saveQa(string $filename, string $pdf): void

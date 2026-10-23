@@ -22,12 +22,18 @@ class CertificateTemplate extends Model
     }
 
     /** @var array<string, array{label: string, css: string, pdf: string}> */
+    // PDF declarations use unquoted family names: Blade escapes quotes inside
+    // a <style> raw-text element, which makes Dompdf fall back to Times.
+    // Browser aliases prefer the same bundled face that the PDF embeds.
     public const FONTS = [
-        'sans' => ['label' => 'Sans-serif', 'css' => "'DejaVu Sans', Verdana, Geneva, sans-serif", 'pdf' => "'DejaVu Sans', sans-serif"],
-        'serif' => ['label' => 'Serif', 'css' => "'DejaVu Serif', Georgia, 'Times New Roman', serif", 'pdf' => "'DejaVu Serif', serif"],
-        'mono' => ['label' => 'Monospace', 'css' => "'DejaVu Sans Mono', 'Courier New', monospace", 'pdf' => "'DejaVu Sans Mono', monospace"],
-        'arial' => ['label' => 'Arial equivalent', 'css' => "Arial, 'DejaVu Sans', sans-serif", 'pdf' => "'DejaVu Sans', sans-serif"],
-        'times' => ['label' => 'Times New Roman equivalent', 'css' => "'Times New Roman', 'DejaVu Serif', serif", 'pdf' => "'DejaVu Serif', serif"],
+        'sans' => ['label' => 'Sans-serif', 'css' => "'DejaVu Sans', Verdana, Geneva, sans-serif", 'pdf' => 'DejaVu Sans, sans-serif'],
+        'serif' => ['label' => 'Serif', 'css' => "'DejaVu Serif', Georgia, 'Times New Roman', serif", 'pdf' => 'DejaVu Serif, serif'],
+        'mono' => ['label' => 'Monospace', 'css' => "'DejaVu Sans Mono', 'Courier New', monospace", 'pdf' => 'DejaVu Sans Mono, monospace'],
+        'arial' => ['label' => 'Arial equivalent', 'css' => "'DejaVu Sans', Arial, sans-serif", 'pdf' => 'DejaVu Sans, sans-serif'],
+        'times' => ['label' => 'Times New Roman equivalent', 'css' => "'DejaVu Serif', 'Times New Roman', serif", 'pdf' => 'DejaVu Serif, serif'],
+        'montserrat' => ['label' => 'Montserrat', 'css' => "'Montserrat', sans-serif", 'pdf' => 'Montserrat, sans-serif'],
+        'lato' => ['label' => 'Lato', 'css' => "'Lato', sans-serif", 'pdf' => 'Lato, sans-serif'],
+        'cormorant' => ['label' => 'Cormorant Garamond', 'css' => "'Cormorant Garamond', serif", 'pdf' => 'Cormorant Garamond, serif'],
     ];
 
     protected function casts(): array

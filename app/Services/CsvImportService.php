@@ -757,6 +757,13 @@ class CsvImportService
         foreach ($headers as $label) {
             $original[] = ['label' => $label, 'value' => (string) ($raw[$label] ?? '')];
         }
+        $sourceIdentity = [];
+        foreach (['full_name' => 'name', 'email' => 'email', 'submitted_at' => 'submitted_at', 'score' => 'score'] as $field => $key) {
+            $index = $import->column_map['map'][$field] ?? null;
+            if ($index !== null && isset($headers[$index])) {
+                $sourceIdentity[$key] = (string) ($raw[$headers[$index]] ?? '');
+            }
+        }
         $mapped = [];
         $columns = $nativeColumns ?? app(FormResponseService::class)->nativeColumns($form);
         $storedSchema = $import->column_map['response_schema'] ?? null;
@@ -780,7 +787,7 @@ class CsvImportService
             'score' => $score,
             'maximum_score' => $maximumScore,
             'imported_data' => [
-                'original' => $original, 'mapped' => $mapped,
+                'original' => $original, 'identity' => $sourceIdentity, 'mapped' => $mapped,
                 'schema' => $responseSchema ?? $storedSchema ?? app(ImportedResponseSchema::class)->columns($import->setRelation('form', $form), $import->column_map['map'] ?? [], $options),
             ],
             'metadata' => array_filter([
@@ -970,7 +977,7 @@ class CsvImportService
         }
     }
 
-    /** @return array<int, string> header index => trimmed label */
+    /** @return array<int, string> header index => original label */
     private function headersFromContents(string $contents): array
     {
         if (str_contains($contents, "\0") || ! mb_check_encoding($contents, 'UTF-8')) {
@@ -1013,7 +1020,7 @@ class CsvImportService
         }
 
         $headers = collect($headerRow)
-            ->map(fn ($label) => trim((string) $label))
+            ->map(fn ($label) => (string) $label)
             ->all();
 
         if (count($headers) > ResponseFileReader::MAX_COLUMNS) {
@@ -1022,14 +1029,14 @@ class CsvImportService
 
         $seen = [];
         foreach ($headers as $index => $header) {
-            if (mb_strlen($header) > 2000 || $header === '_resolved') {
+            if (mb_strlen($header) > 2000 || trim($header) === '_resolved') {
                 throw new RuntimeException('Headers must be at most 2,000 characters and cannot use the reserved label _resolved. Rename the source column.');
             }
-            if ($header === '') {
+            if (trim($header) === '') {
                 throw new RuntimeException('Column '.($index + 1).' has no header. The file was not imported because its columns cannot be identified reliably.');
             }
 
-            $key = Str::lower(preg_replace('/\s+/u', ' ', $header) ?? $header);
+            $key = ImportedResponseSchema::headerKey($header);
             if (isset($seen[$key])) {
                 throw new RuntimeException('The file repeats the header “'.$header.'”. Rename the duplicate column before importing so no value is mapped ambiguously.');
             }
@@ -1065,7 +1072,7 @@ class CsvImportService
 
         $raw = [];
         foreach (array_keys($keep) as $index) {
-            $label = trim((string) ($headers[$index] ?? 'column '.((int) $index + 1)));
+            $label = (string) ($headers[$index] ?? 'column '.((int) $index + 1));
             $raw[$label === '' ? 'column '.((int) $index + 1) : $label] = (string) $row[$index];
         }
 

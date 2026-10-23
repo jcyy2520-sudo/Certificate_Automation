@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 
 test('native collection, reviewed imports, eligibility and automatic Studio recipients work in a browser', async ({ page, context }) => {
+    // Four complete form/import reviews plus PDF and responsive Studio checks.
+    test.setTimeout(180000);
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
     await page.goto('/admin/login');

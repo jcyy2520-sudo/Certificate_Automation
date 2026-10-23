@@ -15,6 +15,7 @@ use App\Services\AuditService;
 use App\Services\CsvImportService;
 use App\Services\EligibilityReviewFiles;
 use App\Services\EligibilityService;
+use App\Services\LocalDelivery;
 use App\Services\NotificationService;
 use App\Services\ParticipantEligibilityService;
 use App\Services\ParticipantStatusLinkService;
@@ -159,14 +160,14 @@ class ParticipantEligibilityController extends Controller
         return back()->with('success', 'Review decision saved. Eligibility is recalculated from the current verified records; no certificate or notification was sent.');
     }
 
-    public function notify(Request $request, Webinar $webinar, ParticipantEligibilityService $feedback, ParticipantStatusLinkService $links, NotificationService $notifications, AuditService $audit)
+    public function notify(Request $request, Webinar $webinar, ParticipantEligibilityService $feedback, EligibilityService $rules, NotificationService $notifications, AuditService $audit)
     {
         $data = $request->validate(['submission_key' => ['required', 'uuid'], 'confirmed' => ['accepted'], 'resend' => ['sometimes', 'accepted'],
             'participants' => ['required', 'array', 'min:1', 'max:50'], 'participants.*' => ['required', 'ulid', 'distinct']]);
         $ids = $data['participants'];
         sort($ids, SORT_STRING);
-        $digest = hash_hmac('sha256', json_encode([$ids, $request->boolean('resend')], JSON_THROW_ON_ERROR), config('app.key'));
-        $count = DB::transaction(function () use ($request, $webinar, $data, $ids, $digest, $feedback, $links, $notifications, $audit): int {
+        $digest = hash_hmac('sha256', json_encode(['non_eligible', $ids, $request->boolean('resend')], JSON_THROW_ON_ERROR), config('app.key'));
+        $count = DB::transaction(function () use ($request, $webinar, $data, $ids, $digest, $feedback, $rules, $notifications, $audit): int {
             $locked = Webinar::query()->whereKey($webinar->id)->lockForUpdate()->firstOrFail();
             $this->available($locked);
             $previous = ParticipantMessageBatch::query()->where('submission_key', $data['submission_key'])->first();
@@ -186,9 +187,8 @@ class ParticipantEligibilityController extends Controller
                     throw ValidationException::withMessages(['participants' => 'Every selected participant needs a valid email address.']);
                 }
                 $summary = $feedback->summary($p);
-                // Eligible recipients already in certificate delivery need no extra eligibility message.
-                if ($summary['status'] === 'eligible' && ($summary['certificate'] || $summary['certificate_status'] === 'Processing')) {
-                    continue;
+                if ($rules->canPrepareCertificate($p)) {
+                    throw ValidationException::withMessages(['participants' => 'This action is only for participants who are not currently eligible. Eligible and authorized manual certificate recipients must use the separate certificate or eligible-message action. Nothing in this selection was sent.']);
                 }
                 $previous = $locked->emailDeliveries()->where('participant_id', $p->id)->where('type', 'eligibility_notification')->latest('id')->first();
                 if ($previous && (in_array($previous->status, ['pending', 'processing'], true) || ! $request->boolean('resend'))) {
@@ -201,9 +201,8 @@ class ParticipantEligibilityController extends Controller
                     continue;
                 }
                 $expires = now()->addDay();
-                $url = $links->createLink($locked, $p, $expires);
                 $delivery = $notifications->queue($locked, $p, 'eligibility_notification', $p->email, 'Your participation record — '.$locked->title,
-                    view('emails.eligibility-notification', ['webinar' => $locked, 'participant' => $p, 'summary' => $summary, 'personalUrl' => $url])->render(),
+                    view('emails.eligibility-notification', ['webinar' => $locked, 'participant' => $p, 'summary' => $summary])->render(),
                     expiresAt: $expires, context: ['status_access_version' => (int) $p->status_access_version, 'eligibility_fingerprint' => $summary['fingerprint'], 'eligibility_status' => $summary['status']]);
                 $delivery->update(['participant_message_batch_id' => $batch->id]);
                 $count++;
@@ -214,7 +213,9 @@ class ParticipantEligibilityController extends Controller
             return $count;
         }, attempts: 3);
 
-        return back()->with('success', "{$count} eligibility notification(s) queued. Existing pending messages and previously notified recipients are skipped unless an intentional resend is selected. Check Email logs for provider acceptance and delivery results.");
+        return back()->with('success', app(LocalDelivery::class)->enabled()
+            ? "{$count} non-eligible message(s) processed locally. Check Email logs for the result. Log mode does not send email; failed attempts require an explicit retry."
+            : "{$count} eligibility notification(s) queued. Only non-eligible recipients are included. Check Email logs for provider acceptance and delivery results.");
     }
 
     public function revoke(Request $request, Webinar $webinar, Participant $participant, AuditService $audit)

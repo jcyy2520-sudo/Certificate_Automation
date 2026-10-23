@@ -18,8 +18,8 @@
 <td class="p-4"><p class="font-medium">{{ $user->name }}</p><p class="break-all">{{ $user->email }}</p><p class="mt-1 text-xs text-slate-500">{{ match($user->role) { 'administrator' => 'System Administrator', 'webinar_manager' => 'Webinar Manager', default => 'Regular User' } }}</p></td>
 <td class="p-4 whitespace-nowrap" data-label="Created (Asia/Manila)">{{ $user->created_at->timezone('Asia/Manila')->format('M j, Y H:i') }}</td>
 <td class="p-4" data-label="Status & invitation"><p class="font-medium">{{ $user->accountStatusLabel() }}</p><p class="mt-1 text-xs text-slate-500">{{ $user->email_verified_at ? 'Email verified' : 'Email verified during activation' }}</p>
-@if($user->role === 'administrator')<p class="mt-1 text-xs">{{ $user->two_factor_confirmed_at ? 'Personal authenticator enrolled' : 'Authenticator enrollment required' }}</p>@endif
-@if($delivery = $deliveries->get($user->id))<p class="mt-2">Email: {{ $delivery->statusLabel() }}</p>@if(!$user->password_setup_at && $delivery->expires_at)<p class="mt-1 text-xs text-slate-500">{{ $delivery->expires_at->isPast() ? 'Invitation expired — resend to issue a new link.' : 'Link expires '.$delivery->expires_at->timezone('Asia/Manila')->format('M j, H:i') }}</p>@endif @if($delivery->last_error)<p class="mt-1 text-xs text-red-700 dark:text-red-300">{{ $delivery->last_error }}</p>@endif @endif</td>
+@if($user->role === 'administrator')<p class="mt-1 text-xs">{{ $user->two_factor_confirmed_at ? 'Personal authenticator enrolled' : (config('security.require_admin_two_factor', true) ? 'Authenticator enrollment required' : 'MFA off') }}</p>@endif
+@include('admin.users.delivery-status', ['delivery' => $deliveries->get($user->id)])</td>
 <td class="p-4" data-label="Webinar access">
 @if($user->role === 'administrator')<p>All webinars and system management</p>@else
 <ul class="space-y-1">@forelse($user->assignedWebinars as $assigned)<li>{{ $assigned->title }}</li>@empty<li class="text-slate-500">No assigned webinars</li>@endforelse</ul>

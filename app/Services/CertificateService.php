@@ -267,7 +267,6 @@ class CertificateService
                 actor: $lockedCertificate->requested_by ? User::query()->find($lockedCertificate->requested_by) : null);
 
             if (filled($participant->email)) {
-                $statusForm = $webinar->forms()->where('type', 'registration')->first(['public_token']);
                 $this->notifications->queue(
                     $webinar,
                     $participant,
@@ -278,7 +277,6 @@ class CertificateService
                         'participant' => $participant,
                         'certificate' => $lockedCertificate,
                         'customMessage' => $webinar->certificateEmailMessage($lockedCertificate->recipient_name),
-                        'statusUrl' => $statusForm ? app(ParticipantStatusLinkService::class)->createLink($webinar, $participant, now()->addDay()) : null,
                     ])->render(),
                     $lockedCertificate,
                     [['name' => 'certificate.pdf', 'content' => base64_encode($contents)]],
@@ -594,7 +592,8 @@ class CertificateService
         // hundreds of KiB and multiplied queue payload/HTTP memory per recipient.
         $pdf = Pdf::setPaper([0, 0, $width, $height])->setOption('isFontSubsettingEnabled', true);
         try {
-            $fitted = app(CertificateNameLayout::class)->fit((string) $certificate->recipient_name, $certificate->layout ?? $template->layout ?? [], $ratio, $pdf->getDomPDF());
+            $layout = array_replace($template->layout ?? [], $certificate->layout ?? []);
+            $fitted = app(CertificateNameLayout::class)->fit((string) $certificate->recipient_name, $layout, $ratio, $pdf->getDomPDF());
             // Validate existing as well as new artwork before loadView/output can
             // decode it. Encoded byte size alone does not bound image memory use.
             $backgroundDataUri = $this->backgroundDataUri($template);
@@ -603,7 +602,16 @@ class CertificateService
                 'backgroundDataUri' => $backgroundDataUri,
                 'fittedFontSize' => $fitted['font_size'],
                 'nameWidthPercent' => $fitted['width_percent'],
+                'drawNameOnCanvas' => true,
             ]);
+            $pdf->render();
+            $fontBaseline = $pdf->getDomPDF()->getFontMetrics()->getFontBaseline($fitted['font'], $fitted['font_size']);
+            $hex = ltrim($layout['accent'] ?? '#1d4ed8', '#');
+            $color = array_map(fn ($part) => hexdec($part) / 255, str_split($hex, 2));
+            $pdf->getDomPDF()->getCanvas()->text(
+                $fitted['x'], $fitted['baseline'] - $fontBaseline,
+                (string) $certificate->recipient_name, $fitted['font'], $fitted['font_size'], $color,
+            );
 
             return $pdf->output();
         } finally {

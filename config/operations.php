@@ -1,6 +1,9 @@
 <?php
 
 return [
+    // Local send clicks process their own work immediately, without starting
+    // a worker that could consume older, unrelated pending deliveries.
+    'local_immediate_delivery' => (bool) env('LOCAL_IMMEDIATE_DELIVERY', env('APP_ENV') === 'local'),
     // These are explicit operator attestations backed by backup and restore
     // evidence. security:check supports either managed remote PostgreSQL with
     // verified TLS or strictly local self-managed PostgreSQL with local-only

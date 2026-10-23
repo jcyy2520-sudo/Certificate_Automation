@@ -109,8 +109,9 @@ class AccountService
     public function passwordInvitation(User $user, string $token): void
     {
         $setup = $user->password_setup_at === null;
-        $this->mail($user, $setup ? 'setup' : 'reset', $setup ? 'Activate your Certificate Automation account' : 'Reset your password',
-            $setup ? 'You have been invited to Certificate Automation. Open this secure link to verify your email address and create your own password. The link expires in '.config('auth.passwords.users.expire').' minutes and works once. If you did not expect this invitation, you can ignore it.' : 'A password reset was requested for your account. If you did not request this, you can ignore this email.',
+        $brand = config('branding.name', 'Certimate');
+        $this->mail($user, $setup ? 'setup' : 'reset', $setup ? 'Activate your '.$brand.' account' : 'Reset your password',
+            $setup ? 'You have been invited to '.$brand.'. Open this secure link to verify your email address and create your own password. The link expires in '.config('auth.passwords.users.expire').' minutes and works once. If you did not expect this invitation, you can ignore it.' : 'A password reset was requested for your account. If you did not request this, you can ignore this email.',
             route('password.reset', ['setup' => $setup ? 1 : 0]).'#'.http_build_query(['token' => $token, 'email' => $user->email]),
             $setup ? 'Set password' : 'Reset password', now()->addMinutes(config('auth.passwords.users.expire')));
     }

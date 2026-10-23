@@ -27,6 +27,7 @@ class NotificationService
         ?User $account = null,
         array $context = [],
     ): EmailDelivery {
+        $immediate = ! $account && in_array($type, ['certificate', 'eligibility_notification', 'participant_message'], true) && app(LocalDelivery::class)->enabled();
         $delivery = EmailDelivery::query()->create([
             'webinar_id' => $webinar?->id,
             'account_user_id' => $account?->id,
@@ -39,7 +40,8 @@ class NotificationService
             'idempotency_key' => $idempotencyKey ?? (string) Str::uuid(),
             'recipient_email' => $recipient,
             'subject' => $subject,
-            'payload' => ['html' => $html, 'attachments' => $attachments, 'account_version' => $account?->auth_version] + $context,
+            'payload' => ['html' => $html, 'attachments' => $attachments, 'account_version' => $account?->auth_version,
+                'delivery_mode' => $immediate ? 'immediate' : 'queued'] + $context,
             // Set the default explicitly so EmailDelivery can establish its
             // database-backed active-delivery claim before INSERT. Database
             // defaults are applied too late for Eloquent model events.
@@ -52,7 +54,9 @@ class NotificationService
         // Never let a worker observe a delivery whose certificate transaction
         // later rolls back. This also prevents sending a certificate before its
         // durable file and issued status are committed.
-        if ($account || $type === 'eligibility_notification') {
+        if ($immediate) {
+            DB::afterCommit(fn () => app(LocalDelivery::class)->send($delivery));
+        } elseif ($account || $type === 'eligibility_notification') {
             DB::afterCommit(function () use ($delivery, $account): void {
                 try {
                     SendTransactionalEmail::dispatch($delivery->id)->onQueue($account ? config('accounts.email_queue') : config('webinar.email.queue'));

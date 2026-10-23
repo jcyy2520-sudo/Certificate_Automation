@@ -1,5 +1,34 @@
 # Security & Deployment Status
 
+> **2026-10-23 owner-directed launch policy:** The owner explicitly disabled
+> hosted MFA and all existing-password reconfirmation prompts. The saved hosted
+> flags are false, and the sole administrator's enrollment was removed after a
+> verified encrypted backup. Direct account/profile/MFA operations now follow
+> the reconfirmation flag in source; actual sign-in passwords, new-password
+> confirmation, authorization, CSRF and enrolled-factor validation remain.
+> Protected sessions bind the existing auth_version so MFA changes can revoke
+> other sessions without asking for plaintext passwords. These requested
+> exceptions supersede the earlier mandatory-MFA/reconfirmation statements.
+> Unrelated security work remains frozen. Current evidence and limits are in
+> [READINESS_2026_10_23.md](READINESS_2026_10_23.md).
+
+> **2026-10-23 owner-directed certificate review/progress exception:** The owner
+> also removed recent-password prompts from certificate PDF download/inline
+> preview and certificate ZIP export. Local progress preparation and execution
+> use authenticated, CSRF-protected, webinar-scoped routes with both certificate
+> and email permissions. The preparation action retains the sensitive-action
+> throttle; each step requires an unexpired user-bound cached plan and an atomic
+> one-time claim, with a separate 30-per-minute throttle. Existing queue windows,
+> unrelated sensitive-action limits and unrelated password gates are unchanged.
+
+> **2026-10-22 owner-directed certificate sending exception:** The owner
+> explicitly removed password reconfirmation from selected, individual,
+> all-ready, resend and administrator sample certificate sends. Authentication,
+> webinar authorization, CSRF, rate limits and existing send confirmations remain.
+> Other sensitive actions retain their existing password policy. This specific
+> request supersedes the historical blanket statement below for those five
+> send routes only; it does not reopen unrelated security work.
+
 > **2026-10-21 discovered-defect remediation:** The owner explicitly authorized a
 > comprehensive audit and targeted fixes. The current source corrects pending
 > MFA credential revocation, raster decode budgets, certificate-selection audit

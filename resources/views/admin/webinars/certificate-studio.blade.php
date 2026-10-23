@@ -27,7 +27,7 @@
     <input name="accent" value="{{ $accentVal }}" data-design-color-store><input name="name_font_weight" value="{{ $weightVal }}" data-design-weight-store>
     <input name="name_font_style" value="{{ $styleVal }}" data-design-style-store><input name="name_text_align" value="{{ $alignVal }}" data-design-align-store>
 </div>
-<form id="send-form" class="hidden" method="POST" action="{{ route('admin.certificates.issue-selected', $webinar) }}" data-send-form>
+<form id="send-form" class="hidden" method="POST" action="{{ route('admin.certificates.issue-selected', $webinar) }}" data-send-form @if(app(\App\Services\LocalDelivery::class)->enabled()) data-immediate-send data-certificate-progress="selected" data-inline-submit @endif>
     @csrf <input type="hidden" name="preview_confirmed" value="1"><input type="hidden" name="designs_json" value="{}" data-designs-json>
     @include('admin.webinars.partials.studio-send-inputs')
 </form>
@@ -36,7 +36,7 @@
      endpoint the Certificate Setup page uses, returning to the studio.
      The design endpoint is a PUT route, so the form posts with a method
      override — without it the browser's POST never reaches it. --}}
-<form id="apply-all-form" class="hidden" method="POST" action="{{ route('admin.certification.design', $webinar) }}"
+<form id="apply-all-form" class="hidden" method="POST" action="{{ route('admin.certification.design', $webinar) }}" data-inline-submit
       data-confirm="Make this exact style the template for EVERY recipient? Their names will use it unless you adjust them individually."
       data-confirm-tone="neutral"
       data-confirm-action="Apply to everyone"
@@ -53,7 +53,7 @@
     <input type="hidden" name="studio" value="1">
 </form>
 
-<div class="flex h-dvh min-h-0 flex-col bg-slate-100" data-studio data-has-background="{{ $hasBackground ? 1 : 0 }}" data-initial-participant="{{ $firstParticipant?->public_id }}" data-status-url="{{ $statusUrl }}" data-preview-url="{{ route('admin.certification.preview', $webinar) }}" data-recipients-url="{{ route('admin.certificates.studio.recipients', $webinar) }}" data-manual-url="{{ route('admin.certificates.manual.store', $webinar) }}">
+<div class="flex h-dvh min-h-0 flex-col bg-slate-100" data-studio data-send-plan-url="{{ route('admin.certificates.send-plan', $webinar) }}" data-has-background="{{ $hasBackground ? 1 : 0 }}" data-initial-participant="{{ $firstParticipant?->public_id }}" data-status-url="{{ $statusUrl }}" data-preview-url="{{ route('admin.certification.preview', $webinar) }}" data-recipients-url="{{ route('admin.certificates.studio.recipients', $webinar) }}" data-manual-url="{{ route('admin.certificates.manual.store', $webinar) }}">
     <div class="studio-approval-notice flex shrink-0 flex-wrap items-center justify-between gap-2 px-4 py-2 text-xs">
         <span>Eligible participants appear automatically. Manual recipients are certificate exceptions.@if($canReviewEligibility) <a class="font-semibold underline" href="{{ route('admin.webinars.eligibility.index', $webinar) }}">View eligibility</a>.@endif</span>
         <button type="button" class="studio-button-secondary" data-add-recipient><x-icon name="plus" class="size-4" />Add Recipient Manually</button>
@@ -62,7 +62,7 @@
     {{-- ===================== Top bar ===================== --}}
     <header class="studio-topbar">
         <div class="flex min-w-0 flex-1 items-center gap-2">
-            <a href="{{ $backUrl }}" class="studio-brand" title="Back to participants" aria-label="Back to participants"><x-icon name="award" class="size-[18px]" /></a>
+            <a href="{{ $backUrl }}" class="inline-flex size-9 shrink-0 items-center justify-center" title="Back to participants" aria-label="Back to participants"><x-brand compact /></a>
             <nav class="hidden min-w-0 items-center gap-1 md:flex" aria-label="Breadcrumb">
                 <a href="{{ route('admin.webinars.index') }}" class="studio-crumb">Webinars</a>
                 <x-icon name="chevron-right" class="size-3.5 shrink-0 text-slate-300" />
@@ -98,8 +98,8 @@
         <div class="flex flex-1 items-center justify-end gap-1.5 sm:gap-2">
             @if($hasBackground)
                 <form method="POST" action="{{ route('admin.certificates.batch', $webinar) }}"
-                      class="hidden {{ $bulkReadyCount > 0 ? 'sm:inline-flex' : '' }}" data-bulk-send
-                      data-confirm="Queue certificate generation and email delivery for every ready participant ({{ $bulkReadyCount }} total)? The template's default style is used — per-recipient style adjustments made here are not applied to a bulk send. Held import rows ({{ $heldCount ?? 0 }}) must already be resolved."
+                      class="hidden {{ $bulkReadyCount > 0 ? 'sm:inline-flex' : '' }}" data-bulk-send @if(app(\App\Services\LocalDelivery::class)->enabled()) data-immediate-send data-certificate-progress="ready" data-inline-submit @endif
+                      data-confirm="Send certificates only to every ready participant ({{ $bulkReadyCount }} total)? The template's default style is used — per-recipient style adjustments made here are not applied to a bulk send. Held import rows ({{ $heldCount ?? 0 }}) must already be resolved."
                       data-confirm-tone="success"
                       data-confirm-action="Send to all ready"
                       data-confirm-title="Send to all ready participants">
@@ -128,9 +128,9 @@
 
     @if(($heldCount ?? 0) > 0)
         <div class="border-b border-amber-200 bg-amber-50 px-4 py-3 text-[12px] leading-5 text-amber-900" role="alert">
-            <strong>{{ number_format($heldCount) }} import row(s) need review</strong> before bulk sending.
+            <strong>{{ number_format($heldCount) }} import row(s) need review</strong> before issuing new certificates with “Send to all ready”.
             Open <a class="font-semibold underline" href="{{ route('admin.webinars.imports.index', $webinar) }}">Imports</a>
-            and resolve each held row (promote, replace, or dismiss). Bulk “Send to all ready” stays blocked until the queue is empty so an incomplete set is never certified.
+            to review the spreadsheet rows that could not be safely accepted. This is not an email queue. Previewing and resending the corrected certificates in “To send” is still available.
         </div>
     @endif
 
@@ -219,7 +219,7 @@
                     @include('admin.webinars.partials.studio-pagination')
                 </div>
 
-                {{-- Delivered certificates: read-only, separated behind their own tab. --}}
+                {{-- Delivered certificates remain separate; resending requires an explicit confirmation. --}}
                 @include('admin.webinars.partials.studio-sent')
                 @if($canReviewEligibility) @include('admin.webinars.partials.studio-incomplete') @endif
 
@@ -259,6 +259,7 @@
                     <button type="button" class="mobile-header-button" data-close-panel aria-label="Close editor"><x-icon name="x" class="size-5" /></button>
                 </div>
                 <div class="min-h-0 flex-1 overflow-y-auto" data-name-toolbar>
+                    <p hidden data-correction-note class="border-b border-slate-200 px-4 py-3 text-xs text-slate-600">This corrected attachment keeps the original name and style. Preview PDF opens the exact stored file. Sending resends that file; style editing is disabled for this correction.</p>
 
                     <div class="studio-editor-block">
                         <p class="studio-editor-title">Align</p>
@@ -283,7 +284,7 @@
                             {{-- The address sits beside the name being spell-checked in
                                  plain, dark type — easy to read, no colour highlight. --}}
                             <span class="mt-1 block truncate font-mono text-[12px] font-semibold text-slate-900" data-adjustment-email title="{{ $firstParticipant?->email }}">{{ $firstParticipant?->email ?: 'No email address' }}</span>
-                            <span class="mt-1.5 block text-[11px] text-slate-400">Click the name to correct its spelling</span>
+                            <span class="mt-1.5 block text-[11px] text-slate-400" data-recipient-correction-hint>Click the name to correct its spelling</span>
                         </button>
                     </div>
 
@@ -337,7 +338,8 @@
                     <div class="studio-editor-block border-b-0">
                         <p class="studio-editor-title">Save this style</p>
                         <div class="mt-2 space-y-1.5">
-                            <button type="button" class="button-primary w-full justify-center" data-apply-to-all><x-icon name="check-circle" class="size-4" />Use for every recipient</button>
+                            <button type="button" class="button-primary w-full justify-center" data-apply-to-all><x-icon name="check-circle" class="size-4" /><span data-apply-all-label>Use for every recipient</span></button>
+                            <p class="mt-2 text-xs leading-5 text-slate-600" role="status" data-style-save-status hidden></p>
                             <button type="button" class="button-secondary w-full justify-center" data-reset-design><x-icon name="refresh" class="size-4" />Reset this person to template</button>
                         </div>
                         <p class="mt-2 text-[11px] leading-4 text-slate-500">
@@ -368,7 +370,7 @@
     </form>
 </div>
 
-<div class="fixed inset-0 z-[100] hidden items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm" data-send-confirm hidden role="dialog" aria-modal="true" aria-labelledby="send-confirm-title"><div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"><div class="flex size-11 items-center justify-center rounded-full bg-amber-100 text-amber-900"><x-icon name="send" class="size-5" /></div><h2 class="mt-4 text-lg font-semibold" id="send-confirm-title">Send certificates?</h2><p class="mt-1 text-[13px] leading-5 text-slate-500">You are about to queue certificate delivery to <strong class="text-slate-900" data-confirm-count>0 participants</strong>.</p><dl class="mt-5 divide-y divide-slate-100 rounded-xl border border-slate-200 px-4 text-[12px]"><div class="flex justify-between py-3"><dt class="text-slate-500">Total certificates</dt><dd class="font-semibold tabular-nums" data-confirm-total>0</dd></div><div class="flex justify-between py-3"><dt class="text-slate-500">Valid email addresses</dt><dd class="font-semibold tabular-nums" data-confirm-valid>{{ $validEmailCount }}</dd></div><div class="flex justify-between py-3"><dt class="text-slate-500">Already sent</dt><dd class="font-semibold tabular-nums">{{ $sentCount }}</dd></div><div class="flex justify-between py-3"><dt class="text-slate-500">Certificates skipped</dt><dd class="font-semibold tabular-nums" data-confirm-skipped>0</dd></div></dl><p class="mt-4 rounded-lg bg-amber-50/60 p-3 text-[11px] leading-5 text-slate-600">After confirmation, the certificate first enters the generation queue, then the email queue. This studio shows each stage until the email provider accepts it.</p><a class="mt-3 inline-block text-sm font-medium text-accent-700 underline" target="_blank" rel="noopener" href="{{ route('admin.certification.email-preview', $webinar) }}">Preview saved certificate email</a><div class="mt-6 flex justify-end gap-2"><button type="button" class="button-secondary" data-cancel-send>Cancel</button><button type="button" class="button-success" data-confirm-send><x-icon name="send" class="size-4" />Confirm &amp; queue</button></div></div></div>
+<div class="fixed inset-0 z-[100] hidden items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm" data-send-confirm hidden role="dialog" aria-modal="true" aria-labelledby="send-confirm-title"><div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"><div class="flex size-11 items-center justify-center rounded-full bg-amber-100 text-amber-900"><x-icon name="send" class="size-5" /></div><h2 class="mt-4 text-lg font-semibold" id="send-confirm-title">Send certificates?</h2><p class="mt-1 text-[13px] leading-5 text-slate-500">You are about to send certificates only to <strong class="text-slate-900" data-confirm-count>0 participants</strong>.</p><dl class="mt-5 divide-y divide-slate-100 rounded-xl border border-slate-200 px-4 text-[12px]"><div class="flex justify-between py-3"><dt class="text-slate-500">Total certificates</dt><dd class="font-semibold tabular-nums" data-confirm-total>0</dd></div><div class="flex justify-between py-3"><dt class="text-slate-500">Valid email addresses</dt><dd class="font-semibold tabular-nums" data-confirm-valid>{{ $validEmailCount }}</dd></div><div class="flex justify-between py-3"><dt class="text-slate-500">Already sent</dt><dd class="font-semibold tabular-nums">{{ $sentCount }}</dd></div><div class="flex justify-between py-3"><dt class="text-slate-500">Certificates skipped</dt><dd class="font-semibold tabular-nums" data-confirm-skipped>0</dd></div></dl><p class="mt-4 rounded-lg bg-amber-50/60 p-3 text-[11px] leading-5 text-slate-600">@if(app(\App\Services\LocalDelivery::class)->enabled())After confirmation, corrected recipients receive their saved corrected PDF. New recipients have their PDF generated first. Progress and individual results appear on this page; keep it open. Log mode captures email locally without sending.@else Certificate generation and email delivery run in the background. Check each stage here.@endif No non-eligible messages are sent by this action.</p><a class="mt-3 inline-block text-sm font-medium text-accent-700 underline" target="_blank" rel="noopener" href="{{ route('admin.certification.email-preview', $webinar) }}">Preview saved certificate email</a><div class="mt-6 flex justify-end gap-2"><button type="button" class="button-secondary" data-cancel-send>Cancel</button><button type="button" class="button-success" data-confirm-send><x-icon name="send" class="size-4" />Confirm &amp; send</button></div></div></div>
 <dialog class="response-dialog panel p-6" data-manual-recipient-dialog aria-labelledby="manual-recipient-title">
     <form method="POST" data-manual-recipient-form data-native-submit novalidate>
         @csrf
@@ -386,4 +388,7 @@
     </form>
 </dialog>
 
+@if(app(\App\Services\LocalDelivery::class)->enabled())
+    @include('admin.webinars.partials.certificate-send-progress')
+@endif
 @endsection

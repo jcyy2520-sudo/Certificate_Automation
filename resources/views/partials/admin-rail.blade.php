@@ -2,7 +2,7 @@
      workspace renders its own secondary sidebar to the right of this one. --}}
 <aside data-persist-key="primary-rail" class="rail sticky top-0 z-30 hidden h-screen shrink-0 flex-col overflow-hidden border-r border-slate-800/80 bg-slate-950 text-slate-300 lg:flex">
     <div class="flex h-[76px] shrink-0 items-center px-5">
-        <span class="rail-label truncate text-[14px] font-bold tracking-tight text-white">{{ config('app.name') }}</span>
+        <a href="{{ route('admin.dashboard') }}" aria-label="{{ config('branding.name') }} dashboard"><x-brand inverse label-class="rail-label" /></a>
     </div>
 
     <nav class="mt-2 flex flex-1 flex-col gap-1 px-3.5">

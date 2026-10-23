@@ -28,19 +28,24 @@
                 </div>
             </div>
             <form class="mt-4 grid max-w-sm gap-4 border-t border-slate-100 pt-4" method="POST" action="{{ route('admin.two-factor.recovery-codes') }}" data-confirm="Generate a new set? Your current recovery codes stop working.">@csrf
-                <label class="field-label">Current password<input class="field" type="password" name="password" required autocomplete="current-password"></label>
+                @if(config('security.require_sensitive_action_password_confirmation', true))<label class="field-label">Current password<input class="field" type="password" name="password" required autocomplete="current-password"></label>@endif
                 <x-current-factor />
                 <button class="button-secondary justify-self-start">Regenerate recovery codes</button>
             </form>
         </section>
 
         <section class="panel p-5">
+            @if($user->isAdministrator() && config('security.require_admin_two_factor', true))
             <h2 class="section-title">Replace your authenticator</h2>
-            <p class="mt-1 text-[13px] text-slate-500">Verify your password and existing authenticator or recovery code. Administrators must enroll a replacement before accessing the platform. If both your authenticator and recovery codes are lost, contact another administrator for a controlled recovery review; a password reset does not remove 2FA.</p>
-            <form class="mt-4 grid max-w-sm gap-4" method="POST" action="{{ route('admin.two-factor.disable') }}">@csrf @method('DELETE')
-                <label class="field-label">Current password<input class="field" type="password" name="password" required autocomplete="current-password"></label>
+            <p class="mt-1 text-[13px] text-slate-500">Verify {{ config('security.require_sensitive_action_password_confirmation', true) ? 'your password and existing' : 'your existing' }} authenticator or recovery code. Administrators must enroll a replacement before accessing the platform. If both your authenticator and recovery codes are lost, use controlled account recovery; a password reset does not remove 2FA.</p>
+            @else
+            <h2 class="section-title">Turn off MFA</h2>
+            <p class="mt-1 text-[13px] text-slate-500">You will sign in with your email and password. Confirm {{ config('security.require_sensitive_action_password_confirmation', true) ? 'your current password and a fresh' : 'a fresh' }} authenticator or unused recovery code. This removes the current enrollment and revokes trusted devices. You can set it up again later.</p>
+            @endif
+            <form class="mt-4 grid max-w-sm gap-4" method="POST" action="{{ route('admin.two-factor.disable') }}" data-confirm="Remove this account's authenticator and revoke its trusted devices?" data-confirm-action="{{ $user->isAdministrator() && config('security.require_admin_two_factor', true) ? 'Replace authenticator' : 'Turn off MFA' }}">@csrf @method('DELETE')
+                @if(config('security.require_sensitive_action_password_confirmation', true))<label class="field-label">Current password<input class="field" type="password" name="password" required autocomplete="current-password"></label>@endif
                 <x-current-factor />
-                <button class="button-danger justify-self-start">Remove authenticator and set up again</button>
+                <button class="button-danger justify-self-start">{{ $user->isAdministrator() && config('security.require_admin_two_factor', true) ? 'Remove authenticator and set up again' : 'Turn off MFA' }}</button>
             </form>
         </section>
 
@@ -51,7 +56,7 @@
             <ul class="mt-3 space-y-2 text-sm">@foreach($trustedDevices as $device)<li>Verified {{ $device->verified_at->diffForHumans() }}; last used {{ $device->last_used_at->diffForHumans() }}; expires {{ $device->expires_at->format('M j, Y') }}.</li>@endforeach</ul>
             @if($trustedDevices->isNotEmpty())
             <form method="POST" action="{{ route('admin.two-factor.devices.revoke') }}" class="mt-4 grid max-w-sm gap-4">@csrf @method('DELETE')
-                <label class="field-label">Current password<input class="field" type="password" name="password" required autocomplete="current-password"></label>
+                @if(config('security.require_sensitive_action_password_confirmation', true))<label class="field-label">Current password<input class="field" type="password" name="password" required autocomplete="current-password"></label>@endif
                 <x-current-factor />
                 <button class="button-secondary">Revoke all trusted devices</button>
             </form>
@@ -64,6 +69,10 @@
                 <h2 class="section-title">Set it up</h2>
                 <span class="badge badge-slate">off</span>
             </div>
+            @unless($user->isAdministrator() && config('security.require_admin_two_factor', true))
+            <p class="mt-3 text-sm text-slate-500">MFA is off. You can sign in with your email and password. Enrollment below is optional.</p>
+            <a class="button-secondary mt-4" href="{{ route('admin.dashboard') }}">Back to dashboard</a>
+            @endunless
 
             <div class="mt-5 grid gap-6 sm:grid-cols-[188px_minmax(0,1fr)] sm:items-start">
                 <div class="shrink-0">
@@ -84,9 +93,9 @@
                         <label class="field-label">Six-digit code
                             <input class="field w-40 text-center font-mono tracking-[0.3em]" name="code" inputmode="numeric" autocomplete="one-time-code" placeholder="000000" required>
                         </label>
-                        <label class="field-label">Current password
+                        @if(config('security.require_sensitive_action_password_confirmation', true))<label class="field-label">Current password
                             <input class="field" type="password" name="password" required autocomplete="current-password">
-                        </label>
+                        </label>@endif
                         <button class="button-primary justify-self-start">Enable</button>
                     </form>
                 </div>

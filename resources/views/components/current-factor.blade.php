@@ -1,3 +1,5 @@
+@if(auth()->user()?->two_factor_confirmed_at)
 <p class="text-sm text-slate-500">Use a new code for each action. A code you just used to sign in cannot be used again.</p>
 <label class="field-label">Authenticator code<input class="field" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="Six digits"></label>
 <details><summary class="cursor-pointer text-sm text-accent-600">Use a recovery code instead</summary><label class="field-label mt-3">Unused recovery code<input class="field font-mono" name="recovery_code" autocomplete="off" maxlength="11" placeholder="XXXXX-XXXXX"></label><p class="mt-2 text-xs text-slate-500">Leave the authenticator field empty. Recovery codes work once.</p></details>
+@endif

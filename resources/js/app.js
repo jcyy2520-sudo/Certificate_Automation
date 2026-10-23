@@ -12,6 +12,7 @@ import { initPageUsability } from './page-usability';
 import { initStudioRecipients } from './studio-recipients';
 import { initParticipantMessages } from './participant-messages';
 import { initParticipantEligibility } from './participant-eligibility';
+import { initCertificateSendProgress } from './certificate-send-progress';
 
 let pageController;
 function initializePage() {
@@ -21,6 +22,7 @@ function initializePage() {
     initAccountControls(signal);
     initCertificateTemplateEditor(document, signal);
     initCertificateEditor(document, signal);
+    initCertificateSendProgress(document, signal);
     initStudioRecipients(document, signal);
     initParticipantMessages(document, signal);
     initParticipantEligibility(document, signal);

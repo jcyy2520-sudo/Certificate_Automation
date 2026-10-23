@@ -83,7 +83,8 @@ test('unsaved edits, browser Back cancellation, duplicate-save guard and validat
 });
 
 test('all management screens fit narrow phones through wide desktop, with keyboard-safe drawers and immediate themes', async ({ page }) => {
-    test.setTimeout(180000);
+    // This scenario performs 220 full HTTP navigations across ten layouts.
+    test.setTimeout(300000);
     const errors = []; page.on('pageerror', error => errors.push(error.message));
     page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
     await login(page);

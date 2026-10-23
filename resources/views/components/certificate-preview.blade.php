@@ -23,17 +23,19 @@
     $bgH = (float) ($layout['bg_h'] ?? 0);
     $ratio = $bgW > 0 && $bgH > 0 ? $bgW.' / '.$bgH : '297 / 210';
     $displayName = filled($name) ? $name : 'Participant';
-    $nameWidthPercent = min(94, 2 * min($nameLeft, 100 - $nameLeft));
+    $nameWidthPercent = min((float) ($layout['name_max_width'] ?? 94), 2 * min($nameLeft, 100 - $nameLeft));
 @endphp
 {{-- container-type:size lets children size from the card's own height. --}}
-<div class="relative w-full overflow-hidden rounded-lg bg-white" style="aspect-ratio: {{ $ratio }}; container-type: size;" data-cert-canvas>
+<div class="relative w-full overflow-hidden rounded-lg bg-white" style="aspect-ratio: {{ $ratio }}; container-type: size;" data-cert-canvas
+     data-font-metrics="{{ json_encode(app(\App\Services\CertificateFonts::class)->browserMetrics()) }}"
+     data-name-max-width="{{ $layout['name_max_width'] ?? 94 }}" data-name-bottom="{{ $layout['name_bottom'] ?? 100 }}">
     @if($backgroundUrl)
         <img src="{{ $backgroundUrl }}" alt="" class="pointer-events-none absolute inset-0 h-full w-full object-contain">
         {{-- Top-anchored vertically and centred horizontally on the point, to
              match certificates/pdf-custom exactly (dompdf cannot transform). --}}
         <div data-cert-name
              data-name-top="{{ $nameTop }}" data-name-left="{{ $nameLeft }}"
-             style="position:absolute; left:{{ $nameLeft }}%; top:{{ $nameTop }}%; transform:translateX(-50%); width:{{ $nameWidthPercent }}%; text-align:{{ $align }}; white-space:nowrap; font-weight:{{ $weight }}; font-style:{{ $style }}; line-height:1; color:{{ $accent }}; font-family:{{ $fontCss }}; font-size: calc({{ $fontSize }} / 595 * 100cqh);">
+             style="position:absolute; left:{{ $nameLeft }}%; top:{{ $nameTop }}%; transform:translateX(-50%); width:{{ $nameWidthPercent }}%; text-align:{{ $align }}; white-space:nowrap; font-weight:{{ $weight }}; font-style:{{ $style }}; line-height:1; letter-spacing:0; font-kerning:none; font-variant-ligatures:none; color:{{ $accent }}; font-family:{{ $fontCss }}; font-size: calc({{ $fontSize }} / 595 * 100cqh);">
             {{ $displayName }}
         </div>
     @else

@@ -15,6 +15,7 @@ use App\Models\Webinar;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\MessageBag;
@@ -316,14 +317,11 @@ class CertificationManagementTest extends TestCase
         $this->assertSame('Wei Chen', $eligible->fresh()->full_name);
         $this->assertSame('Wei Chen', $certificate->recipient_name);
         $this->assertSame('issued', $certificate->status);
-        // Decision update (F-1): the certificate email now links to the
-        // participant status page for self-service. The link is still built
-        // from APP_URL at issue time and baked into delivered mail, so the
-        // deployment host remains a long-term commitment; the verification
-        // code stays in the email as text for support.
+        // The organizer requested a plain certificate message with only the
+        // saved copy and attachment; status/verification remain in the app.
         $html = (string) EmailDelivery::query()->where('certificate_id', $certificate->id)->sole()->payload['html'];
-        $this->assertStringContainsString($certificate->verification_code, $html);
-        $this->assertStringContainsString(route('forms.public.status', $registration->public_token), $html);
+        $this->assertStringNotContainsString($certificate->verification_code, $html);
+        $this->assertStringNotContainsString('href=', $html);
 
         EmailDelivery::query()->where('certificate_id', $certificate->id)->delete();
         $certificate->update(['sent_at' => null]);
@@ -1028,5 +1026,48 @@ class CertificationManagementTest extends TestCase
         $this->actingAs($this->administrator)
             ->post(route('admin.password.confirm.store'), ['password' => 'password'])
             ->assertRedirect(route('admin.dashboard'));
+    }
+
+    public function test_inline_studio_style_save_does_not_load_or_modify_the_recipient_roster(): void
+    {
+        Queue::fake();
+        Storage::fake('local');
+        $template = $this->uploadedTemplate();
+        $template->update(['layout' => $template->layout + ['bg_h' => 700, 'bg_w' => 1000]]);
+        for ($index = 0; $index < 200; $index++) {
+            $this->webinar->participants()->create(['full_name' => 'Synthetic Style Recipient '.$index,
+                'email' => 'style-'.$index.'@example.test', 'verified_at' => now()]);
+        }
+        $queries = [];
+        DB::listen(function ($query) use (&$queries): void {
+            $queries[] = $query->sql;
+        });
+        $response = $this->actingAs($this->administrator)->putJson(route('admin.certification.design', $this->webinar), [
+            'studio' => '1', 'name_top' => 0, 'name_left' => 42.567, 'name_font_size' => 55.55,
+            'name_font_family' => 'serif', 'accent' => '#ABCDEF', 'name_font_weight' => 'regular',
+            'name_font_style' => 'italic', 'name_text_align' => 'right',
+        ])->assertOk()->assertJsonPath('design.name_top', 0)->assertJsonPath('design.name_left', 42.57)
+            ->assertJsonPath('design.name_font_size', 55.6)->assertJsonPath('design.accent', '#abcdef');
+        $this->assertLessThan(1024, strlen($response->getContent()));
+        $this->assertEmpty(array_filter($queries, fn ($sql) => preg_match('/(?:from|update|into) ["`]?\b(participants|submissions|certificates)\b/i', $sql)));
+        $this->assertSame(200, $this->webinar->participants()->count());
+        $this->assertSame(700, (int) $template->fresh()->layout['bg_h']);
+        $this->assertDatabaseCount('certificates', 0);
+        $this->assertDatabaseCount('email_deliveries', 0);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'certificate_template.design_updated']);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_inline_style_validation_failure_preserves_the_saved_template(): void
+    {
+        Storage::fake('local');
+        $template = $this->uploadedTemplate();
+        $before = $template->layout;
+        $this->actingAs($this->administrator)->putJson(route('admin.certification.design', $this->webinar), [
+            'studio' => '1', 'name_top' => 30, 'name_left' => 40, 'name_font_size' => 999,
+            'name_font_family' => 'serif', 'accent' => '#123456',
+        ])->assertUnprocessable()->assertJsonValidationErrors('name_font_size');
+        $this->assertSame($before, $template->fresh()->layout);
+        $this->assertDatabaseCount('email_deliveries', 0);
     }
 }

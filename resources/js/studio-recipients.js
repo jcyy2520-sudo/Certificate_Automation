@@ -89,7 +89,7 @@ export function initStudioRecipients(root = document, signal) {
             if (bulk) {
                 const count = Number(next.querySelector('[data-bulk-ready-count]')?.textContent || 0);
                 bulk.classList.toggle('sm:inline-flex', count > 0);
-                bulk.dataset.confirm = `Queue certificate generation and email delivery for every ready recipient (${count} total)? The saved template style is used. Held import rows must be resolved before bulk sending.`;
+                bulk.dataset.confirm = `Send certificates to every ready recipient (${count} total)? The saved template style is used. Held import rows must be resolved before bulk sending.`;
             }
             const total = next.querySelector('[data-recipient-working-total]');
             if (total && $('[data-recipient-working-total]')) $('[data-recipient-working-total]').textContent = total.textContent;
@@ -172,9 +172,10 @@ export function initStudioRecipients(root = document, signal) {
         clearTimeout(timer); if (event?.isComposing) return;
         listUrl.searchParams.delete('page'); timer = setTimeout(() => refresh(), 300);
     }
+    root.addEventListener('studio:send-finished', () => { if (!busy) void refresh(); }, { signal });
     search?.addEventListener('input', filter); search?.addEventListener('compositionend', filter); source?.addEventListener('change', filter);
     function schedule() { poll = setTimeout(async () => {
-        if (!document.hidden && !dialog.open && !busy && !root.querySelector('[data-send-confirm]:not([hidden]), [data-name-correction-modal]:not([hidden]), [data-confirm-modal]:not([hidden])')) await refresh();
+        if (!document.hidden && !dialog.open && !busy && !studio.dataset.sending && !root.querySelector('[data-send-confirm]:not([hidden]), [data-name-correction-modal]:not([hidden]), [data-confirm-modal]:not([hidden])')) await refresh();
         if (!signal?.aborted) schedule();
     }, 30000); }
     schedule();

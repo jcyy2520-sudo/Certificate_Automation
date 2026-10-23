@@ -2,7 +2,7 @@
     <button type="button" class="mobile-header-button" data-mobile-rail-toggle aria-expanded="false" aria-controls="mobile-primary-navigation" aria-label="Open navigation">
         <x-icon name="menu" class="size-5" />
     </button>
-    <a href="{{ route('admin.dashboard') }}" class="min-w-0 truncate text-[14px] font-bold tracking-tight text-slate-900 dark:text-white">{{ config('app.name') }}</a>
+    <a href="{{ route('admin.dashboard') }}" class="min-w-0" aria-label="{{ config('branding.name') }} dashboard"><x-brand /></a>
     <button type="button" class="mobile-header-button" data-theme-toggle aria-label="Toggle theme">
         <x-icon name="sun" class="hidden size-5 text-amber-500 dark:block" />
         <x-icon name="moon" class="block size-5 dark:hidden" />
@@ -12,7 +12,7 @@
 <div class="mobile-nav-overlay lg:hidden" data-mobile-rail-overlay aria-hidden="true"></div>
 <aside id="mobile-primary-navigation" class="mobile-nav-drawer lg:hidden" data-mobile-rail-drawer aria-label="Primary navigation" aria-hidden="true" inert>
     <div class="flex h-[68px] shrink-0 items-center justify-between border-b border-slate-800 px-5">
-        <span class="text-[14px] font-bold tracking-tight text-white">{{ config('app.name') }}</span>
+        <x-brand inverse />
         <button type="button" class="mobile-header-button text-slate-300 hover:bg-slate-800 hover:text-white" data-mobile-rail-close aria-label="Close navigation">
             <x-icon name="x" class="size-5" />
         </button>

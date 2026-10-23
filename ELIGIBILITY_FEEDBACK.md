@@ -21,9 +21,11 @@ as decisions rather than fabricated completion evidence.
 Personal links carry 256-bit random secrets in fragments, store only keyed
 digests, require a CSRF POST, expire and are single-use. Status sessions are
 participant/webinar/email/version-bound and expire. Revoke personal status access
-invalidates both issued links and current sessions. Certificate emails include a
-personal status link; a fresh link can be requested through the existing entry
-page. Access also stops at archival, deletion or the privacy retention deadline.
+invalidates both issued links and current sessions. Certificate emails contain
+the organizer's configured message and the PDF attachment, without a status link
+or extra verification text. A fresh personal link can still be requested through
+the existing entry page. Access also stops at archival, deletion or the privacy
+retention deadline.
 
 ## Reviews and final decisions
 
@@ -62,10 +64,22 @@ confirmed by the operator. No background eligibility email is triggered by a
 request, correction or final decision. Existing pending notifications are skipped;
 previous notifications require an intentional resend and uncertain provider
 outcomes require reconciliation. Durable submission UUID/digest claims prevent
-repeat-submit duplicates. The existing email queue, budget, retries, encrypted
-outbox and logs are reused. Stale evidence, expired/revoked access or revoked
-sender permissions cancel work before transport. Eligible recipients with a
-generated/processing certificate are skipped to avoid an unnecessary extra email.
+repeat-submit duplicates. The existing budget, encrypted outbox, duplicate guards and logs are reused.
+On localhost, certificate generation, certificate sends, eligible plain messages
+and non-eligible notices execute immediately after explicit confirmation. No
+background job or automatic retry is queued for these actions; failures are
+recorded and require an explicit retry. Account/access emails keep their existing
+workflow. Hosted processing is unchanged by this local-only source change. Stale evidence, expired/revoked access or revoked
+sender permissions cancel work before transport. Eligible and authorized manual certificate recipients are rejected by the
+non-eligible action, including mixed selections, before any selected notice is
+committed. The worker also cancels a pending notice after a new manual exception.
+The separate eligible-message composer remains restricted to eligible people.
+
+Every non-eligible email embeds its own unmet requirements, configured score
+thresholds, available recorded scores, held/missing-record explanations and any
+final organizer reason. It includes no links, access tokens or attachments.
+The individual admin record previews the same message partial before sending.
+Incomplete/Under Review remains distinct from finalized Not Eligible.
 
 The configured certificate transport also handles eligibility/status-link email.
 General participant-message transport remains independent. Log captures are never

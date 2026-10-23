@@ -169,7 +169,8 @@ class InvitationsAndAuditTest extends TestCase
         $manager = $this->invite();
         $this->activate($manager);
         $unrelated = Webinar::query()->create(['title' => 'Unrelated confidential event', 'slug' => Str::uuid(), 'created_by' => $this->admin->id]);
-        $this->actingAs($manager->fresh())->get(route('admin.webinars.index'))->assertSee('Assigned event')->assertDontSee('Unrelated confidential event')->assertDontSee('New webinar');
+        $this->post(route('login.store'), ['email' => $manager->email, 'password' => 'Personal groupmate passphrase!'])->assertRedirect(route('admin.dashboard'));
+        $this->get(route('admin.webinars.index'))->assertSee('Assigned event')->assertDontSee('Unrelated confidential event')->assertDontSee('New webinar');
         $this->get(route('admin.webinars.show', $this->webinar))->assertOk();
         foreach (['admin.webinars.show', 'admin.webinars.reports', 'admin.webinars.documents.index', 'admin.webinars.messages.index', 'admin.certificates.studio'] as $route) {
             $this->get(route($route, $unrelated))->assertNotFound();
@@ -190,7 +191,8 @@ class InvitationsAndAuditTest extends TestCase
         $this->activate($manager);
         $this->webinar->participants()->create(['full_name' => 'Sensitive participant name', 'email' => 'private-participant@example.test']);
         $manager->assignedWebinars()->updateExistingPivot($this->webinar->id, ['manage_participants' => false, 'manage_certificates' => false, 'send_emails' => false]);
-        $this->actingAs($manager->fresh())->get(route('admin.webinars.show', $this->webinar))->assertOk()->assertDontSee('Sensitive participant name')->assertDontSee('private-participant@example.test')->assertDontSee('Form Responses')->assertDontSee('Certificate Studio');
+        $this->post(route('login.store'), ['email' => $manager->email, 'password' => 'Personal groupmate passphrase!'])->assertRedirect(route('admin.dashboard'));
+        $this->get(route('admin.webinars.show', $this->webinar))->assertOk()->assertDontSee('Sensitive participant name')->assertDontSee('private-participant@example.test')->assertDontSee('Form Responses')->assertDontSee('Certificate Studio');
         foreach (['admin.responses.index', 'admin.participants.export', 'admin.webinars.email-logs.index', 'admin.webinars.documents.index', 'admin.certification.edit', 'admin.webinars.messages.index'] as $route) {
             $this->get(route($route, $this->webinar))->assertForbidden();
         }

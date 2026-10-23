@@ -15,6 +15,8 @@ use App\Models\Submission;
 use App\Models\User;
 use App\Models\Webinar;
 use App\Services\EligibilityService;
+use App\Services\Email\ProviderRateLimitException;
+use App\Services\EmailOutboxRelay;
 use App\Services\ParticipantEligibilityService;
 use App\Services\ParticipantPrivacyService;
 use App\Services\ParticipantStatusLinkService;
@@ -301,7 +303,9 @@ class ParticipantEligibilityFeedbackTest extends TestCase
         $this->assertSame([], $delivery->payload['attachments']);
         $this->assertStringContainsString('Incomplete / Under Review', $delivery->payload['html']);
         $this->assertStringNotContainsString('Not Eligible', $delivery->payload['html']);
-        $this->assertStringContainsString('#token=', $delivery->payload['html']);
+        $this->assertStringNotContainsString('#token=', $delivery->payload['html']);
+        $this->assertStringNotContainsString('href=', $delivery->payload['html']);
+        $this->assertDatabaseCount('participant_access_tokens', 0);
         $this->assertSame($this->admin->id, (int) $delivery->initiated_by);
         Queue::assertPushed(SendTransactionalEmail::class, 1);
         $this->assertDatabaseCount('certificates', 0);
@@ -348,7 +352,7 @@ class ParticipantEligibilityFeedbackTest extends TestCase
         $template = $this->webinar->certificateTemplates()->create(['name' => 'Synthetic template', 'is_active' => true, 'layout' => []]);
         Certificate::query()->create(['webinar_id' => $this->webinar->id, 'participant_id' => $this->participant->id, 'certificate_template_id' => $template->id,
             'verification_code' => 'TEST-CERTIFICATE-001', 'status' => 'issued', 'issued_at' => now()]);
-        $this->notify()->assertSessionHasNoErrors();
+        $this->notify()->assertSessionHasErrors('participants');
         $this->assertDatabaseCount('email_deliveries', 0);
     }
 
@@ -480,5 +484,102 @@ class ParticipantEligibilityFeedbackTest extends TestCase
         $response->assertRedirect(route('admin.webinars.eligibility.index', $this->webinar));
         $this->assertStringNotContainsString($this->participant->email, $response->headers->get('Location'));
         $this->get(route('admin.webinars.eligibility.index', $this->webinar))->assertOk()->assertViewHas('participants', fn ($rows) => $rows->total() === 1 && ! str_contains($rows->url(2), $this->participant->email));
+    }
+
+    public function test_each_message_explains_only_its_own_unmet_requirements_without_links(): void
+    {
+        $this->submit('pretest');
+        $this->submit('posttest', 3);
+        $other = $this->webinar->participants()->create(['email' => 'other@example.test', 'full_name' => 'Another Recipient', 'verified_at' => now()]);
+        $this->forms['posttest']->submissions()->create(['participant_id' => $other->id, 'status' => 'submitted', 'submitted_at' => now(), 'score' => 9, 'maximum_score' => 10]);
+        $this->notify(['participants' => [$this->participant->public_id, $other->public_id]])->assertSessionHasNoErrors();
+        $html = EmailDelivery::where('participant_id', $this->participant->id)->sole()->payload['html'];
+        $otherHtml = EmailDelivery::where('participant_id', $other->id)->sole()->payload['html'];
+        $this->assertStringContainsString('Post-Test', $html);
+        $this->assertStringContainsString('Required minimum score: 7', $html);
+        $this->assertStringContainsString('Recorded score(s): 3', $html);
+        $this->assertStringNotContainsString('Pre-Test', $html);
+        $this->assertStringNotContainsString($other->full_name, $html);
+        $this->assertStringContainsString('Pre-Test', $otherHtml);
+        $this->assertStringContainsString('No verified record is currently matched', $otherHtml);
+        $this->assertStringNotContainsString('Post-Test', $otherHtml);
+        foreach ([$html, $otherHtml] as $body) {
+            $this->assertStringNotContainsString('href=', $body);
+            $this->assertStringNotContainsString('http://', $body);
+            $this->assertStringNotContainsString('https://', $body);
+        }
+        $this->get(route('admin.webinars.eligibility.show', [$this->webinar, $this->participant]))
+            ->assertOk()->assertSee("Preview this participant's message", false)->assertSee('Recorded score(s): 3');
+    }
+
+    public function test_mixed_audiences_roll_back_every_notification_before_transport(): void
+    {
+        $eligible = $this->webinar->participants()->create(['email' => 'eligible@example.test', 'full_name' => 'Eligible Person', 'verified_at' => now()]);
+        foreach (['pretest', 'posttest'] as $type) {
+            $this->forms[$type]->submissions()->create(['participant_id' => $eligible->id, 'status' => 'submitted', 'submitted_at' => now(), 'score' => 9, 'maximum_score' => 10]);
+        }
+        $this->notify(['participants' => [$this->participant->public_id, $eligible->public_id]])->assertSessionHasErrors('participants');
+        $this->assertDatabaseCount('email_deliveries', 0);
+        $this->assertDatabaseCount('participant_message_batches', 0);
+        Queue::assertNothingPushed();
+        $this->get(route('admin.webinars.eligibility.index', $this->webinar))->assertOk()
+            ->assertDontSee('aria-label="Select Eligible Person"', false)->assertSee('Send non-eligible messages');
+    }
+
+    public function test_a_new_manual_certificate_exception_cancels_an_older_noneligible_notice(): void
+    {
+        $this->notify()->assertSessionHasNoErrors();
+        $delivery = EmailDelivery::sole();
+        $this->participant->certificateApproval()->create(['webinar_id' => $this->webinar->id, 'approved_by' => $this->admin->id,
+            'approved_at' => now(), 'source' => 'manual', 'eligibility_snapshot' => []]);
+        $mailer = \Mockery::mock(TransactionalMailer::class)->shouldNotReceive('send')->getMock();
+        (new SendTransactionalEmail($delivery->id))->handle($mailer);
+        $this->assertSame('cancelled', $delivery->fresh()->status);
+        $this->notify(['resend' => '1'])->assertSessionHasErrors('participants');
+    }
+
+    public function test_local_notice_processes_only_the_new_selection_and_does_not_drain_old_mail(): void
+    {
+        $this->notify()->assertSessionHasNoErrors();
+        $old = EmailDelivery::sole();
+        $other = $this->webinar->participants()->create(['email' => 'new-only@example.test', 'full_name' => 'New Selected Recipient']);
+        config(['operations.local_immediate_delivery' => true]);
+        $mailer = \Mockery::mock(TransactionalMailer::class);
+        $mailer->shouldReceive('send')->once()->withArgs(fn ($email, $subject, $html, $attachments) => $email === $other->email && $attachments === [])->andReturn('mock-acceptance');
+        $this->app->instance(TransactionalMailer::class, $mailer);
+        $this->notify(['participants' => [$other->public_id]])->assertSessionHasNoErrors();
+        $this->assertSame('pending', $old->fresh()->status);
+        $this->assertSame(0, $old->fresh()->attempts);
+        $this->assertDatabaseHas('email_deliveries', ['participant_id' => $other->id, 'status' => 'sent']);
+        $this->assertDatabaseCount('certificates', 0);
+    }
+
+    public function test_local_rate_limit_reports_failure_without_queuing_an_automatic_retry(): void
+    {
+        config(['operations.local_immediate_delivery' => true]);
+        $mailer = \Mockery::mock(TransactionalMailer::class);
+        $mailer->shouldReceive('send')->once()->andThrow(new ProviderRateLimitException(60));
+        $this->app->instance(TransactionalMailer::class, $mailer);
+        $this->notify()->assertSessionHasNoErrors();
+        $delivery = EmailDelivery::sole();
+        $this->assertSame('failed', $delivery->status);
+        $this->assertSame(1, $delivery->attempts);
+        $this->assertNotNull($delivery->failed_at);
+        $this->assertSame($this->participant->email, $delivery->recipient_email);
+        $this->assertNotNull($delivery->idempotency_key);
+        Queue::assertNothingPushed();
+        $this->notify()->assertSessionHasNoErrors();
+        $this->assertDatabaseCount('email_deliveries', 1);
+    }
+
+    public function test_interrupted_immediate_delivery_cannot_be_relayed_into_a_background_queue(): void
+    {
+        $this->notify()->assertSessionHasNoErrors();
+        $delivery = EmailDelivery::sole();
+        $delivery->update(['payload' => array_replace($delivery->payload, ['delivery_mode' => 'immediate'])]);
+        $result = app(EmailOutboxRelay::class)->relay(50, 60);
+        $this->assertSame(0, $result['dispatched']);
+        Queue::assertPushed(SendTransactionalEmail::class, 1);
+        $this->assertSame('pending', $delivery->fresh()->status);
     }
 }

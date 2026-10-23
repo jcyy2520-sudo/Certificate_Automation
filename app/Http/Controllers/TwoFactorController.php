@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Middleware\EnsureApprovedAccount;
 use App\Models\AdminTrustedDevice;
 use App\Models\User;
 use App\Services\AdminDeviceService;
 use App\Services\AuditService;
 use App\Services\SensitiveAccountVerification;
 use App\Services\TwoFactorService;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -15,6 +17,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use JsonException;
@@ -89,7 +92,8 @@ class TwoFactorController extends Controller
         try {
             $request->validate([
                 'code' => ['required', 'string', 'regex:/^\d{6}$/'],
-                'password' => ['required', 'string', 'max:1024', 'current_password'],
+                'password' => config('security.require_sensitive_action_password_confirmation', true)
+                    ? ['required', 'string', 'max:1024', 'current_password'] : ['exclude'],
             ]);
         } catch (ValidationException $exception) {
             $request->request->remove('code');
@@ -113,7 +117,9 @@ class TwoFactorController extends Controller
         $user = DB::transaction(function () use ($request, $secret, $matchedStep, $codes) {
             $locked = User::query()->lockForUpdate()->findOrFail($request->user()->id);
             abort_if($locked->two_factor_confirmed_at, 409, 'An authenticator is already enrolled.');
-            if (! Hash::check($request->string('password')->toString(), $locked->password)) {
+            if (! $locked->canAccessPlatform() || (int) $request->session()->get(EnsureApprovedAccount::SESSION_VERSION, 1) !== $locked->auth_version
+                || (config('security.require_sensitive_action_password_confirmation', true)
+                    && ! Hash::check($request->string('password')->toString(), $locked->password))) {
                 throw ValidationException::withMessages(['password' => 'Your credentials changed. Sign in again.']);
             }
             $locked->forceFill([
@@ -121,16 +127,18 @@ class TwoFactorController extends Controller
                 'two_factor_recovery_codes' => $this->twoFactor->hashRecoveryCodes($codes),
                 'two_factor_confirmed_at' => now(),
                 'two_factor_last_used_step' => $matchedStep,
+                'auth_version' => $locked->auth_version + 1,
+                'remember_token' => Str::random(60),
             ])->save();
+            app(AdminDeviceService::class)->revokeAll($locked);
 
             return $locked;
         });
 
         // Newly enabled MFA must protect immediately, including against older
         // authenticated sessions and remember-me cookies on other devices.
-        Auth::logoutOtherDevices($request->string('password')->toString());
-        $request->session()->regenerate();
-        app(AdminDeviceService::class)->acceptSession($request, $user->fresh());
+        $user = $this->refreshSession($request, $user);
+        app(AdminDeviceService::class)->acceptSession($request, $user);
         $this->clearPendingSetup($request);
         $audit->record($request, 'administrator.two_factor_enabled', $user);
 
@@ -144,15 +152,17 @@ class TwoFactorController extends Controller
         $user = $request->user();
         abort_unless($user->two_factor_confirmed_at, 403);
         $codes = $this->twoFactor->generateRecoveryCodes();
-        DB::transaction(function () use ($request, $codes): void {
+        $user = DB::transaction(function () use ($request, $codes): User {
             $locked = User::query()->lockForUpdate()->findOrFail($request->user()->id);
             app(SensitiveAccountVerification::class)->verify($request, $locked);
-            $locked->forceFill(['two_factor_recovery_codes' => $this->twoFactor->hashRecoveryCodes($codes)])->save();
+            $locked->refresh()->forceFill(['two_factor_recovery_codes' => $this->twoFactor->hashRecoveryCodes($codes),
+                'auth_version' => $locked->auth_version + 1, 'remember_token' => Str::random(60)])->save();
             app(AdminDeviceService::class)->revokeAll($locked);
+
+            return $locked;
         });
-        Auth::logoutOtherDevices($request->string('password')->toString());
-        $request->session()->regenerate();
-        app(AdminDeviceService::class)->acceptSession($request, $user->fresh());
+        $user = $this->refreshSession($request, $user);
+        app(AdminDeviceService::class)->acceptSession($request, $user);
         $audit->record($request, 'administrator.two_factor_recovery_codes_regenerated', $user);
 
         return redirect()->route('admin.two-factor.show')
@@ -162,25 +172,33 @@ class TwoFactorController extends Controller
 
     public function disable(Request $request, AuditService $audit): RedirectResponse
     {
-        $user = $request->user();
-        DB::transaction(function () use ($request): void {
+        $user = DB::transaction(function () use ($request, $audit): User {
             $user = User::query()->lockForUpdate()->findOrFail($request->user()->id);
             app(SensitiveAccountVerification::class)->verify($request, $user);
+            // Factor verification updates a separately locked model instance.
+            $user->refresh();
             $user->forceFill([
                 'two_factor_secret' => null,
                 'two_factor_recovery_codes' => null,
                 'two_factor_confirmed_at' => null,
                 'two_factor_last_used_step' => null,
+                'auth_version' => $user->auth_version + 1,
+                'remember_token' => Str::random(60),
             ])->save();
             app(AdminDeviceService::class)->revokeAll($user);
+            $audit->record($request, 'administrator.two_factor_disabled', $user, [], $user);
+
+            return $user;
         });
-        Auth::logoutOtherDevices($request->string('password')->toString());
-        $request->session()->regenerate();
+        $user = $this->refreshSession($request, $user);
+        app(AdminDeviceService::class)->acceptSession($request, $user);
         $this->clearPendingSetup($request);
         $request->session()->forget(self::RECOVERY_CODES);
-        $audit->record($request, 'administrator.two_factor_disabled', $user);
+        $message = $user->isAdministrator() && config('security.require_admin_two_factor', true)
+            ? 'Authenticator removed. Set up your replacement authenticator now; administrators must enroll before accessing the platform.'
+            : 'Two-factor authentication is off. Sign in with your email and password. You can turn it back on in Security.';
 
-        return redirect()->route('admin.two-factor.show')->with('success', 'Authenticator removed. Set up your replacement authenticator now; administrators must enroll before accessing the platform.');
+        return redirect()->route('admin.two-factor.show')->with('success', $message);
     }
 
     public function revokeDevices(Request $request, AuditService $audit): RedirectResponse
@@ -193,6 +211,27 @@ class TwoFactorController extends Controller
         $audit->record($request, 'administrator.trusted_devices_revoked', $request->user());
 
         return back()->with('success', 'All trusted devices revoked. Future sign-ins require your authenticator.');
+    }
+
+    /** Keep this verified session while auth_version revokes other sessions. */
+    private function refreshSession(Request $request, User $user): User
+    {
+        $verifiedVersion = $user->auth_version;
+        $user = $user->fresh();
+        if (! $user?->canAccessPlatform() || $user->auth_version !== $verifiedVersion) {
+            Auth::logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+
+            throw new AuthenticationException('Your credentials changed. Sign in again.', [Auth::getDefaultDriver()], route('login'));
+        }
+        // The mutation already rotated auth_version and remember credentials.
+        // Never adopt a later reset or rehash another request's password here.
+        Auth::setUser($user);
+        $request->session()->regenerate();
+        $request->session()->put(EnsureApprovedAccount::SESSION_VERSION, $verifiedVersion);
+
+        return $user;
     }
 
     private function pendingSecret(Request $request): ?string

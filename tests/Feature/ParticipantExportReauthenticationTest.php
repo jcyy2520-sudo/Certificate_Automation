@@ -56,9 +56,6 @@ class ParticipantExportReauthenticationTest extends TestCase
             'admin.participants.override',
             'admin.participants.override.destroy',
             'admin.participants.destroy',
-            'admin.certificates.batch',
-            'admin.certificates.store',
-            'admin.certificates.download',
             'admin.certificates.revoke',
         ];
 
@@ -72,7 +69,7 @@ class ParticipantExportReauthenticationTest extends TestCase
             );
         }
 
-        foreach (['admin.participants.attendance', 'admin.certification.design'] as $name) {
+        foreach (['admin.participants.attendance', 'admin.certification.design', 'admin.certification.email-test', 'admin.certificates.issue-selected', 'admin.certificates.batch', 'admin.certificates.store', 'admin.certificates.resend', 'admin.certificates.send-plan', 'admin.certificates.send-step', 'admin.certificates.download', 'admin.webinars.certificates.export-zip'] as $name) {
             $route = app('router')->getRoutes()->getByName($name);
             $this->assertNotNull($route, "Missing deliberately ungated route {$name}.");
             $this->assertNotContains(

@@ -1,5 +1,13 @@
 # Production readiness review — final verification, 22 October 2026
 
+> **23 October continuation:** This document below is historical. Current source,
+> exact-file accuracy, hosted MFA/password-policy exceptions, Brevo IP repair and
+> Certimate branding are recorded in [READINESS_2026_10_23.md](READINESS_2026_10_23.md).
+> Render has since deployed ea94bc4 with 43 migrations; the newer working-tree
+> fixes are under final verification. The owner now requires a clean hosted
+> launch containing only the original administrator and no transferred/local
+> business data. Do not use older deployment/schema counts as current evidence.
+
 **Current decision: NO-GO for real-recipient production release. Development and
 isolated verification are complete; real-data reconciliation/ownership approval,
 the new hosted runtime and actual email delivery remain release gates. Nothing

@@ -33,7 +33,7 @@ class UserManagementController extends Controller
             default => $query->where('approval_status', $status),
         };
         $users = $query->withCount('webinars')->with('assignedWebinars:id,title')->latest('id')->paginate(20)->withQueryString();
-        $deliveries = EmailDelivery::query()->select(['id', 'account_user_id', 'status', 'last_error', 'type', 'provider', 'expires_at'])
+        $deliveries = EmailDelivery::query()->select(['id', 'account_user_id', 'status', 'last_error', 'type', 'provider', 'expires_at', 'attempts', 'scheduled_at', 'created_at', 'sent_at', 'delivery_outcome'])
             ->whereIn('id', EmailDelivery::query()->selectRaw('max(id)')->whereIn('account_user_id', $users->pluck('id'))->groupBy('account_user_id'))
             ->get()->keyBy('account_user_id');
         $counts = [

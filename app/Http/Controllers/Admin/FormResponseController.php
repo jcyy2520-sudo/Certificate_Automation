@@ -90,7 +90,8 @@ class FormResponseController extends Controller
         $columns = $responses->columns($submission->form);
         $columns = array_replace($columns, $submission->metadata['response_schema'] ?? [], $submission->imported_data['schema'] ?? []);
 
-        return view('admin.responses.show', ['webinar' => $webinar, 'submission' => $submission, 'columns' => $columns, 'values' => $responses->values($submission, $columns)]);
+        return view('admin.responses.show', ['webinar' => $webinar, 'submission' => $submission, 'columns' => $columns,
+            'values' => $responses->displayValues($submission, $columns), 'sourceIdentity' => $responses->sourceIdentity($submission)]);
     }
 
     public function export(Request $request, Webinar $webinar, FormResponseService $responses, AuditService $audit)
@@ -105,9 +106,10 @@ class FormResponseController extends Controller
             fwrite($out, "\xEF\xBB\xBF");
             fputcsv($out, array_map(CsvSanitizer::safeCell(...), ['Name', 'Email', 'Submitted at (UTC)', 'Source', 'Status', 'Score', ...array_column($columns, 'label'), 'Original imported cells (JSON)']));
             foreach ($responses->query($form, $filters)->with(['participant', 'answers'])->lazy(200) as $row) {
-                $values = $responses->values($row, $columns);
+                $values = $responses->displayValues($row, $columns);
+                $identity = $responses->sourceIdentity($row);
                 fputcsv($out, array_map(CsvSanitizer::safeCell(...), [
-                    $row->participant->full_name, $row->participant->email, $row->submitted_at?->toIso8601String(),
+                    $identity['name'], $identity['email'], $row->submitted_at?->toIso8601String(),
                     ($row->metadata['source'] ?? '') === 'csv_import' ? 'Imported' : 'Native', $row->status, $row->score,
                     ...array_map(fn ($key) => implode(', ', $values[$key] ?? []), array_keys($columns)),
                     $row->imported_data ? json_encode($row->imported_data['original'] ?? [], JSON_UNESCAPED_UNICODE) : '',

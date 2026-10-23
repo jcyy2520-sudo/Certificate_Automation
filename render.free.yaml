@@ -50,9 +50,9 @@ services:
       - key: SESSION_SAME_SITE
         value: strict
       - key: SECURITY_REQUIRE_ADMIN_TWO_FACTOR
-        value: "true"
+        value: "false"
       - key: SECURITY_REQUIRE_SENSITIVE_ACTION_PASSWORD_CONFIRMATION
-        value: "true"
+        value: "false"
       - key: SECURITY_ALLOW_ADMIN_REMEMBER_ME
         value: "false"
       - key: QUEUE_CONNECTION
@@ -80,7 +80,9 @@ services:
       - key: TRANSACTIONAL_EMAIL_PROVIDER
         value: log
       - key: MAIL_FROM_ADDRESS
-        value: setup@example.invalid
+        value: webinarplatformcommunication@gmail.com
+      - key: MAIL_FROM_NAME
+        value: Webinar Platform Communication
       - key: RUN_WORKERS
         value: "true"
       # Only for the expressly authorized fresh, empty deployment database.

@@ -30,7 +30,7 @@ final class ResponseFileReader
         if ($extension !== 'xlsx') {
             throw new RuntimeException('Upload a UTF-8 CSV or Excel .xlsx response file.');
         }
-        $this->inspectArchive($file->getRealPath());
+        $numericCells = $this->inspectArchive($file->getRealPath());
         $options = new Options;
         $options->SHOULD_PRESERVE_EMPTY_ROWS = true;
         $reader = new Reader($options);
@@ -42,7 +42,7 @@ final class ResponseFileReader
             foreach ($reader->getSheetIterator() as $sheet) {
                 $rows = 0;
                 $width = 0;
-                foreach ($sheet->getRowIterator() as $row) {
+                foreach ($sheet->getRowIterator() as $rowNumber => $row) {
                     $values = $row->toArray();
                     if (count($values) > self::MAX_COLUMNS || ++$rows > CsvImportService::MAX_ROWS + 1
                         || ($cellsRead += count($values)) > self::MAX_CELLS) {
@@ -56,7 +56,7 @@ final class ResponseFileReader
                     }
                     // XLSX omits trailing empty cells; retain their header positions.
                     $values = array_pad($values, $width, '');
-                    $values = array_map(function ($value): string {
+                    $values = array_map(function ($value, $index) use ($numericCells, $sheet, $rowNumber): string {
                         if ($value instanceof DateTimeInterface) {
                             // Excel dates are local wall times, not UTC instants.
                             return $value->format('Y-m-d H:i:s');
@@ -64,13 +64,16 @@ final class ResponseFileReader
                         if (! is_scalar($value) && $value !== null) {
                             throw new RuntimeException('The workbook contains an unsupported cell value. Export the response sheet as CSV.');
                         }
-                        $text = is_bool($value) ? ($value ? 'TRUE' : 'FALSE') : (string) $value;
+                        $numeric = $numericCells[$sheet->getName()][$rowNumber][$index] ?? null;
+                        $text = $numeric !== null && is_numeric($value)
+                            ? app(XlsxNumberFormats::class)->display($numeric)
+                            : (is_bool($value) ? ($value ? 'TRUE' : 'FALSE') : (string) $value);
                         if (strlen($text) > self::MAX_TEXT || str_contains($text, "\0")) {
                             throw new RuntimeException('A cell exceeds 32 KB or contains invalid text.');
                         }
 
                         return $text;
-                    }, $values);
+                    }, $values, array_keys($values));
                     // Formula cells remain literal formulas. Never calculate or trust cached results.
                     fputcsv($out, $values, ',', '"', '');
                     if (ftell($out) > 16 * 1024 * 1024) {
@@ -91,7 +94,7 @@ final class ResponseFileReader
         }
     }
 
-    private function inspectArchive(string $path): void
+    private function inspectArchive(string $path): array
     {
         $zip = new ZipArchive;
         if ($zip->open($path) !== true) {
@@ -120,6 +123,8 @@ final class ResponseFileReader
                     }
                 }
             }
+
+            return app(XlsxNumberFormats::class)->cells($zip);
         } finally {
             $zip->close();
         }

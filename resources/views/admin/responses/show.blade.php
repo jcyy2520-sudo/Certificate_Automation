@@ -3,7 +3,8 @@
 @section('content')
 <x-page-header title="Inspect submission" :subtitle="$submission->form->title"><x-slot:actions><a class="button-secondary" href="{{ route('admin.responses.index', [$webinar, 'type' => $submission->form->type]) }}">Back to responses</a></x-slot:actions></x-page-header>
 <section class="panel max-w-4xl p-5">
-    <h2 class="section-title">{{ $submission->participant->full_name }}</h2><p class="mt-2 text-sm">{{ $submission->participant->email }}</p>
+    <h2 class="section-title whitespace-pre-wrap">{{ $sourceIdentity['name'] }}</h2><p class="mt-2 whitespace-pre-wrap text-sm">{{ $sourceIdentity['email'] }}</p>
+    @if($sourceIdentity['name'] !== $submission->participant->full_name || $sourceIdentity['email'] !== $submission->participant->email)<p class="mt-2 text-sm text-slate-500">Source spelling shown. The participant history shows the registered identity used for matching and certificates.</p>@endif
     <p class="mt-2 text-sm text-slate-500">{{ $submission->submitted_at?->timezone($webinar->timezone)->format('M j, Y H:i:s') }} · {{ ($submission->metadata['source'] ?? '') === 'csv_import' ? 'Imported' : 'Native' }} · {{ $submission->status }} · Attempt {{ $submission->attempt_number }}</p>
     @if($submission->score !== null)<p class="mt-2 text-sm">Score: {{ $submission->score }} / {{ $submission->maximum_score ?? '—' }} points</p>@endif
     <dl class="mt-5 break-words divide-y divide-slate-200">@foreach($columns as $key => $column)<div class="py-4"><dt class="text-sm font-semibold">{{ $column['label'] }}</dt><dd class="mt-2 whitespace-pre-wrap break-words text-sm">{{ implode(', ', $values[$key] ?? []) === '' ? 'No available answer' : implode(', ', $values[$key] ?? []) }}</dd></div>@endforeach</dl>

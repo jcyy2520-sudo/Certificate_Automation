@@ -4,7 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>@yield('heading', 'Account access') ? {{ config('app.name') }}</title>
+    <title>@yield('heading', 'Account access') — {{ config('branding.name') }}</title>
+    @include('partials.brand-meta')
     <meta name="robots" content="noindex, nofollow, noarchive">
     <meta name="theme-color" content="#f5f5f4">
     @include('partials.theme-init')
@@ -26,6 +27,7 @@
 
     <main class="mx-auto flex min-h-screen w-full max-w-105 flex-col justify-center px-4 py-8 sm:px-6 sm:py-12">
         <div class="mb-8 flex flex-col items-center text-center">
+            <div class="mb-6"><x-brand /></div>
             <h1 class="text-[24px] font-bold leading-8 tracking-tight">@yield('heading', 'Sign in')</h1>
             <p class="mt-2 text-[13px] leading-5 text-slate-500 dark:text-slate-400">@yield('subheading')</p>
         </div>

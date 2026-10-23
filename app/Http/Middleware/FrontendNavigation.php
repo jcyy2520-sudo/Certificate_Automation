@@ -45,7 +45,7 @@ class FrontendNavigation
             }
             $payload = array_merge($payload, [
                 'boundary' => false,
-                'title' => $document->getElementsByTagName('title')->item(0)?->textContent ?? config('app.name'),
+                'title' => $document->getElementsByTagName('title')->item(0)?->textContent ?? config('branding.name'),
                 'csrf' => csrf_token(),
                 'assets' => $assets,
                 'body' => $this->node($body),

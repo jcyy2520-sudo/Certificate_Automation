@@ -14,9 +14,11 @@ use App\Services\CertificateArtwork;
 use App\Services\CertificateService;
 use App\Services\NotificationService;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -141,6 +143,9 @@ class CertificationController extends Controller
             // PDF are both rendered at its exact aspect ratio — never distorted.
             $layout['bg_w'] = $dimensions['width'];
             $layout['bg_h'] = $dimensions['height'];
+            // A replacement artwork has a different name area; do not retain
+            // constraints calibrated against the previous image.
+            unset($layout['name_max_width'], $layout['name_bottom']);
         }
 
         try {
@@ -178,7 +183,7 @@ class CertificationController extends Controller
      * image or who qualifies), so it stays out of the recent-password gate to
      * keep the editor fluid; it is still audited.
      */
-    public function updateDesign(Request $request, Webinar $webinar, AuditService $audit): RedirectResponse
+    public function updateDesign(Request $request, Webinar $webinar, AuditService $audit): RedirectResponse|JsonResponse
     {
         $template = $this->activeTemplate($webinar);
 
@@ -208,6 +213,16 @@ class CertificationController extends Controller
         ])->save();
 
         $audit->record($request, 'certificate_template.design_updated', $template);
+
+        if ($request->boolean('studio') && $request->expectsJson()) {
+            return response()->json([
+                'message' => 'Template style saved for every recipient. Existing certificates are unchanged; no email was sent.',
+                'design' => Arr::only($template->layout, [
+                    'name_top', 'name_left', 'name_font_size', 'name_font_family', 'accent',
+                    'name_font_weight', 'name_font_style', 'name_text_align',
+                ]),
+            ]);
+        }
 
         // Do not use back() here. The protected background <img> request can
         // become Laravel's session previous URL after the settings page loads,
@@ -386,6 +401,9 @@ class CertificationController extends Controller
                 'certificate_email_message' => ['nullable', 'string', 'max:2000'],
             ]);
             foreach (['certificate_email_subject', 'certificate_email_message'] as $field) {
+                if (! array_key_exists($field, $data)) {
+                    $data[$field] = $webinar->getAttribute($field);
+                }
                 $data[$field] = filled($data[$field] ?? null) ? trim($data[$field]) : null;
                 preg_match_all('/\{\{([^{}]+)\}\}/', (string) $data[$field], $matches);
                 if (array_diff($matches[1], ['participant_name', 'webinar_title', 'certificate_type']) !== []) {

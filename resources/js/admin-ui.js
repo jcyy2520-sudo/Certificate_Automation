@@ -185,7 +185,7 @@ export function initAdminUI(signal) {
                         accept.removeAttribute('aria-disabled');
                         return;
                     }
-                    showNavigationProgress();
+                    if (!form.hasAttribute('data-inline-submit')) showNavigationProgress();
                     form.requestSubmit(submitter || undefined);
                 }
                 window.setTimeout(function () {
@@ -212,6 +212,9 @@ export function initAdminUI(signal) {
             // Second submit of the same form (double-click, keyboard repeat)
             // is ignored so bulk certificate/email actions queue exactly once.
             if (event.defaultPrevented) return;
+            // The progress controller owns this confirmed operation and shows
+            // per-recipient results without replacing the page.
+            if (form.hasAttribute('data-certificate-progress')) return;
             // A read-only draft preview opens separately and leaves this form
             // available for another preview or its actual Save action.
             if (event.submitter && event.submitter.hasAttribute('data-preview-submit')) return;

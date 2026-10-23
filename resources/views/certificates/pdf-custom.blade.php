@@ -37,6 +37,7 @@
             position: absolute; top: {{ $nameTop }}%; left: {{ $nameLeft }}%;
             width: {{ $nameWidthPercent }}%; margin-left: -{{ $nameWidthPercent / 2 }}%; white-space: nowrap;
             text-align: {{ $align }}; font-weight: {{ $weight }}; font-style: {{ $style }}; font-size: {{ $fontSize }}pt;
+            line-height: 1;
             font-family: {{ $fontPdf }};
             color: {{ $color }};
         }
@@ -47,7 +48,9 @@
         @if($backgroundDataUri)
             <img class="background" src="{{ $backgroundDataUri }}" alt="">
         @endif
-        <div class="recipient-name">{{ $certificate->recipient_name }}</div>
+        @unless($drawNameOnCanvas ?? false)
+            <div class="recipient-name">{{ $certificate->recipient_name }}</div>
+        @endunless
     </div>
 </body>
 </html>

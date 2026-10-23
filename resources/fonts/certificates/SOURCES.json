@@ -1,0 +1,62 @@
+[
+  {
+    "path": "montserrat/Montserrat-Regular.ttf",
+    "source": "https://raw.githubusercontent.com/JulietaUla/Montserrat/555facfb2a18c72c3c0380f0d9c0f060453a9058/fonts/ttf/Montserrat-Regular.ttf",
+    "sha256": "3e8abe50c44c82e2242e97d1ec8c0d385c4890cdc50447bcdb8605c81a38cfb2"
+  },
+  {
+    "path": "montserrat/Montserrat-Bold.ttf",
+    "source": "https://raw.githubusercontent.com/JulietaUla/Montserrat/555facfb2a18c72c3c0380f0d9c0f060453a9058/fonts/ttf/Montserrat-Bold.ttf",
+    "sha256": "bc6e854971cea46b463be6f9eef4d9cd52f51cfc1fc0dd90c9d3e6483dc0ec61"
+  },
+  {
+    "path": "montserrat/Montserrat-Italic.ttf",
+    "source": "https://raw.githubusercontent.com/JulietaUla/Montserrat/555facfb2a18c72c3c0380f0d9c0f060453a9058/fonts/ttf/Montserrat-Italic.ttf",
+    "sha256": "b8fa0ea7f433669d94d27e66ea81cc627deb71861ed9d20f53d7afa1f33ba86a"
+  },
+  {
+    "path": "montserrat/Montserrat-BoldItalic.ttf",
+    "source": "https://raw.githubusercontent.com/JulietaUla/Montserrat/555facfb2a18c72c3c0380f0d9c0f060453a9058/fonts/ttf/Montserrat-BoldItalic.ttf",
+    "sha256": "b4c121b337aaa977d711b6f397c5b9672d720af622555f1e3f9d3b87f2983665"
+  },
+  {
+    "path": "lato/Lato-Regular.ttf",
+    "source": "https://raw.githubusercontent.com/google/fonts/45e3d5269e4a17d823f6d84470bc084dc5ae46f6/ofl/lato/Lato-Regular.ttf",
+    "sha256": "d636e4683231f931eda222d588e944d082bfd3bdba02f928bee461c0f185b251"
+  },
+  {
+    "path": "lato/Lato-Bold.ttf",
+    "source": "https://raw.githubusercontent.com/google/fonts/45e3d5269e4a17d823f6d84470bc084dc5ae46f6/ofl/lato/Lato-Bold.ttf",
+    "sha256": "8a0aace75d33794eece4b28187bfc1df0bbd2888b5d8a56e01788c8d65d16be1"
+  },
+  {
+    "path": "lato/Lato-Italic.ttf",
+    "source": "https://raw.githubusercontent.com/google/fonts/45e3d5269e4a17d823f6d84470bc084dc5ae46f6/ofl/lato/Lato-Italic.ttf",
+    "sha256": "e399c44efe1387100531d26c7e4800c5d12251b890d6654a3098c7c679cb1786"
+  },
+  {
+    "path": "lato/Lato-BoldItalic.ttf",
+    "source": "https://raw.githubusercontent.com/google/fonts/45e3d5269e4a17d823f6d84470bc084dc5ae46f6/ofl/lato/Lato-BoldItalic.ttf",
+    "sha256": "62c1b7f0d2e74b45960154c3520efc337b553db0961bfdc950d5618334596cc8"
+  },
+  {
+    "path": "cormorant/CormorantGaramond-Regular.ttf",
+    "source": "https://raw.githubusercontent.com/CatharsisFonts/Cormorant/016784836d2ad47bc4c62b7f504a0a5875d85aeb/fonts/ttf/CormorantGaramond-Regular.ttf",
+    "sha256": "aba4d0a0205a57abc489db3c1c1531b4f4e59fbe5c596912be5a3b821a06efc0"
+  },
+  {
+    "path": "cormorant/CormorantGaramond-Bold.ttf",
+    "source": "https://raw.githubusercontent.com/CatharsisFonts/Cormorant/016784836d2ad47bc4c62b7f504a0a5875d85aeb/fonts/ttf/CormorantGaramond-Bold.ttf",
+    "sha256": "0471497b202945520720a1a92cd149cd280edef8e00c0555c27ca324ebb046dc"
+  },
+  {
+    "path": "cormorant/CormorantGaramond-Italic.ttf",
+    "source": "https://raw.githubusercontent.com/CatharsisFonts/Cormorant/016784836d2ad47bc4c62b7f504a0a5875d85aeb/fonts/ttf/CormorantGaramond-Italic.ttf",
+    "sha256": "006291ded05a9e8a58436474d9bb74e7477f494a5dfc11435ae2a2d9d74d4ed9"
+  },
+  {
+    "path": "cormorant/CormorantGaramond-BoldItalic.ttf",
+    "source": "https://raw.githubusercontent.com/CatharsisFonts/Cormorant/016784836d2ad47bc4c62b7f504a0a5875d85aeb/fonts/ttf/CormorantGaramond-BoldItalic.ttf",
+    "sha256": "39ba0e2471b9de08b0e6f2c2aff2b298f11b5f21a54af9acbeebffaa53517795"
+  }
+]

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Middleware\EnsureApprovedAccount;
 use App\Models\User;
 use App\Services\AdminDeviceService;
 use App\Services\AuditService;
@@ -70,6 +71,7 @@ class AuthController extends Controller
 
         Auth::login($user, $remember);
         $request->session()->regenerate();
+        $request->session()->put(EnsureApprovedAccount::SESSION_VERSION, $user->auth_version);
         $request->session()->passwordConfirmed();
         if ($trusted) {
             app(AdminDeviceService::class)->acceptSession($request, $user);

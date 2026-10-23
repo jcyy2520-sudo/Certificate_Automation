@@ -286,6 +286,8 @@ class RequestedImprovementsTest extends TestCase
 
     public function test_password_change_requires_current_password_confirmation_and_strength_and_signs_out(): void
     {
+        config(['security.require_sensitive_action_password_confirmation' => true]);
+        $this->withSession(['auth.password_confirmed_at' => now()->timestamp]);
         $this->owner->update(['password' => 'Existing-password-fixture!']);
         $url = route('admin.profile.password');
         $this->put($url, ['current_password' => 'wrong', 'password' => 'New-password-fixture-2026!', 'password_confirmation' => 'New-password-fixture-2026!'])->assertSessionHasErrors('current_password');

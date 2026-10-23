@@ -26,6 +26,8 @@
 <label class="flex items-start gap-3 text-sm"><input class="mt-1" type="checkbox" name="{{ $permission }}" value="1" @checked($restore ? old($permission) : ($editing?->assignedWebinars->contains(fn ($w) => (bool) $w->pivot->{$permission}) ?? false))><span>{{ $permissionLabel }}</span></label>
 @endforeach
 </fieldset>
+@if(config('security.require_sensitive_action_password_confirmation', true))
 <p class="text-sm text-slate-500">Confirm this access change using your own credentials.</p>
 <label class="field-label">Your current password<input class="field" type="password" name="password" required autocomplete="current-password"></label>
+@endif
 <x-current-factor />

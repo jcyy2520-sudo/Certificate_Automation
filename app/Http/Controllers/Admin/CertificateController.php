@@ -17,6 +17,7 @@ use App\Services\AuditService;
 use App\Services\CertificateFileService;
 use App\Services\CertificateService;
 use App\Services\EligibilityService;
+use App\Services\LocalDelivery;
 use App\Services\NotificationService;
 use App\Services\ParticipantEligibilityService;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -24,9 +25,11 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -34,6 +37,154 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class CertificateController extends Controller
 {
+    /** Keep original delivery history while a corrected attachment awaits acceptance. */
+    private function pendingSignatureCorrections(Webinar $webinar): Collection
+    {
+        return DB::table('audit_logs as corrections')
+            ->join('certificates', 'certificates.id', '=', 'corrections.auditable_id')
+            ->where('corrections.auditable_type', (new Certificate)->getMorphClass())
+            ->where('corrections.action', 'certificate.signature_corrected')
+            ->where('certificates.webinar_id', $webinar->id)->where('certificates.status', 'issued')->whereNull('certificates.revoked_at')
+            ->whereIn('certificates.participant_id', app(EligibilityService::class)->eligibleParticipantsQuery($webinar))
+            ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('email_deliveries')
+                ->whereColumn('email_deliveries.certificate_id', 'certificates.id')->where('email_deliveries.type', 'certificate')
+                ->where('email_deliveries.status', 'sent')->whereColumn('email_deliveries.created_at', '>=', 'corrections.created_at'))
+            ->groupBy('certificates.id')->selectRaw('certificates.id as certificate_id, MAX(corrections.created_at) as corrected_at')
+            ->pluck('corrected_at', 'certificate_id');
+    }
+
+    /** Prepare an explicit local send list without generating or sending anything. */
+    public function sendPlan(Request $request, Webinar $webinar, EligibilityService $eligibility): JsonResponse
+    {
+        abort_unless(app(LocalDelivery::class)->enabled(), 404);
+        $policy = app(WebinarPolicy::class);
+        abort_unless($policy->permission($request->user(), $webinar, 'manage_certificates')
+            && $policy->permission($request->user(), $webinar, 'send_emails'), 403);
+        $data = $request->validate([
+            'mode' => ['required', 'in:selected,ready,resend'],
+            'participants' => ['required_if:mode,selected', 'array', 'min:1', 'max:200'],
+            'participants.*' => ['string', 'max:64', 'distinct'],
+            'certificates' => ['required_if:mode,resend', 'array', 'min:1', 'max:200'],
+            'certificates.*' => ['integer', 'min:1', 'distinct'],
+        ]);
+        if ($data['mode'] === 'resend') {
+            $certificates = $webinar->certificates()->whereIn('id', $data['certificates'])
+                ->where('status', 'issued')->whereNotNull('sent_at')->whereNull('revoked_at')
+                ->whereIn('participant_id', $eligibility->eligibleParticipantsQuery($webinar))
+                ->whereHas('participant', fn ($query) => $query->whereNull('privacy_erased_at')->whereNotNull('email')->where('email', '!=', ''))
+                ->whereExists(fn ($query) => $query->selectRaw('1')->from('audit_logs')
+                    ->where('auditable_type', (new Certificate)->getMorphClass())
+                    ->whereColumn('auditable_id', 'certificates.id')->where('action', 'certificate.signature_corrected'))
+                ->orderBy('id')->get();
+            if ($certificates->count() !== count($data['certificates'])) {
+                throw ValidationException::withMessages(['certificates' => 'The selection changed. Refresh Sent and select only corrected, currently eligible recipients. Nothing was sent.']);
+            }
+            $items = $certificates->map(fn ($certificate) => [
+                'id' => (string) $certificate->id, 'name' => $certificate->recipient_name,
+                'url' => route('admin.certificates.resend', $certificate), 'mode' => 'resend',
+            ]);
+        } else {
+            if ($data['mode'] === 'ready' && ($held = $webinar->importIssues()->whereNull('resolved_at')->count()) > 0) {
+                throw ValidationException::withMessages(['participants' => "Review {$held} held import rows before new bulk issuance. Corrected resends in Sent are separate. Nothing was sent."]);
+            }
+            $query = $webinar->participants()->whereNull('privacy_erased_at')->whereNotNull('email')->where('email', '!=', '');
+            if ($data['mode'] === 'selected') {
+                $query->whereIn('public_id', $data['participants'])->whereIn('participants.id', $eligibility->certificateParticipantsQuery($webinar));
+            } else {
+                $query->whereIn('participants.id', $eligibility->eligibleParticipantsQuery($webinar))
+                    ->whereDoesntHave('certificates', fn ($query) => $query->whereNull('revoked_at')->whereNotNull('issued_at'));
+            }
+            $people = $query->orderBy('id')->limit(201)->get();
+            if ($people->count() > 200 || ($data['mode'] === 'selected' && $people->count() !== count($data['participants']))) {
+                throw ValidationException::withMessages(['participants' => 'Select up to 200 available certificate recipients, then try again. Nothing was sent.']);
+            }
+            $people->load(['certificates' => fn ($query) => $query->whereIn('id', $this->pendingSignatureCorrections($webinar)->keys())]);
+            $items = $people->map(function ($person) use ($webinar) {
+                $correction = $person->certificates->first();
+
+                return ['id' => $correction ? (string) $correction->id : $person->public_id, 'name' => $person->full_name,
+                    'url' => $correction ? route('admin.certificates.resend', $correction) : route('admin.certificates.issue-selected', $webinar),
+                    'mode' => $correction ? 'resend' : 'issue'];
+            });
+        }
+
+        $token = Str::random(64);
+        Cache::put('certificate-progress:'.$token, ['user_id' => $request->user()->id, 'webinar_id' => $webinar->id,
+            'items' => $items->values()->all()], now()->addHours(2));
+
+        return response()->json(['items' => $items->values(), 'total' => $items->count(), 'plan_token' => $token,
+            'step_url' => route('admin.certificates.send-step', $webinar),
+            'interval_ms' => (int) ceil(60000 / max(1, (int) config('accounts.email_per_minute', 30))) + 100]);
+    }
+
+    /** Execute one claimed step of an approved plan; a replay never sends twice. */
+    public function sendStep(Request $request, Webinar $webinar, CertificateService $service, AuditService $audit): JsonResponse
+    {
+        abort_unless(app(LocalDelivery::class)->enabled(), 404);
+        $policy = app(WebinarPolicy::class);
+        abort_unless($policy->permission($request->user(), $webinar, 'manage_certificates')
+            && $policy->permission($request->user(), $webinar, 'send_emails'), 403);
+        $data = $request->validate(['plan_token' => ['required', 'string', 'size:64'], 'index' => ['required', 'integer', 'min:0'],
+            'designs_json' => ['nullable', 'string', 'max:200000']]);
+        $key = 'certificate-progress:'.$data['plan_token'];
+        $plan = Cache::get($key);
+        abort_unless(is_array($plan) && $plan['user_id'] === $request->user()->id && $plan['webinar_id'] === $webinar->id
+            && isset($plan['items'][$data['index']]), 422, 'This send plan is unavailable. Check Email logs before preparing another.');
+        $stepKey = $key.':'.$data['index'];
+        if (! Cache::add($stepKey, ['claimed' => true], now()->addHours(2))) {
+            $previous = Cache::get($stepKey);
+
+            return response()->json($previous['result'] ?? ['outcome' => 'unknown', 'halt' => true,
+                'message' => 'This step already started without a completed result. Check Email logs before retrying.']);
+        }
+        $item = $plan['items'][$data['index']];
+        $inner = clone $request;
+        $inner->headers->set('Accept', 'application/json');
+        $inner->headers->set('Content-Type', 'application/x-www-form-urlencoded');
+        try {
+            if ($item['mode'] === 'resend') {
+                $inner->request->replace([]);
+                $certificate = $webinar->certificates()->findOrFail($item['id']);
+                $response = $this->pendingSignatureCorrections($webinar)->has($certificate->id)
+                    ? $this->resend($inner, $certificate, app(NotificationService::class), $audit)
+                    : $this->localSendResponse(null, 'This correction was already accepted or the recipient is no longer eligible. No email was attempted.', true);
+            } else {
+                $inner->request->replace(['participants' => [$item['id']], 'preview_confirmed' => '1',
+                    'designs_json' => $data['designs_json'] ?? '{}']);
+                $response = $this->issueSelected($inner, $webinar, $service, $audit);
+            }
+            $result = $response->getData(true);
+        } catch (\Throwable $exception) {
+            report($exception);
+            $result = ['outcome' => 'unknown', 'halt' => true,
+                'message' => 'The step did not return a completed result. Check Email logs before any retry.'];
+        }
+        Cache::put($stepKey, ['result' => $result], now()->addHours(2));
+
+        return response()->json($result);
+    }
+
+    private function localSendResponse(?EmailDelivery $delivery, ?string $failure = null, bool $skipped = false): JsonResponse
+    {
+        $error = $failure ?? $delivery?->last_error;
+        $outcome = match (true) {
+            $skipped => 'skipped',
+            $failure !== null => 'failed',
+            $delivery?->status === 'sent' => $delivery->provider === 'log' ? 'captured' : 'accepted',
+            str_starts_with((string) $error, 'Provider outcome unknown'), $delivery?->status === 'processing' => 'unknown',
+            default => 'failed',
+        };
+
+        return response()->json(['outcome' => $outcome,
+            'message' => $error ?: match ($outcome) {
+                'accepted' => 'Accepted by email provider; delivery confirmation is separate.',
+                'captured' => 'Captured locally. No email was sent.',
+                default => 'No completed email acceptance. Check Email logs before retrying.',
+            },
+            'halt' => $outcome === 'unknown' || (bool) preg_match('/allowance|credits|cooldown|configured|HTTP (?:401|402|403|429|5\d\d)/i', (string) $error),
+        ]);
+    }
+
     /**
      * The certificate studio: pick eligible participants on the left, review a
      * live in-browser preview of each generated certificate in the centre, and
@@ -42,6 +193,7 @@ class CertificateController extends Controller
     public function studio(Request $request, Webinar $webinar, EligibilityService $eligibility, ParticipantEligibilityService $feedback): View
     {
         $template = $webinar->certificateTemplates()->where('is_active', true)->first();
+        $corrections = $this->pendingSignatureCorrections($webinar);
 
         $eligibleIds = $eligibility->certificateParticipantsQuery($webinar);
         $filters = $request->validate(['search' => ['nullable', 'string', 'max:200'], 'source' => ['nullable', 'in:eligible,manual'], 'highlight' => ['nullable', 'ulid']]);
@@ -50,6 +202,8 @@ class CertificateController extends Controller
             ->whereNotIn('participants.id', $eligibility->eligibleParticipantsQuery($webinar))
             ->when($search !== '', fn ($query) => $query->where(fn ($q) => $q->whereLike('full_name', '%'.$search.'%')->orWhereLike('email', '%'.$search.'%')));
         $canReviewEligibility = app(WebinarPolicy::class)->permission($request->user(), $webinar, 'manage_participants');
+        $canResendCertificates = app(WebinarPolicy::class)->permission($request->user(), $webinar, 'manage_certificates')
+            && app(WebinarPolicy::class)->permission($request->user(), $webinar, 'send_emails');
         $notCurrentlyEligibleCount = $canReviewEligibility ? (clone $notCurrentlyEligibleQuery)->count() : 0;
         $notCurrentlyEligible = $canReviewEligibility ? $notCurrentlyEligibleQuery->orderBy('id')->limit(50)->get() : collect();
         $feedback->prepare($notCurrentlyEligible, $webinar);
@@ -91,9 +245,9 @@ class CertificateController extends Controller
                 ->whereDoesntHave('eligibilityOverrides', fn ($o) => $o->where(fn ($active) => $active->whereNull('expires_at')->orWhere('expires_at', '>', now()))))
             ->when($requestedIds->isNotEmpty(), fn ($query) => $query->whereIn('public_id', $requestedIds))
             ->whereNull('privacy_erased_at')
-            ->whereDoesntHave('certificates', fn ($query) => $query
-                ->whereNull('revoked_at')
-                ->whereNotNull('sent_at'))
+            ->where(fn ($query) => $query
+                ->whereDoesntHave('certificates', fn ($certificates) => $certificates->whereNull('revoked_at')->whereNotNull('sent_at'))
+                ->orWhereHas('certificates', fn ($certificates) => $certificates->whereIn('id', $corrections->keys())))
             ->with(['certificateApproval', 'certificates' => fn ($query) => $query
                 ->select(['id', 'participant_id', 'verification_code', 'issued_at', 'sent_at', 'revoked_at', 'status', 'layout'])])
             ->withExists('submissions')
@@ -157,6 +311,10 @@ class CertificateController extends Controller
                 $delivery,
                 filled($participant->email),
             );
+            $participant->correction_pending = $certificate && $corrections->has($certificate->id);
+            if ($participant->correction_pending && (! $delivery || $delivery->created_at->lt($corrections->get($certificate->id)))) {
+                $state = CertificateDeliveryState::Ready;
+            }
             $participant->certificate_delivery_state = $state;
             $participant->cert_status = $state->slug();
             $participant->certificate_record = $certificate;
@@ -173,10 +331,21 @@ class CertificateController extends Controller
         $sentRecent = $webinar->certificates()
             ->whereNotNull('sent_at')
             ->whereNull('revoked_at')
+            ->select(['id', 'participant_id', 'recipient_name', 'verification_code', 'sent_at', 'eligibility_snapshot'])
+            ->selectSub(DB::table('audit_logs')->selectRaw('1')
+                ->where('auditable_type', (new Certificate)->getMorphClass())
+                ->whereColumn('auditable_id', 'certificates.id')
+                ->where('action', 'certificate.signature_corrected')->limit(1), 'signature_corrected')
+            ->withExists(['participant as eligible_for_resend' => fn ($query) => $query
+                ->whereIn('participants.id', $eligibility->eligibleParticipantsQuery($webinar))
+                ->whereNull('privacy_erased_at')->whereNotNull('email')->where('email', '!=', '')])
             ->with('participant:id,full_name,email')
             ->latest('sent_at')
             ->limit(100)
-            ->get(['id', 'participant_id', 'recipient_name', 'verification_code', 'sent_at', 'eligibility_snapshot']);
+            ->get();
+        foreach ($sentRecent as $sentCertificate) {
+            $sentCertificate->correction_pending = $corrections->has($sentCertificate->id);
+        }
 
         // Everything the bulk "Send to all ready" action would queue: eligible,
         // reachable by email, and without an active issued certificate.
@@ -193,7 +362,7 @@ class CertificateController extends Controller
         if ($request->routeIs('admin.certificates.studio.recipients')) {
             return view('admin.webinars.partials.studio-roster', [
                 'webinar' => $webinar, 'participants' => $participants, 'selectionScoped' => false,
-                'sentRecent' => $sentRecent, 'sentCount' => $sentCount, 'bulkReadyCount' => $bulkReadyCount,
+                'sentRecent' => $sentRecent, 'sentCount' => $sentCount, 'bulkReadyCount' => $bulkReadyCount, 'canResendCertificates' => $canResendCertificates,
                 'notCurrentlyEligible' => $notCurrentlyEligible, 'notCurrentlyEligibleCount' => $notCurrentlyEligibleCount, 'canReviewEligibility' => $canReviewEligibility,
             ]);
         }
@@ -252,6 +421,8 @@ class CertificateController extends Controller
             && ((config('webinar.email.certificate_provider') ?? config('webinar.email.provider')) !== 'brevo' || filled(config('services.brevo.key')));
         $pipelineWarning = match (true) {
             ! $emailProviderReady => 'Email delivery is in test mode. Certificates can be generated, but no message will leave the application until a transactional email provider is configured.',
+            app(LocalDelivery::class)->enabled() && $generationStalled => 'A certificate from an earlier request is still waiting. Use Send now on that recipient to generate it and attempt its email. Nothing will be sent automatically.',
+            app(LocalDelivery::class)->enabled() && $emailStalled => 'An earlier email request has no completed result. Review Email logs before retrying. Local sending does not use a background worker or retry automatically.',
             $generationStalled && $emailStalled => 'Nothing has moved for two minutes: no certificate was generated and no email was sent. Start the certificate worker ('.$this->workerCommand().') and the email worker ('.$this->emailWorkerCommand().').',
             $generationStalled => 'Certificates are queued but nothing has been generated for two minutes. Start the certificate worker ('.$this->workerCommand().').',
             $emailStalled => 'Certificates are ready but no email has been sent for two minutes. Start the email worker ('.$this->emailWorkerCommand().').',
@@ -268,6 +439,7 @@ class CertificateController extends Controller
             'layout' => $template?->layout ?? [],
             'fonts' => CertificateTemplate::FONTS,
             'sentRecent' => $sentRecent,
+            'canResendCertificates' => $canResendCertificates,
             'sentCount' => $sentCount,
             'pipelineWarning' => $pipelineWarning,
             'bulkReadyCount' => $bulkReadyCount,
@@ -295,6 +467,7 @@ class CertificateController extends Controller
         $fingerprint = collect([
             $webinar->certificates()->max('updated_at'),
             $webinar->emailDeliveries()->max('updated_at'),
+            DB::table('audit_logs')->where('webinar_id', $webinar->id)->where('action', 'certificate.signature_corrected')->max('created_at'),
         ])->implode('|');
         $etag = '"'.md5("studio-status|{$webinar->id}|{$fingerprint}").'"';
 
@@ -313,12 +486,16 @@ class CertificateController extends Controller
             ->get(['id', 'public_id']);
         $certificates = $participants->pluck('certificates')->flatten(1);
         $deliveryByCertificate = $this->deliveryByCertificate($certificates->pluck('id'));
+        $corrections = $this->pendingSignatureCorrections($webinar);
 
         return response()->json([
-            'certificates' => $participants->map(function ($participant) use ($deliveryByCertificate) {
+            'certificates' => $participants->map(function ($participant) use ($deliveryByCertificate, $corrections) {
                 $certificate = $participant->certificates->sortByDesc('id')->first();
                 $delivery = $certificate ? $deliveryByCertificate->get($certificate->id) : null;
                 $state = CertificateDeliveryState::from($certificate, $delivery);
+                if ($certificate && $corrections->has($certificate->id) && (! $delivery || $delivery->created_at->lt($corrections->get($certificate->id)))) {
+                    $state = CertificateDeliveryState::Ready;
+                }
                 $meta = $this->deliveryMeta($delivery, $state);
 
                 return [
@@ -344,7 +521,8 @@ class CertificateController extends Controller
         Certificate $certificate,
         NotificationService $notifications,
         AuditService $audit,
-    ): RedirectResponse {
+    ): RedirectResponse|JsonResponse {
+        abort_if($request->expectsJson() && ! app(LocalDelivery::class)->enabled(), 404);
         // An uncertain provider outcome (connection lost after a possible
         // accept) must be reconciled in the Brevo log before a new
         // idempotency key is minted; otherwise a "failed" retry duplicates mail.
@@ -358,6 +536,10 @@ class CertificateController extends Controller
         $reconciliationReference = null;
         if ($unknown) {
             if (! $request->boolean('confirm_unknown')) {
+                if ($request->expectsJson()) {
+                    return $this->localSendResponse(null, 'Previous provider outcome is unknown. Reconcile Email logs before explicitly retrying.');
+                }
+
                 return back()->with('error', 'The last delivery has an uncertain provider outcome (the request may have been accepted while the response was lost). Check the Brevo message log for this recipient, then retry with explicit confirmation that no delivery occurred.');
             }
             $data = $request->validate([
@@ -418,7 +600,6 @@ class CertificateController extends Controller
                 if (! $lockedCertificate->file_path || ! $disk->exists($lockedCertificate->file_path)) {
                     throw new RuntimeException('The stored certificate file is missing.');
                 }
-                $statusForm = $webinar->forms()->where('type', 'registration')->first(['public_token']);
                 $notifications->queue(
                     $webinar,
                     $participant,
@@ -429,7 +610,6 @@ class CertificateController extends Controller
                         'participant' => $participant,
                         'certificate' => $lockedCertificate,
                         'customMessage' => $webinar->certificateEmailMessage($lockedCertificate->recipient_name),
-                        'statusUrl' => $statusForm ? route('forms.public.status', $statusForm->public_token) : null,
                     ])->render(),
                     $lockedCertificate,
                     [['name' => 'certificate.pdf', 'content' => base64_encode($disk->get($lockedCertificate->file_path))]],
@@ -437,12 +617,18 @@ class CertificateController extends Controller
                 );
             }, attempts: 3);
         } catch (RuntimeException $exception) {
+            if ($request->expectsJson()) {
+                return $this->localSendResponse(null, $exception->getMessage());
+            }
+
             return back()->with('error', $exception->getMessage());
         } catch (UniqueConstraintViolationException) {
             // The database guard is the final authority under concurrent
             // requests. Treat a lost race as an operator-visible no-op, never
             // as a second send or an opaque 500 response.
-            return back()->with('warning', 'A certificate email was already queued by another request. Check its delivery status before retrying.');
+            return $request->expectsJson()
+                ? $this->localSendResponse(null, 'Another request is already sending this certificate. Check Email logs before retrying.')
+                : back()->with('warning', 'A certificate email was already queued by another request. Check its delivery status before retrying.');
         }
 
         $audit->record($request, 'certificate.resent', $certificate, array_filter([
@@ -454,7 +640,13 @@ class CertificateController extends Controller
             'provider_outcome_was_uncertain' => $unknown ?: null,
         ], fn ($value) => $value !== null));
 
-        return back()->with('success', 'The certificate email was queued again. Watch its delivery status here.');
+        if ($request->expectsJson()) {
+            return $this->localSendResponse(EmailDelivery::where('certificate_id', $certificate->id)->latest('id')->first());
+        }
+
+        return back()->with('success', app(LocalDelivery::class)->enabled()
+            ? 'The certificate email retry was processed locally. Check its delivery result here; log mode does not send email.'
+            : 'The certificate email was queued again. Watch its delivery status here.');
     }
 
     /**
@@ -486,7 +678,7 @@ class CertificateController extends Controller
         return EmailDelivery::query()
             ->whereIn('certificate_id', $certificateIds)
             ->orderBy('id')
-            ->get(['certificate_id', 'status', 'last_error', 'attempts', 'failed_at'])
+            ->get(['certificate_id', 'status', 'last_error', 'attempts', 'failed_at', 'created_at'])
             ->keyBy('certificate_id');
     }
 
@@ -506,7 +698,7 @@ class CertificateController extends Controller
      * Issue certificates to an explicit selection of participants made in the
      * studio. Already-issued and no-longer-eligible participants are skipped.
      */
-    public function issueSelected(Request $request, Webinar $webinar, CertificateService $service, AuditService $audit): RedirectResponse
+    public function issueSelected(Request $request, Webinar $webinar, CertificateService $service, AuditService $audit): RedirectResponse|JsonResponse
     {
         $data = $request->validate([
             'participants' => ['required', 'array', 'min:1', 'max:200'],
@@ -517,6 +709,11 @@ class CertificateController extends Controller
             'participants.required' => 'Select at least one participant to send a certificate to.',
             'participants.max' => 'Send to up to 200 at once here. For a larger group, use “Send to all ready”.',
         ]);
+
+        if ($request->expectsJson()) {
+            abort_unless(app(LocalDelivery::class)->enabled(), 404);
+            abort_unless(count($data['participants']) === 1, 422, 'Progress sending processes one recipient per request.');
+        }
 
         $participants = $webinar->participants()
             ->whereIn('public_id', $data['participants'])
@@ -545,7 +742,7 @@ class CertificateController extends Controller
 
                     continue;
                 }
-                IssueSelectedCertificate::dispatch($participant->id);
+                app(LocalDelivery::class)->dispatch(new IssueSelectedCertificate($participant->id));
                 $issued++;
             } catch (RuntimeException $exception) {
                 // Preparation commits before the broker handoff. If the broker
@@ -569,9 +766,18 @@ class CertificateController extends Controller
             'skipped' => $skipped,
         ]);
 
+        if ($request->expectsJson()) {
+            return $issued > 0
+                ? $this->localSendResponse($certificate ? EmailDelivery::where('certificate_id', $certificate->id)->latest('id')->first() : null)
+                : $this->localSendResponse(null, implode('; ', $skipReasons), $certificate?->status === 'issued');
+        }
+
         $message = $issued === 1
             ? '1 certificate was queued for generation. It becomes a PDF when the certificate worker runs and an email when the email worker runs — start them if they are not already running.'
             : "{$issued} certificates were queued for generation. They become PDFs when the certificate worker runs and emails when the email worker runs — start them if they are not already running.";
+        if (app(LocalDelivery::class)->enabled()) {
+            $message = "Processed {$issued} selected certificate(s). Only selected certificate recipients were processed. Check each delivery result below; log mode does not send email, and failed attempts require an explicit retry.";
+        }
         if ($skipped > 0) {
             $message .= ' '.$skipped.' skipped: '.implode('; ', array_slice($skipReasons, 0, 5));
             if (count($skipReasons) > 5) {
@@ -657,10 +863,12 @@ class CertificateController extends Controller
             'status' => 'pending',
         ]);
 
-        IssueCertificateBatch::dispatch($batch->id);
+        app(LocalDelivery::class)->dispatch(new IssueCertificateBatch($batch->id));
         $audit->record($request, 'certificate_batch.queued', $batch);
 
-        return back()->with('success', 'Bulk issuance queued. Progress appears below as the queue worker processes it.');
+        return back()->with('success', app(LocalDelivery::class)->enabled()
+            ? 'Certificate batch processed locally. No eligibility notifications were sent. Check individual generation and email results below; log mode does not deliver email.'
+            : 'Bulk issuance queued. Progress appears below as the queue worker processes it.');
     }
 
     public function download(
@@ -672,6 +880,9 @@ class CertificateController extends Controller
         abort_if($certificate->webinar?->deletion_started_at !== null, 409);
 
         $response = $certificateFiles->download($certificate);
+        if ($request->boolean('preview')) {
+            $response->headers->set('Content-Disposition', 'inline; filename="certificate.pdf"');
+        }
         $audit->record($request, 'certificate.downloaded', $certificate);
 
         return $response;

@@ -3,9 +3,9 @@
 @section('content')
 <x-page-header title="Send a message" subtitle="Email eligible participants without generating or attaching a certificate." />
 @if(config('webinar.email.provider') === 'log')
-<p class="panel mb-5 p-4 text-sm" role="status">Email is in log mode. Queued messages will be captured by the system; they will not reach recipients until a delivery provider is configured.</p>
+<p class="panel mb-5 p-4 text-sm" role="status">Email is in log mode. Messages are captured locally; they will not reach recipients until a delivery provider is configured.</p>
 @endif
-<form novalidate method="POST" action="{{ route('admin.webinars.messages.store', $webinar) }}" data-message-composer data-confirm="Queue this message for the selected recipients?" data-confirm-title="Send message" data-confirm-action="Queue message" data-confirm-tone="normal" class="grid gap-5">
+<form novalidate method="POST" action="{{ route('admin.webinars.messages.store', $webinar) }}" @if(app(\App\Services\LocalDelivery::class)->enabled()) data-immediate-send @endif data-message-composer data-confirm="Send this message to the selected eligible recipients only?" data-confirm-title="Send message" data-confirm-action="Send message" data-confirm-tone="normal" class="grid gap-5">
     @csrf
     <input type="hidden" name="submission_key" value="{{ old('submission_key', (string) Str::uuid()) }}">
     <section class="panel p-5">
@@ -28,7 +28,7 @@
         <p id="message-body-help" class="text-sm text-slate-500">Plain text only. No certificate or other attachment will be included.</p>
         <div id="message-body-error"><x-field-error :error="$errors->first('body')" /></div>
         <p class="text-sm" aria-live="polite"><strong data-message-count>0</strong> recipients selected</p>
-        <button class="button-primary justify-self-start" data-message-submit>Queue message</button>
+        <button class="button-primary justify-self-start" data-message-submit>Send message</button>
     </section>
 </form>
 <div class="mt-6">{{ $participants->links() }}</div>

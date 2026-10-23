@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Middleware\EnsureApprovedAccount;
 use App\Models\User;
 use App\Services\AdminDeviceService;
 use App\Services\AuditService;
@@ -90,6 +91,7 @@ class TwoFactorChallengeController extends Controller
 
             Auth::login($user, $remember);
             $request->session()->regenerate();
+            $request->session()->put(EnsureApprovedAccount::SESSION_VERSION, $user->auth_version);
             // Seed auth.session from the exact credential just accepted, rather
             // than adopting a changed password on the first protected request.
             $request->session()->put('password_hash_'.Auth::getDefaultDriver(), Auth::guard()->hashPasswordForCookie($user->getAuthPassword()));

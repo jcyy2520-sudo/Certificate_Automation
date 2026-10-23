@@ -1,0 +1,158 @@
+{
+  "DejaVu Sans": {
+    "normal": {
+      "path": "vendor/dompdf/dompdf/lib/fonts/DejaVuSans.ttf",
+      "ascent": 0.92822265625,
+      "descent": 0.23583984375,
+      "postscript": "DejaVuSans"
+    },
+    "bold": {
+      "path": "vendor/dompdf/dompdf/lib/fonts/DejaVuSans-Bold.ttf",
+      "ascent": 0.92822265625,
+      "descent": 0.23583984375,
+      "postscript": "DejaVuSans-Bold"
+    },
+    "italic": {
+      "path": "vendor/dompdf/dompdf/lib/fonts/DejaVuSans-Oblique.ttf",
+      "ascent": 0.92822265625,
+      "descent": 0.23583984375,
+      "postscript": "DejaVuSans-Oblique"
+    },
+    "bold_italic": {
+      "path": "vendor/dompdf/dompdf/lib/fonts/DejaVuSans-BoldOblique.ttf",
+      "ascent": 0.92822265625,
+      "descent": 0.23583984375,
+      "postscript": "DejaVuSans-BoldOblique"
+    }
+  },
+  "DejaVu Serif": {
+    "normal": {
+      "path": "vendor/dompdf/dompdf/lib/fonts/DejaVuSerif.ttf",
+      "ascent": 0.92822265625,
+      "descent": 0.23583984375,
+      "postscript": "DejaVuSerif"
+    },
+    "bold": {
+      "path": "vendor/dompdf/dompdf/lib/fonts/DejaVuSerif-Bold.ttf",
+      "ascent": 0.93896484375,
+      "descent": 0.23583984375,
+      "postscript": "DejaVuSerif-Bold"
+    },
+    "italic": {
+      "path": "vendor/dompdf/dompdf/lib/fonts/DejaVuSerif-Italic.ttf",
+      "ascent": 0.92822265625,
+      "descent": 0.23583984375,
+      "postscript": "DejaVuSerif-Italic"
+    },
+    "bold_italic": {
+      "path": "vendor/dompdf/dompdf/lib/fonts/DejaVuSerif-BoldItalic.ttf",
+      "ascent": 0.93896484375,
+      "descent": 0.23583984375,
+      "postscript": "DejaVuSerif-BoldItalic"
+    }
+  },
+  "DejaVu Sans Mono": {
+    "normal": {
+      "path": "vendor/dompdf/dompdf/lib/fonts/DejaVuSansMono.ttf",
+      "ascent": 0.92822265625,
+      "descent": 0.23583984375,
+      "postscript": "DejaVuSansMono"
+    },
+    "bold": {
+      "path": "vendor/dompdf/dompdf/lib/fonts/DejaVuSansMono-Bold.ttf",
+      "ascent": 0.92822265625,
+      "descent": 0.23583984375,
+      "postscript": "DejaVuSansMono-Bold"
+    },
+    "italic": {
+      "path": "vendor/dompdf/dompdf/lib/fonts/DejaVuSansMono-Oblique.ttf",
+      "ascent": 0.92822265625,
+      "descent": 0.23583984375,
+      "postscript": "DejaVuSansMono-Oblique"
+    },
+    "bold_italic": {
+      "path": "vendor/dompdf/dompdf/lib/fonts/DejaVuSansMono-BoldOblique.ttf",
+      "ascent": 0.92822265625,
+      "descent": 0.23583984375,
+      "postscript": "DejaVuSansMono-BoldOblique"
+    }
+  },
+  "Montserrat": {
+    "normal": {
+      "path": "resources/fonts/certificates/montserrat/Montserrat-Regular.ttf",
+      "ascent": 0.968,
+      "descent": 0.251,
+      "postscript": "Montserrat-Regular"
+    },
+    "bold": {
+      "path": "resources/fonts/certificates/montserrat/Montserrat-Bold.ttf",
+      "ascent": 0.968,
+      "descent": 0.251,
+      "postscript": "Montserrat-Bold"
+    },
+    "italic": {
+      "path": "resources/fonts/certificates/montserrat/Montserrat-Italic.ttf",
+      "ascent": 0.968,
+      "descent": 0.251,
+      "postscript": "Montserrat-Italic"
+    },
+    "bold_italic": {
+      "path": "resources/fonts/certificates/montserrat/Montserrat-BoldItalic.ttf",
+      "ascent": 0.968,
+      "descent": 0.251,
+      "postscript": "Montserrat-BoldItalic"
+    }
+  },
+  "Lato": {
+    "normal": {
+      "path": "resources/fonts/certificates/lato/Lato-Regular.ttf",
+      "ascent": 0.987,
+      "descent": 0.213,
+      "postscript": "Lato-Regular"
+    },
+    "bold": {
+      "path": "resources/fonts/certificates/lato/Lato-Bold.ttf",
+      "ascent": 0.987,
+      "descent": 0.213,
+      "postscript": "Lato-Bold"
+    },
+    "italic": {
+      "path": "resources/fonts/certificates/lato/Lato-Italic.ttf",
+      "ascent": 0.987,
+      "descent": 0.213,
+      "postscript": "Lato-Italic"
+    },
+    "bold_italic": {
+      "path": "resources/fonts/certificates/lato/Lato-BoldItalic.ttf",
+      "ascent": 0.987,
+      "descent": 0.213,
+      "postscript": "Lato-BoldItalic"
+    }
+  },
+  "Cormorant Garamond": {
+    "normal": {
+      "path": "resources/fonts/certificates/cormorant/CormorantGaramond-Regular.ttf",
+      "ascent": 0.924,
+      "descent": 0.287,
+      "postscript": "CormorantGaramond-Regular"
+    },
+    "bold": {
+      "path": "resources/fonts/certificates/cormorant/CormorantGaramond-Bold.ttf",
+      "ascent": 0.924,
+      "descent": 0.287,
+      "postscript": "CormorantGaramond-Bold"
+    },
+    "italic": {
+      "path": "resources/fonts/certificates/cormorant/CormorantGaramond-Italic.ttf",
+      "ascent": 0.924,
+      "descent": 0.287,
+      "postscript": "CormorantGaramond-Italic"
+    },
+    "bold_italic": {
+      "path": "resources/fonts/certificates/cormorant/CormorantGaramond-BoldItalic.ttf",
+      "ascent": 0.924,
+      "descent": 0.287,
+      "postscript": "CormorantGaramond-BoldItalic"
+    }
+  }
+}

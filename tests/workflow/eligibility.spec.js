@@ -29,7 +29,7 @@ test('eligibility roster, private review, verified correction and notifications 
     const personalContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const participant = await personalContext.newPage();
     participant.on('pageerror', error => errors.push(error.message));
-    await participant.goto(fixture('notification'));
+    await participant.goto(data.personalUrl);
     await participant.getByRole('button', { name: 'Continue to participant status', exact: true }).click();
     await expect(participant.getByRole('heading', { name: 'Incomplete / Under Review', exact: true })).toBeVisible();
     await expect(participant.getByText('Under Review', { exact: true })).toBeVisible();
@@ -43,6 +43,9 @@ test('eligibility roster, private review, verified correction and notifications 
     expect(await participant.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await participant.screenshot({ path: 'storage/framework/testing/eligibility-participant-mobile-dark.png', fullPage: true });
     await page.goto(`/admin/webinars/${data.webinar}/eligibility/${data.pending}`);
+    await page.locator('[data-noneligible-message-preview] summary').click();
+    await expect(page.locator('[data-noneligible-message-preview]')).toContainText('Post-Test');
+    await expect(page.locator('[data-noneligible-message-preview] a')).toHaveCount(0);
     await page.getByLabel('Decision', { exact: true }).selectOption('approved');
     await page.getByLabel('For approval: verified correction', { exact: true }).selectOption('existing_import');
     await page.getByLabel('Held import issue number (when applying an import)', { exact: true }).fill(String(data.issue));

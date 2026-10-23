@@ -34,6 +34,52 @@ class CertificateSetupTest extends TestCase
         $this->actingAs($this->admin);
     }
 
+    public function test_episode_three_message_is_exact_plain_black_and_white_with_only_the_pdf_attached(): void
+    {
+        $message = <<<'MESSAGE'
+Dear {{participant_name}},
+
+Greetings!
+
+Thank you for participating in our webinar entitled “Episode 3: Digital Integrity: Upholding Ethics in IT Operations” held on October 17, 2026.
+
+We are pleased to share your E-Certificate of Participation as a token of appreciation for your time and support.
+
+Please find your certificate attached to this email.
+
+Thank you, and we hope to see you at our future events!
+
+Best regards, Episode 3 Team
+MESSAGE;
+        $this->artwork();
+        $this->webinar->update(['certificate_email_subject' => 'Preserve the existing certificate subject']);
+        $this->post(route('admin.certification.email', $this->webinar), ['certificate_email_message' => $message])->assertSessionHasNoErrors();
+        $this->assertSame($message, $this->webinar->fresh()->certificate_email_message);
+        $this->assertSame('Preserve the existing certificate subject', $this->webinar->fresh()->certificate_email_subject);
+        $this->webinar->eligibilityRules()->create(['requirement' => 'registration', 'is_required' => true]);
+        $participant = $this->webinar->participants()->create(['email' => 'plain-email@example.test', 'full_name' => 'Synthetic Participant', 'verified_at' => now()]);
+        $certificate = app(CertificateService::class)->issue($participant);
+        $delivery = $certificate->deliveries()->sole();
+        $html = $delivery->payload['html'];
+        preg_match('/<p[^>]*data-certificate-message[^>]*>(.*?)<\/p>/s', $html, $match);
+        $this->assertSame(str_replace('{{participant_name}}', 'Synthetic Participant', $message), html_entity_decode(strip_tags($match[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $this->assertStringNotContainsString('{{participant_name}}', $html);
+        foreach (['<table', '<a ', 'border-radius', 'Verification code', 'Your certificate is ready', 'You received this message because'] as $decoration) {
+            $this->assertStringNotContainsString($decoration, $html);
+        }
+        preg_match_all('/#[a-fA-F0-9]{6}/', $html, $colors);
+        $this->assertEqualsCanonicalizing(['#ffffff', '#000000'], array_unique($colors[0]));
+        $this->assertCount(1, $delivery->payload['attachments']);
+        $this->assertSame('certificate.pdf', $delivery->payload['attachments'][0]['name']);
+        $this->assertSame(Storage::disk('local')->get($certificate->file_path), base64_decode($delivery->payload['attachments'][0]['content']));
+        if ($directory = getenv('CERTIFICATE_QA_DIR')) {
+            if (! is_dir($directory)) {
+                mkdir($directory, 0700, true);
+            }
+            file_put_contents($directory.DIRECTORY_SEPARATOR.'episode3-email.html', $html);
+        }
+    }
+
     private function artwork(): CertificateTemplate
     {
         $file = UploadedFile::fake()->image('certificate.png', 1200, 850);
@@ -168,13 +214,16 @@ class CertificateSetupTest extends TestCase
         $this->assertSame(Storage::disk('local')->get($certificate->file_path), base64_decode($delivery->payload['attachments'][0]['content']));
     }
 
-    public function test_settings_and_test_delivery_keep_password_and_admin_gates(): void
+    public function test_settings_keep_password_confirmation_while_sample_sending_does_not(): void
     {
         config(['security.require_sensitive_action_password_confirmation' => true]);
         $this->post(route('admin.certification.email', $this->webinar), ['certificate_email_subject' => 'Changed'])->assertRedirect(route('admin.password.confirm'));
-        $this->post(route('admin.certification.email-test', $this->webinar), ['test_key' => (string) Str::uuid(), 'confirmed' => '1'])->assertRedirect(route('admin.password.confirm'));
         $this->assertNull($this->webinar->fresh()->certificate_email_subject);
         $this->assertDatabaseCount('email_deliveries', 0);
+        $this->artwork();
+        $this->post(route('admin.certification.email-test', $this->webinar), ['test_key' => (string) Str::uuid(), 'confirmed' => '1'])->assertSessionHas('success');
+        $this->assertDatabaseCount('email_deliveries', 1);
+        $this->assertNull(session('auth.password_confirmed_at'));
         auth()->logout();
         $this->post(route('admin.certification.email-preview', $this->webinar))->assertRedirect(route('login'));
     }

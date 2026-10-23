@@ -16,6 +16,7 @@ class PasswordConfirmationSecurityTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        config(['security.require_sensitive_action_password_confirmation' => true]);
         $this->admin = User::factory()->create([
             'password' => bcrypt('CorrectPassword123!'),
             'two_factor_confirmed_at' => now(),

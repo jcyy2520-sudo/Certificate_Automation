@@ -326,7 +326,7 @@
             <x-account-field name="password" label="New webinar password" type="password" autocomplete="new-password" />
             <x-account-field name="password_confirmation" label="Confirm new webinar password" type="password" autocomplete="new-password" />
         </div>
-        <p class="text-[12px] text-slate-500">Use at least 15 characters. Your account password may be requested to confirm this change.</p>
+        <p class="text-[12px] text-slate-500">Use at least 15 characters.@if(config('security.require_sensitive_action_password_confirmation', true)) Your account password may be requested to confirm this change.@endif</p>
         <button class="button-secondary justify-self-start">Update protection</button>
     </form>
 </section>

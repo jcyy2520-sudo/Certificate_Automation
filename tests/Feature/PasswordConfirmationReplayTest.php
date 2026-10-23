@@ -10,6 +10,7 @@ use App\Models\EmailDelivery;
 use App\Models\Participant;
 use App\Models\User;
 use App\Models\Webinar;
+use App\Services\PendingSensitiveAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
@@ -114,29 +115,25 @@ class PasswordConfirmationReplayTest extends TestCase
             ->assertDontSee('cannot be certified yet');
     }
 
-    public function test_confirming_the_password_completes_the_interrupted_certificate_send(): void
+    public function test_certificate_sending_completes_without_password_reconfirmation(): void
     {
         Storage::fake('local');
         $participant = $this->participant();
         $this->uploadedTemplate();
         $this->visitParticipantPage($participant);
 
-        // The send is gated by the same step-up.
+        // Certificate sending no longer interrupts the owner's selected send.
         $this->approveCertificateFixtures($this->webinar);
         $this->actingAs($this->administrator)
             ->post(route('admin.certificates.issue-selected', $this->webinar), [
                 'participants' => [$participant->public_id],
                 'preview_confirmed' => '1',
             ])
-            ->assertRedirect(route('admin.password.confirm'));
-
-        $this->assertSame(0, Certificate::query()->count());
-
-        $this->actingAs($this->administrator)
-            ->post(route('admin.password.confirm.store'), ['password' => 'CorrectPassword123!'])
             ->assertRedirect(route('admin.certificates.studio', $this->webinar))
             ->assertSessionHas('success');
 
+        $this->assertNull(session('auth.password_confirmed_at'));
+        $this->assertNull(session(PendingSensitiveAction::SESSION_KEY));
         $certificate = Certificate::query()->where('participant_id', $participant->id)->sole();
         $delivery = EmailDelivery::query()->where('certificate_id', $certificate->id)->sole();
         $this->assertSame('me@example.com', $delivery->recipient_email);
@@ -225,18 +222,18 @@ class PasswordConfirmationReplayTest extends TestCase
             session()->forget('auth.password_confirmed_at');
 
             $this->actingAs($this->administrator)
-                ->post(route('admin.certificates.issue-selected', $this->webinar), [
-                    'participants' => [$participant->public_id],
-                    'preview_confirmed' => '1',
+                ->post(route('admin.participants.override', [$this->webinar, $participant]), [
+                    'decision' => 'eligible',
+                    'reason' => 'A confirmed organizer decision for the synthetic fixture.',
                 ])
                 ->assertRedirect(route('admin.password.confirm'));
 
             $this->actingAs($this->administrator)
                 ->post(route('admin.password.confirm.store'), ['password' => 'CorrectPassword123!'])
-                ->assertRedirect(route('admin.certificates.studio', $this->webinar));
+                ->assertRedirect(route('admin.participants.show', [$this->webinar, $participant]));
         }
 
-        $this->assertSame(1, Certificate::query()->where('participant_id', $participant->id)->count());
+        $this->assertSame(3, EligibilityOverride::query()->where('participant_id', $participant->id)->count());
     }
 
     /** An upload cannot be replayed from a session, so it is not remembered. */
