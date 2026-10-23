@@ -1,3 +1,5 @@
+import { webinarRestrictionMessage } from './webinar-access';
+
 export function initFormAvailability(root = document) {
     root.querySelectorAll('[data-availability-form]').forEach((form) => {
         const panel = form.closest('[data-availability-panel]');
@@ -58,9 +60,9 @@ export function initFormAvailability(root = document) {
                 });
 
                 if (!response.ok) {
-                    throw new Error(response.status === 419
+                    throw new Error(await webinarRestrictionMessage(response) || (response.status === 419
                         ? 'Your session expired. Refresh the page and try again.'
-                        : 'The availability change could not be saved.');
+                        : 'The availability change could not be saved.'));
                 }
 
                 render(await response.json());

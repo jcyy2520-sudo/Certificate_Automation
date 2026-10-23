@@ -12,11 +12,13 @@
     <x-slot:meta>
         <div class="mt-3 flex flex-wrap items-center gap-2.5 text-[13px] text-slate-500">
             <span class="badge {{ $webinar->isOpen() ? 'badge-green' : 'badge-slate' }}">{{ $webinar->availabilityLabel() }}</span>
+            @if($webinar->isAdministratorLocked())<span class="badge badge-amber gap-1"><x-icon name="lock" class="size-3" />Admin locked</span>@endif
             <span class="text-slate-300">·</span>
             <span>{{ $webinar->starts_at?->timezone($displayTimezone)->format('M j, Y · g:i A') ?? 'Not scheduled' }}</span>
         </div>
     </x-slot:meta>
     <x-slot:actions>
+        <x-webinar-lock-control :webinar="$webinar" />
         <a class="button-secondary" href="{{ route('admin.webinars.reports', $webinar) }}"><x-icon name="bar-chart" class="size-4" />Reports</a>
         <a class="button-secondary" href="{{ route('admin.webinars.edit', $webinar) }}"><x-icon name="settings" class="size-4" />Settings</a>
     </x-slot:actions>

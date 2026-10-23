@@ -72,6 +72,7 @@
             <div class="webinar-nav-label min-w-0">
                 <p class="truncate text-[14px] font-semibold leading-5 text-slate-900" title="{{ $webinar->title }}">{{ $webinar->title }}</p>
                 <span class="badge mt-1 {{ $webinar->isOpen() ? 'badge-green' : 'badge-slate' }}">{{ $webinar->availabilityLabel() }}</span>
+                @if($webinar->isAdministratorLocked())<span class="badge badge-amber mt-1 gap-1"><x-icon name="lock" class="size-3" />Admin locked</span>@endif
             </div>
         </div>
     </div>

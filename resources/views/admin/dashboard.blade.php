@@ -65,6 +65,7 @@
                             <p class="mt-0.5 text-[12px] text-slate-500 tabular-nums">{{ $webinar->participants_count }} participants · {{ $webinar->certificates_count }} certificates</p>
                         </div>
                         <span class="badge shrink-0 {{ $webinar->isOpen() ? 'badge-green' : 'badge-slate' }}">{{ $webinar->availabilityLabel() }}</span>
+                        @if($webinar->isAdministratorLocked())<span class="badge badge-amber shrink-0">Admin locked</span>@endif
                     </a>
                 @endforeach
             </div>

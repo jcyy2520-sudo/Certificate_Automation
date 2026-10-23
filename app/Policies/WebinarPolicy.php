@@ -9,6 +9,13 @@ class WebinarPolicy
 {
     public function manage(User $user, Webinar $webinar): bool
     {
+        return ($user->isAdministrator() || ! $webinar->isAdministratorLocked())
+            && $this->assigned($user, $webinar);
+    }
+
+    /** Membership is checked separately so unrelated people still receive 404. */
+    public function assigned(User $user, Webinar $webinar): bool
+    {
         return $user->canAccessPlatform()
             && ($user->isAdministrator()
                 || ($user->role === User::USER_ROLE && $user->account_source !== 'admin_invitation' && (int) $webinar->created_by === (int) $user->id)

@@ -42,8 +42,10 @@ immediately. Admin invitations bypass approval and cannot grant Administrator.
 Shared auth fields own error associations,
 password visibility and first-invalid focus. Shared admin confirmations own
 account/protection actions. Approval returns to the resulting account-status
-view. Administrator webinar access is an explicit audited grant. Webinar locks
-are secondary to ownership and do not apply to public participant forms. Email
+view. Administrator webinar access is an explicit audited grant. Webinar password
+protection is secondary to membership. Administrator locks override every
+non-admin management permission, including the regular-user owner's authority,
+and do not change public participant forms. Email
 states describe queue/attempt/provider acceptance, never unverified inbox delivery.
 
 Participant eligibility follows `ELIGIBILITY_FEEDBACK.md`. The existing

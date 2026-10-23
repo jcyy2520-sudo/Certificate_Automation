@@ -17,8 +17,12 @@
             <h1 class="mt-3 page-title">@yield('heading')</h1>
             <p class="mt-4 text-sm text-slate-600">@yield('message')</p>
             <div class="mt-6 flex flex-wrap gap-3">
+                @hasSection('actions')
+                    @yield('actions')
+                @else
                 <a href="{{ route('admin.dashboard') }}" class="button-primary">Open dashboard</a>
                 <a href="{{ route('login') }}" class="button-secondary">Sign in</a>
+                @endif
             </div>
         </section>
     </main>

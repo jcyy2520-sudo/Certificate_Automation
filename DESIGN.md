@@ -18,7 +18,18 @@ Forms → Form Responses → eligibility review → Certificate Studio. A quiet 
 
 ## Visual language
 
-Inter Variable throughout; existing title, section, body and utility sizes. White/slate surfaces in light mode and slate surfaces in dark mode. Accent uses the existing obsidian token scale. Thin table rules, modest existing panel rounding, clear focus rings.
+Inter Variable throughout. The owner-approved 24 October refinement retains
+Certimate's blue logo, obsidian actions, webinar workspace navigation and own
+identity. Stash is a reference for restraint and spacing, not a copied design.
+Light mode uses the existing cool slate canvas (`#f8fafc`), white panels and a
+white navigation rail with a charcoal selected item. Dark mode retains charcoal
+surfaces and high-contrast actions. Panels have 12px corners and fine slate
+borders without decorative shadows. Page titles use 600 weight at
+`clamp(1.65rem, 3vw, 1.9rem)`; section headings are 1.125rem, body/data 0.875rem.
+Shared buttons and fields are 40px on desktop and primary touch controls at least
+44px on phones. Accent tokens and certificate/email artwork remain unchanged.
+The full logo reserves the same 180x50 frame in either theme; the dark icon and
+wordmark scale with that frame instead of shrinking to a separate small lockup.
 
 ## Runtime token ownership
 
@@ -28,9 +39,9 @@ Inter Variable throughout; existing title, section, body and utility sizes. Whit
 
 Existing desktop webinar sidebar and mobile drawer. Four form links are navigation tabs with `aria-current`. Response table owns its horizontal and bounded vertical scrolling; forms use document scrolling. Shared navigation feedback and availability switches retain their current behavior. No new motion.
 
-On screens below 640px, response rows become compact stacked records with the
-participant, submission state and first two answers. Inspect submission exposes
-all fields. Desktop/tablet retain the horizontally scrolling table with a sticky
+On screens below 640px, response rows become labeled stacked records with the
+participant, submission state and every answer. Long values retain their native
+disclosure and Inspect submission remains available. Desktop/tablet retain the horizontally scrolling table with a sticky
 participant column. Long answers use a three-line preview and native details
 control. This is limited to the response data table; eligibility selection keeps
 its existing table behavior. Existing theme and typography tokens are unchanged.

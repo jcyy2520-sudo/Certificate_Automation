@@ -11,7 +11,7 @@
     @include('partials.theme-init')
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
-<body data-app-layout="webinar" class="bg-transparent text-slate-900 dark:text-slate-100">
+<body data-app-layout="webinar" class="bg-slate-50 text-slate-900 dark:text-slate-100">
 <a href="#main-content" class="skip-link">Skip to content</a>
 <div class="min-h-screen">
     <div class="flex min-h-screen">

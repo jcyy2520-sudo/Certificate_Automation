@@ -1,4 +1,5 @@
 import { requestPage } from './navigation-request';
+import { webinarRestrictionMessage } from './webinar-access';
 const mediaType = 'application/vnd.webinar.navigation+json';
 const excluded = /\/(?:login|logout|password|two-factor|unlock|access|export(?:-[a-z]+)?|reconciliation|download|background|status)(?:\/|$)/;
 const forbidden = new Set(['script', 'style', 'iframe', 'object', 'embed', 'base', 'link', 'meta']);
@@ -138,6 +139,7 @@ export function initNavigation(initializePage) {
             if (!response.ok) throw new Error(response.status === 419 || response.status === 401
                 ? 'Your session expired. Your entries are still here. Open sign-in in another tab, then try again.'
                 : response.status === 403 ? 'You no longer have access to this action. Your entries are still here.'
+                    : response.status === 423 ? await webinarRestrictionMessage(response)
                     : `The request could not be completed (${response.status}). Your entries are still here.`);
             if (!response.headers.get('content-type')?.includes(mediaType)) {
                 // Only safe GET transitions may fall back. Never replay a mutation.

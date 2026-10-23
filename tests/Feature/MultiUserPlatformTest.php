@@ -132,7 +132,12 @@ class MultiUserPlatformTest extends TestCase
             }
             // Each ownership check gets its own rate-limit window.
             $this->travel(61)->seconds();
-            $this->call($route->methods()[0], route($route->getName(), $params), [])->assertNotFound();
+            $response = $this->call($route->methods()[0], route($route->getName(), $params), []);
+            if ($route->getName() === 'admin.webinars.lock') {
+                $response->assertForbidden();
+            } else {
+                $response->assertNotFound();
+            }
             $checked++;
         }
         $this->assertGreaterThan(40, $checked);

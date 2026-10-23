@@ -33,7 +33,13 @@ class AuthorizeWebinarManagement
             return $next($request);
         }
         // Run before any password prompt, controller, download or export.
-        abort_unless(Gate::allows('manage', $webinar), 404);
+        if (! Gate::allows('manage', $webinar)) {
+            if ($webinar->isAdministratorLocked()
+                && app(WebinarPolicy::class)->assigned($request->user(), $webinar)) {
+                abort(423, 'Access to this webinar has been restricted by an administrator. Contact your administrator if you need access.');
+            }
+            abort(404);
+        }
         if (! $request->user()->isAdministrator()
             && ! ($request->user()->role === User::USER_ROLE && $request->user()->account_source !== 'admin_invitation' && (int) $webinar->created_by === (int) $request->user()->id)) {
             $policy = app(WebinarPolicy::class);

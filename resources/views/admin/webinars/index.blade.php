@@ -2,7 +2,7 @@
 @section('title', 'Webinars')
 @section('content')
 
-<x-page-header title="Webinars" :crumbs="['Dashboard' => route('admin.dashboard')]">
+<x-page-header title="Webinars" :crumbs="['Dashboard' => route('admin.dashboard')]" subtitle="Manage your events, responses and certificates.">
     <x-slot:actions>
         @if(auth()->user()->canCreateWebinars())<a class="button-primary" href="{{ route('admin.webinars.create') }}"><x-icon name="plus" class="size-4" />New webinar</a>@endif
     </x-slot:actions>
@@ -36,21 +36,33 @@
 <div class="panel overflow-hidden">
     <div class="divide-y divide-slate-100">
         @forelse($webinars as $webinar)
-            <a href="{{ route('admin.webinars.show', $webinar) }}" class="flex flex-col gap-3 px-5 py-4 transition hover:bg-slate-50 sm:flex-row sm:items-center sm:justify-between">
+            @php $restricted = $webinar->isAdministratorLocked() && ! auth()->user()->isAdministrator(); @endphp
+            <div class="webinar-list-row flex flex-col gap-4 px-5 py-5 lg:flex-row lg:items-center" data-webinar-row="{{ $webinar->id }}">
+                @if($restricted)
+                    <div class="min-w-0 flex-1">
+                        <div class="flex flex-wrap items-center gap-2.5"><p class="text-sm font-medium break-words">{{ $webinar->title }}</p><span class="badge badge-amber gap-1"><x-icon name="lock" class="size-3" />Admin locked</span></div>
+                        <p class="mt-1.5 text-[13px] text-slate-500">Access has been restricted by an administrator.</p>
+                    </div>
+                @else
+                <a href="{{ route('admin.webinars.show', $webinar) }}" class="flex min-w-0 flex-1 flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div class="min-w-0">
-                    <div class="flex items-center gap-2.5">
-                        <p class="truncate text-sm font-medium">{{ $webinar->title }}</p>
+                    <div class="flex flex-wrap items-center gap-2.5">
+                        <p class="text-sm font-medium break-words">{{ $webinar->title }}</p>
                         <span class="badge shrink-0 {{ $webinar->isOpen() ? 'badge-green' : 'badge-slate' }}">{{ $webinar->availabilityLabel() }}</span>
+                        @if($webinar->isAdministratorLocked())<span class="badge badge-amber gap-1"><x-icon name="lock" class="size-3" />Admin locked</span>@endif
                     </div>
                     <p class="mt-1 truncate text-[13px] text-slate-500">{{ $webinar->description ?: 'No description yet.' }}</p>
                     @if(auth()->user()->isAdministrator())<p class="mt-1 text-[12px] text-slate-500">Owner: {{ $webinar->creator?->name ?? 'Owner unavailable' }}</p>@endif
                 </div>
-                <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-slate-500 tabular-nums sm:shrink-0 sm:gap-6">
+                <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-slate-500 tabular-nums sm:shrink-0 sm:gap-5">
                     <span><strong class="font-semibold text-slate-900">{{ $webinar->participants_count }}</strong> participants</span>
                     <span><strong class="font-semibold text-slate-900">{{ $webinar->certificates_count }}</strong> certificates</span>
                     <span class="sm:w-24 sm:text-right">{{ $webinar->starts_at?->format('M j, Y') ?? 'No date' }}</span>
                 </div>
-            </a>
+                </a>
+                @endif
+                <x-webinar-lock-control :webinar="$webinar" />
+            </div>
         @empty
             <div class="px-5 py-16 text-center">
                 @if(request('availability'))

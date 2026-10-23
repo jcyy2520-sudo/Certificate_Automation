@@ -36,7 +36,7 @@ class WebinarController extends Controller
     {
         $webinars = Webinar::query()
             ->visibleTo($request->user())
-            ->select(['id', 'created_by', 'title', 'description', 'status', 'starts_at', 'created_at'])
+            ->select(['id', 'created_by', 'title', 'description', 'status', 'starts_at', 'created_at', 'admin_locked_at'])
             ->with('creator:id,name')
             ->when($request->filled('search'), fn ($q) => $q->whereRaw('LOWER(title) LIKE ?', ['%'.Str::lower(mb_substr((string) $request->query('search'), 0, 180)).'%']))
             ->when($request->user()->isAdministrator() && $request->filled('owner'), fn ($q) => $q->where('created_by', $request->integer('owner')))

@@ -11,9 +11,9 @@
 
 <div class="mobile-nav-overlay lg:hidden" data-mobile-rail-overlay aria-hidden="true"></div>
 <aside id="mobile-primary-navigation" class="mobile-nav-drawer lg:hidden" data-mobile-rail-drawer aria-label="Primary navigation" aria-hidden="true" inert>
-    <div class="flex h-[68px] shrink-0 items-center justify-between border-b border-slate-800 px-5">
-        <x-brand inverse />
-        <button type="button" class="mobile-header-button text-slate-300 hover:bg-slate-800 hover:text-white" data-mobile-rail-close aria-label="Close navigation">
+    <div class="flex h-[68px] shrink-0 items-center justify-between border-b border-slate-200 px-5 dark:border-slate-800">
+        <x-brand navigation />
+        <button type="button" class="mobile-header-button" data-mobile-rail-close aria-label="Close navigation">
             <x-icon name="x" class="size-5" />
         </button>
     </div>
@@ -22,15 +22,15 @@
         @include('partials.admin-primary-links', ['mobile' => true])
     </nav>
 
-    <div class="shrink-0 border-t border-slate-800 p-3">
+    <div class="shrink-0 border-t border-slate-200 p-3 dark:border-slate-800">
         <button type="button" class="mobile-rail-item w-full" data-theme-toggle>
             <x-icon name="sun" class="hidden text-amber-400 dark:block" />
             <x-icon name="moon" class="block dark:hidden" />
             <span><span class="block dark:hidden">Dark mode</span><span class="hidden dark:block">Light mode</span></span>
         </button>
         <div class="mt-3 flex items-center gap-3 px-3">
-            <span class="grid size-9 shrink-0 place-items-center rounded-full bg-slate-800 text-[13px] font-semibold text-slate-200">{{ Str::upper(Str::substr(auth()->user()->name, 0, 1)) }}</span>
-            <span class="min-w-0 text-[13px] font-medium leading-4 text-white">{{ Str::limit(auth()->user()->name, 18) }}<span class="block truncate text-[11px] font-normal text-slate-400">{{ Str::limit(auth()->user()->email, 22) }}</span></span>
+            <span class="grid size-9 shrink-0 place-items-center rounded-full bg-slate-100 text-[13px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-200">{{ Str::upper(Str::substr(auth()->user()->name, 0, 1)) }}</span>
+            <span class="min-w-0 text-[13px] font-medium leading-4 text-slate-900 dark:text-white">{{ Str::limit(auth()->user()->name, 18) }}<span class="block truncate text-[11px] font-normal text-slate-500 dark:text-slate-400">{{ Str::limit(auth()->user()->email, 22) }}</span></span>
         </div>
         <form method="POST" action="{{ route('admin.logout') }}" class="mt-2">
             @csrf

@@ -1,3 +1,5 @@
+import { webinarRestrictionMessage } from './webinar-access';
+
 /** Certificate Studio: shared selection, live design, drag, zoom and delivery tracking. */
 export function clamp(n, lo, hi) {
     return Math.max(lo, Math.min(hi, n));
@@ -759,6 +761,12 @@ export function initCertificateEditor(root = document, signal) {
             if (response.status === 304) {
                 pollDelay = Math.min(Math.round(pollDelay * 2), 30000);
                 schedulePoll();
+                return;
+            }
+            if (response.status === 423) {
+                const message = await webinarRestrictionMessage(response);
+                const notice = $('[data-recipient-refresh-error]');
+                if (notice) { notice.textContent = message; notice.hidden = false; }
                 return;
             }
             if (!response.ok) { schedulePoll(); return; }

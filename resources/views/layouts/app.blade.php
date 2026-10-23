@@ -11,7 +11,7 @@
     @include('partials.theme-init')
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
-<body data-app-layout="app" class="bg-transparent text-slate-900 dark:text-slate-100">
+<body data-app-layout="app" class="bg-slate-50 text-slate-900 dark:text-slate-100">
 <a href="#main-content" class="skip-link">Skip to content</a>
 <div class="min-h-screen">
     @include('partials.admin-mobile-header')

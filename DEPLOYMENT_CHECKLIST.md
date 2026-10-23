@@ -1,5 +1,13 @@
 # Authoritative Production Deployment Runbook
 
+> **24 October UI/lock release:** The current owner-approved Render Free update
+> is described in [READINESS_2026_10_24.md](READINESS_2026_10_24.md). Its sole new
+> migration adds nullable administrator webinar-lock metadata. Use a fresh
+> encrypted backup and matching PostgreSQL rehearsal, preserve all existing
+> records and keys, and never repeat the previous clean-launch deletion.
+> The owner accepts Free sleep/wake behavior; the stricter operational profile
+> below remains a separate acceptance standard.
+
 This is the **only end-to-end production deployment path** for the Webinar Platform. It supersedes abbreviated deployment sequences elsewhere in this repository. [`deploy/README.md`](deploy/README.md) is only an index of repository templates and verification helpers.
 
 This runbook is operational guidance, not authorization to change infrastructure during repository preparation. In particular, a local SQLite result never substitutes for the separate disposable PostgreSQL migration proof.

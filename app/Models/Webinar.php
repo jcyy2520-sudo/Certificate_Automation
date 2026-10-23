@@ -15,7 +15,7 @@ class Webinar extends Model
 
     use HasFactory;
 
-    protected $guarded = ['id', 'retention_due_at', 'deletion_started_at'];
+    protected $guarded = ['id', 'retention_due_at', 'deletion_started_at', 'admin_locked_at', 'admin_locked_by'];
 
     protected $hidden = ['management_password', 'management_lock_version'];
 
@@ -29,6 +29,17 @@ class Webinar extends Model
                 $q->orWhere('created_by', $user->id);
             }
         }));
+    }
+
+    public function scopeManageableBy($query, User $user)
+    {
+        return $query->visibleTo($user)
+            ->when(! $user->isAdministrator(), fn ($q) => $q->whereNull('admin_locked_at'));
+    }
+
+    public function isAdministratorLocked(): bool
+    {
+        return $this->admin_locked_at !== null;
     }
 
     protected static function booted(): void
@@ -63,6 +74,7 @@ class Webinar extends Model
             'registration_opens_at' => 'datetime', 'registration_closes_at' => 'datetime',
             'retention_due_at' => 'datetime', 'deletion_started_at' => 'datetime',
             'archived_at' => 'datetime', 'requires_verification' => 'boolean', 'settings' => 'array',
+            'admin_locked_at' => 'datetime', 'admin_locked_by' => 'integer',
         ];
     }
 

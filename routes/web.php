@@ -15,6 +15,7 @@ use App\Http\Controllers\Admin\ParticipantMessageController;
 use App\Http\Controllers\Admin\UserManagementController;
 use App\Http\Controllers\Admin\WebinarController as AdminWebinarController;
 use App\Http\Controllers\Admin\WebinarDocumentController;
+use App\Http\Controllers\Admin\WebinarLockController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CertificateVerificationController;
 use App\Http\Controllers\DashboardController;
@@ -92,6 +93,7 @@ Route::middleware(['auth', EnsureApprovedAccount::class, 'auth.session', EnsureT
         Route::put('/users/{user}/access', [UserManagementController::class, 'access'])->middleware([EnsureAdministrator::class, EnsureRecentPassword::class, 'throttle:admin-sensitive'])->name('users.access');
         Route::get('/webinar-access/{webinar}', [WebinarAccessController::class, 'administrative'])->middleware(EnsureAdministrator::class)->withoutMiddleware(AuthorizeWebinarManagement::class)->name('webinars.administrative-access');
         Route::post('/webinar-access/{webinar}', [WebinarAccessController::class, 'authorizeAccess'])->middleware([EnsureAdministrator::class, EnsureRecentPassword::class])->withoutMiddleware(AuthorizeWebinarManagement::class)->name('webinars.administrative-access.store');
+        Route::patch('/webinars/{webinar}/administrator-lock', [WebinarLockController::class, 'update'])->middleware([EnsureAdministrator::class, EnsureRecentPassword::class, 'throttle:admin-sensitive'])->withoutMiddleware(AuthorizeWebinarManagement::class)->name('webinars.lock');
         Route::get('/webinars/{webinar}/unlock', [WebinarAccessController::class, 'unlock'])->name('webinars.unlock');
         Route::post('/webinars/{webinar}/unlock', [WebinarAccessController::class, 'store'])->middleware('throttle:webinar-unlock')->name('webinars.unlock.store');
         Route::put('/webinars/{webinar}/protection', [WebinarAccessController::class, 'protection'])->middleware(EnsureRecentPassword::class)->name('webinars.protection');

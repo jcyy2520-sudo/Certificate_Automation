@@ -1,5 +1,10 @@
 # Production readiness review — final verification, 22 October 2026
 
+> **24 October continuation:** The current UI refinement and administrator-lock
+> release, including the owner-accepted Render Free limits, is documented in
+> [READINESS_2026_10_24.md](READINESS_2026_10_24.md). The dated decisions below are
+> historical and do not replace the current explicit deployment authorization.
+
 > **23 October continuation:** This document below is historical. Current source,
 > exact-file accuracy, hosted MFA/password-policy exceptions, Brevo IP repair and
 > Certimate branding are recorded in [READINESS_2026_10_23.md](READINESS_2026_10_23.md).

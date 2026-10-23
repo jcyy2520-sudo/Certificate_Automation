@@ -70,6 +70,7 @@
                 <x-icon name="chevron-right" class="size-3.5 shrink-0 text-slate-300" />
                 <span class="shrink-0 text-[13px] font-semibold text-slate-900">Certificate studio</span>
             </nav>
+            @if($webinar->isAdministratorLocked())<span class="badge badge-amber shrink-0 gap-1"><x-icon name="lock" class="size-3" />Admin locked</span>@endif
             {{-- Honest state: nothing here is persisted until the send is confirmed. --}}
             <span class="studio-state-pill hidden sm:inline-flex" data-adjust-indicator title="Adjustments made here are applied to the selected recipients when you send.">
                 <span class="size-2 shrink-0 rounded-full bg-slate-300" data-adjust-dot></span>

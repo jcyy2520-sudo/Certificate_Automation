@@ -29,6 +29,8 @@ class ParticipantEligibilityController extends Controller
     {
         $data = $request->validate(['webinar' => ['required', 'integer', 'min:1']]);
         $webinar = Webinar::query()->visibleTo($request->user())->findOrFail($data['webinar']);
+        abort_if(! $request->user()->isAdministrator() && $webinar->isAdministratorLocked(), 423,
+            'Access to this webinar has been restricted by an administrator. Contact your administrator if you need access.');
         abort_unless(app(WebinarPolicy::class)->permission($request->user(), $webinar, 'manage_participants'), 403);
 
         return redirect()->route('admin.webinars.eligibility.index', $webinar);
@@ -70,7 +72,7 @@ class ParticipantEligibilityController extends Controller
         foreach ($participants as $participant) {
             $participant->feedback = $feedback->summary($participant);
         }
-        $webinars = Webinar::query()->visibleTo($request->user())->where('creation_mode', 'standard')->orderBy('title')->get(['id', 'title', 'created_by'])
+        $webinars = Webinar::query()->manageableBy($request->user())->where('creation_mode', 'standard')->orderBy('title')->get(['id', 'title', 'created_by', 'admin_locked_at'])
             ->filter(fn ($w) => app(WebinarPolicy::class)->permission($request->user(), $w, 'manage_participants'));
 
         return view('admin.webinars.eligibility.index', ['webinar' => $webinar, 'participants' => $participants, 'webinars' => $webinars, 'filters' => $data]);

@@ -1,5 +1,24 @@
 import { test, expect } from '@playwright/test';
 
+test('full logo keeps the same size when switching between light and dark themes', async ({ page }) => {
+    for (const width of [320, 390, 768, 1280]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto('/admin/login');
+        const sizes = [];
+        for (const theme of ['light', 'dark']) {
+            await page.evaluate(value => document.documentElement.classList.toggle('dark', value === 'dark'), theme);
+            await page.evaluate(() => document.fonts.ready);
+            const brand = page.locator('[data-brand="full"]');
+            const box = await brand.boundingBox();
+            sizes.push(box);
+            expect(box.x).toBeGreaterThanOrEqual(0);
+            expect(box.x + box.width).toBeLessThanOrEqual(width);
+        }
+        expect(Math.abs(sizes[0].width - sizes[1].width)).toBeLessThanOrEqual(1);
+        expect(Math.abs(sizes[0].height - sizes[1].height)).toBeLessThanOrEqual(1);
+    }
+});
+
 test('official Certimate artwork, browser icons and sign-in branding fit light and dark mobile layouts', async ({ page }) => {
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));

@@ -47,7 +47,8 @@ test('adaptive XLSX preview, extra columns, full answers and responsive records 
         await page.setViewportSize({ width, height: 844 });
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
         await expect(page.getByRole('link', { name: 'Inspect submission', exact: true })).toBeVisible();
-        await expect(page.locator('.response-answer-cell').nth(2)).not.toBeVisible();
+        await expect(page.locator('.response-answer-cell').nth(2)).toBeVisible();
+        await expect(page.locator('.response-answer-cell').last()).toBeVisible();
         await page.screenshot({ path: `storage/framework/testing/adaptive-mobile-${width}-dark.png`, fullPage: true });
     }
     await page.getByRole('link', { name: 'Inspect submission', exact: true }).click();

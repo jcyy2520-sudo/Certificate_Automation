@@ -1,4 +1,5 @@
 import { buildNode } from './navigation';
+import { webinarRestrictionMessage } from './webinar-access';
 
 /** Refresh only the roster; keep the open certificate and per-person designs. */
 export function initStudioRecipients(root = document, signal) {
@@ -70,7 +71,9 @@ export function initStudioRecipients(root = document, signal) {
         try {
             const response = await fetch(url, { method: 'POST', body: params, credentials: 'same-origin', cache: 'no-store', signal: controller.signal,
                 headers: { Accept: 'text/html', 'X-Frontend-Navigation': '1' } });
-            if (!response.ok || !response.headers.get('content-type')?.includes('application/vnd.webinar.navigation+json')) throw new Error('Recipient list could not be refreshed. Try Refresh recipients.');
+            if (!response.ok || !response.headers.get('content-type')?.includes('application/vnd.webinar.navigation+json')) {
+                throw new Error(await webinarRestrictionMessage(response) || 'Recipient list could not be refreshed. Try Refresh recipients.');
+            }
             const body = await response.json();
             if (body.boundary || !body.body) throw new Error('Your session or webinar access needs attention. Sign in or unlock the webinar, then refresh recipients.');
             if (current !== generation || signal?.aborted) return;
