@@ -109,7 +109,7 @@ Configuration (all examples are placeholders/budgets, not provider plan claims):
 | `ACCOUNT_EMAIL_QUEUE` | account-emails | Priority account queue |
 | `WEBINAR_UNLOCK_MINUTES` | 120 | Owner management unlock duration |
 | `EMAIL_SENDS_PER_MINUTE` | 30 | Shared attempted-send budget |
-| `EMAIL_SENDS_PER_DAY` | 0 | Optional shared rolling 24-hour budget; 0 disables |
+| `EMAIL_SENDS_PER_DAY` | 300 | Shared UTC calendar-day budget; the Free safety ceiling is 300, including when zero is configured |
 
 Set budgets below the actual provider/account allowance with operational
 headroom. Production needs the existing shared Redis/cache-lock requirements;
@@ -120,7 +120,7 @@ attempts have a separate bounded count. HTTP 429 uses a shared cooldown and queu
 release rather than sleeping past the job timeout. Permanent provider errors fail
 without transport retry. Exhausted credits pause new sends for an hour and leave
 failed deliveries visible for explicit retry after credits are restored. A local
-daily-budget failure similarly requires retry after the rolling budget resets.
+daily-budget failure similarly requires retry after the UTC calendar-day budget resets.
 Certificate resend remains explicitly confirmed; account invitation resend
 generates a new token rather than reusing an expired setup email.
 

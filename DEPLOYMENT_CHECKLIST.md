@@ -1,5 +1,18 @@
 # Authoritative Production Deployment Runbook
 
+> **24 October guided-import release:** The owner now authorizes the completed
+> review, publication and deployment to the existing free services, with no paid
+> change. See [READINESS_GUIDED_IMPORTS_2026_10_24.md](READINESS_GUIDED_IMPORTS_2026_10_24.md).
+> This release adds only `000200_create_unattributed_responses_table` and
+> `000300_create_import_mapping_profiles_table`, both dated2026_10_24:44 to46
+> migrations. Require fresh encrypted database/private-object/runtime recovery,
+> a matching disposable PostgreSQL restore/upgrade/rollback/reapply, preserved
+> original table/schema/sequence values, and the exact tested source SHA. Keep
+> `RUN_MIGRATIONS=false`; apply only those two migrations through the reviewed
+> guarded operation. Never repeat the historical clean-launch cleanup or transfer
+> the owner's private test workbooks to the live application. Controlled account
+> and delivery verification uses separate tagged test records after deployment.
+
 > **24 October UI/lock release:** The current owner-approved Render Free update
 > is described in [READINESS_2026_10_24.md](READINESS_2026_10_24.md). Its sole new
 > migration adds nullable administrator webinar-lock metadata. Use a fresh

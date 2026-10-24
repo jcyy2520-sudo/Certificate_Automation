@@ -25,7 +25,8 @@ class CertimateBrandingTest extends TestCase
     {
         $response = $this->get(route('login'))->assertOk();
         $response->assertSee('<title>Sign in — Certimate</title>', false)
-            ->assertSee('/brand/certimate-wordmark.webp', false)->assertSee('/brand/certimate-wordmark.png', false)
+            ->assertSee('/brand/certimate-mark.webp', false)->assertSee('/brand/certimate-mark.png', false)
+            ->assertSee('class="brand-name', false)->assertDontSee('/brand/certimate-wordmark.', false)
             ->assertSee('/favicon-32x32.png', false)->assertSee('/favicon-16x16.png', false)
             ->assertSee('/apple-touch-icon.png', false)->assertSee('/site.webmanifest', false)
             ->assertDontSee('Historical infrastructure label');
@@ -38,9 +39,9 @@ class CertimateBrandingTest extends TestCase
         $owner = User::factory()->create(['role' => User::USER_ROLE]);
         $webinar = Webinar::factory()->create(['created_by' => $owner->id, 'title' => 'Synthetic brand event']);
         $this->actingAs($owner)->get(route('admin.dashboard'))->assertOk()->assertSee('Certimate')
-            ->assertSee('/brand/certimate-icon.webp', false)->assertDontSee('Historical infrastructure label');
+            ->assertSee('/brand/certimate-mark.webp', false)->assertDontSee('Historical infrastructure label');
         $response = $this->get(route('admin.webinars.show', $webinar))->assertOk()->assertSee(' — Certimate</title>', false)
-            ->assertSee('/brand/certimate-icon.png', false)->assertSee('/site.webmanifest', false);
+            ->assertDontSee('data-brand=', false)->assertSee('/site.webmanifest', false);
         $this->assertStringContainsString('Synthetic brand event', $response->getContent());
     }
 
@@ -49,9 +50,9 @@ class CertimateBrandingTest extends TestCase
         $webinar = Webinar::factory()->create(['requires_verification' => false]);
         $form = $webinar->forms()->create(['type' => 'registration', 'title' => 'Synthetic form', 'status' => 'published']);
         $this->get($form->shareUrl())->assertOk()->assertSee(' — Certimate</title>', false)
-            ->assertSee('/brand/certimate-wordmark.webp', false)->assertDontSee('href="'.route('admin.dashboard').'"', false);
+            ->assertDontSee('data-brand=', false)->assertDontSee('href="'.route('admin.dashboard').'"', false);
         $this->get('/synthetic-brand-page-not-found')->assertNotFound()->assertSee(' — Certimate</title>', false)
-            ->assertSee('/brand/certimate-wordmark.webp', false)->assertSee('/favicon-32x32.png', false);
+            ->assertDontSee('data-brand=', false)->assertSee('/favicon-32x32.png', false);
     }
 
     public function test_activation_copy_and_account_email_header_use_certimate_without_sending(): void

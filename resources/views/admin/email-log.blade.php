@@ -55,7 +55,7 @@
 @endif
 <div class="panel overflow-hidden">
     <div class="overflow-x-auto">
-        <table class="w-full min-w-[800px] text-left text-sm">
+        <table class="record-table delivery-table w-full min-w-[800px] text-left text-sm">
             <thead class="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-[0.06em] text-slate-500">
                 <tr>
                     <th class="px-5 py-3 font-semibold">Queued</th>
@@ -88,11 +88,11 @@
                         <td class="px-5 py-3 font-mono text-[12px] text-slate-700">{{ \App\Http\Controllers\Admin\EmailDeliveryController::maskRecipient($delivery->recipient_email) }}</td>
                         <td class="px-5 py-3 font-mono text-[12px] text-slate-600">{{ $delivery->certificate?->verification_code ?? '—' }}</td>
                         <td class="px-5 py-3"><span class="badge badge-slate">{{ $attemptLabel }}</span></td>
-                        <td class="max-w-[28ch] truncate px-5 py-3 text-slate-600" title="{{ $delivery->subject }}">{{ $delivery->subject ?? '—' }}</td>
+                        <td class="min-w-48 max-w-[36ch] whitespace-normal break-words px-5 py-3 text-slate-600">{{ $delivery->subject ?? '—' }}</td>
                         <td class="px-5 py-3"><span class="badge {{ in_array($delivery->delivery_outcome, ['hard_bounce', 'blocked', 'invalid', 'error']) ? 'badge-red' : ($statusBadges[$delivery->status] ?? 'badge-slate') }}">{{ $delivery->statusLabel() }}</span></td>
                         <td class="px-5 py-3 tabular-nums text-slate-600">{{ $delivery->attempts ?? 0 }}</td>
                         <td class="max-w-[34ch] px-5 py-3 text-[12px] text-slate-500">
-                            <p class="truncate" title="{{ $detail }}">{{ $detail ?: '—' }}</p>
+                            <p class="whitespace-normal break-words">{{ $detail ?: '—' }}</p>
                             @if($delivery->provider === 'brevo' && $delivery->status === 'sent' && $delivery->provider_message_id && !str_starts_with($delivery->provider_message_id, 'idempotent-duplicate:'))
                             <form method="POST" action="{{ $webinar ? route('admin.webinars.email-logs.status', [$webinar, $delivery->public_id]) : route('admin.email-logs.status', $delivery->public_id) }}" class="mt-2">@csrf<button class="button-secondary">Check delivery</button></form>
                             @if($delivery->delivery_checked_at)<p class="mt-2 text-xs">Checked {{ $delivery->delivery_checked_at->diffForHumans() }}</p>@endif

@@ -50,7 +50,7 @@ test('populated lists, forms, uploads and Studio fit phones through wide desktop
     const routes = ['/admin/webinars', `/admin/webinars/${fixture.webinar}/responses`, `/admin/webinars/${fixture.webinar}/participants`, `/admin/webinars/${fixture.webinar}/certification`, `/admin/webinars/${fixture.webinar}/documents`, `/admin/webinars/${fixture.webinar}/certificates/studio`];
     for (const theme of ['light', 'dark']) {
         await page.evaluate(theme => localStorage.setItem('theme', theme), theme);
-        for (const width of [320, 390, 640, 768, 1024, 1280, 1920]) {
+        for (const width of [320, 390, 640, 768, 1024, 1280, 1920, 2560, 3840]) {
             await page.setViewportSize({ width, height: 900 });
             for (const route of routes) {
                 expect((await page.goto(route)).status(), `${route} ${width} ${theme}`).toBe(200);

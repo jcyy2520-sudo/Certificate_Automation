@@ -33,8 +33,11 @@ class WebinarDocumentController extends Controller
     {
         $data = $request->validate([
             'title' => ['required', 'string', 'max:180'],
-            'file' => ['required', 'file', 'max:8192', 'mimes:pdf,docx,png,jpg,jpeg', 'extensions:pdf,docx,png,jpg,jpeg'],
+            // Office packages can be detected as ZIP; their extensions and contents are checked below.
+            'file' => ['required', 'file', 'max:8192', 'mimes:xlsx,pdf,docx,png,jpg,jpeg,zip', 'extensions:xlsx,pdf,docx,png,jpg,jpeg'],
             'version' => [$document ? 'required' : 'sometimes', 'integer', 'min:1'],
+        ], [
+            'file.mimes' => 'Upload an Excel (.xlsx), PDF, DOCX, PNG or JPG file.',
         ]);
         $file = $request->file('file');
         $extension = strtolower($file->getClientOriginalExtension());
@@ -44,26 +47,41 @@ class WebinarDocumentController extends Controller
             'png' => ['image/png'],
             'jpg', 'jpeg' => ['image/jpeg'],
             'docx' => ['application/zip', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+            'xlsx' => ['application/zip', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
             default => [],
         };
         if (! in_array($detectedMime, $allowedMimes, true)) {
             throw ValidationException::withMessages(['file' => 'The file content does not match an allowed document type.']);
         }
-        if ($extension === 'docx') {
+        if (in_array($extension, ['docx', 'xlsx'], true)) {
+            $label = strtoupper($extension);
             $zip = new \ZipArchive;
             if ($zip->open($file->getRealPath()) !== true) {
-                throw ValidationException::withMessages(['file' => 'Upload a valid DOCX document.']);
+                throw ValidationException::withMessages(['file' => 'Upload a valid '.$label.' document.']);
             }
             try {
                 $size = 0;
-                $valid = $zip->locateName('[Content_Types].xml') !== false && $zip->locateName('word/document.xml') !== false && $zip->numFiles <= 2000;
+                $mainPart = $extension === 'xlsx' ? 'xl/workbook.xml' : 'word/document.xml';
+                $valid = $zip->locateName('[Content_Types].xml') !== false && $zip->locateName($mainPart) !== false && $zip->numFiles <= 2000;
                 for ($i = 0; $i < $zip->numFiles && $valid; $i++) {
                     $entry = $zip->statIndex($i);
                     $size += $entry['size'];
                     $valid = $size <= 32 * 1024 * 1024 && ! preg_match('/(?:vbaProject|embeddings\/|\.\.\/)/i', $entry['name']);
+                    if ($extension === 'xlsx' && $valid) {
+                        $name = str_replace('\\', '/', $entry['name']);
+                        $valid = ! str_contains($name, '../') && ! str_starts_with($name, '/') && ! str_contains($name, ':')
+                            && ! preg_match('#(?:^|/)(?:macrosheets|activeX|externalLinks|embeddings)(?:/|$)#i', $name);
+                        if ($valid && preg_match('/\.(xml|rels)$/i', $name)) {
+                            $xml = $zip->getFromIndex($i);
+                            $valid = $xml !== false && ! preg_match('/<!DOCTYPE|<!ENTITY/i', $xml);
+                        }
+                    }
+                }
+                if ($valid && $extension === 'xlsx') {
+                    $valid = $this->isPlainWorkbook($zip);
                 }
                 if (! $valid) {
-                    throw ValidationException::withMessages(['file' => 'This DOCX is invalid, too large when expanded, or contains embedded active content. Upload a plain document or PDF.']);
+                    throw ValidationException::withMessages(['file' => 'This '.$label.' is invalid, too large when expanded, or contains embedded active content. Upload a plain document or PDF.']);
                 }
             } finally {
                 $zip->close();
@@ -98,6 +116,39 @@ class WebinarDocumentController extends Controller
         $audit->record($request, $document ? 'webinar-document.replaced' : 'webinar-document.uploaded', $webinar);
 
         return redirect()->route('admin.webinars.documents.index', $webinar)->with('success', $document ? 'Document replaced. The previous file is retained privately until webinar deletion.' : 'Document uploaded.');
+    }
+
+    private function isPlainWorkbook(\ZipArchive $zip): bool
+    {
+        $types = new \DOMDocument;
+        $typesXml = $zip->getFromName('[Content_Types].xml');
+        if ($typesXml === false || $typesXml === '' || ! $types->loadXML($typesXml, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING)) {
+            return false;
+        }
+        $xpath = new \DOMXPath($types);
+        $xpath->registerNamespace('t', 'http://schemas.openxmlformats.org/package/2006/content-types');
+        $mainType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml';
+        if ($xpath->query('/t:Types/t:Override[@PartName="/xl/workbook.xml" and @ContentType="'.$mainType.'"]')->length !== 1) {
+            return false;
+        }
+        foreach ($xpath->query('/t:Types/*/@ContentType') as $type) {
+            if (preg_match('/macroEnabled|vbaProject|macrosheet|activeX|oleObject/i', $type->nodeValue)) {
+                return false;
+            }
+        }
+        $workbook = new \DOMDocument;
+        $workbookXml = $zip->getFromName('xl/workbook.xml');
+        if ($workbookXml === false || $workbookXml === '' || ! $workbook->loadXML($workbookXml, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING)) {
+            return false;
+        }
+        $namespace = $workbook->documentElement?->namespaceURI;
+        if (! in_array($namespace, ['http://schemas.openxmlformats.org/spreadsheetml/2006/main', 'http://purl.oclc.org/ooxml/spreadsheetml/main'], true)) {
+            return false;
+        }
+        $xpath = new \DOMXPath($workbook);
+        $xpath->registerNamespace('s', $namespace);
+
+        return $xpath->query('/s:workbook/s:sheets/s:sheet')->length > 0;
     }
 
     public function download(Webinar $webinar, WebinarDocument $document)

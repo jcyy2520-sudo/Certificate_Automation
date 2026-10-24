@@ -97,6 +97,24 @@ final class XlsxNumberFormats
                         throw new RuntimeException('The workbook contains ambiguous cell positions. Export the response sheet as UTF-8 CSV.');
                     }
                     $columnNumber = $column;
+                    if ($type === 'str') {
+                        $cell = $this->xml($reader->readOuterXml());
+                        if ($cell->xpath('./*[local-name()="f"]') === []) {
+                            $raw = (string) ($cell->xpath('./*[local-name()="v"]')[0] ?? '');
+                            // OpenSpout trims t="str" values before decoding escapes.
+                            // Restore only that padding; retain its decoded literal core.
+                            $leading = strlen($raw) - strlen(ltrim($raw));
+                            $rest = substr($raw, $leading);
+                            $trailing = strlen($rest) - strlen(rtrim($rest));
+                            if ($leading > 0 || $trailing > 0) {
+                                $cells[$rowNumber][$column - 1] = ['text_padding' => [
+                                    substr($raw, 0, $leading), $trailing === 0 ? '' : substr($rest, -$trailing),
+                                ]];
+                            }
+                        }
+
+                        continue;
+                    }
                     if (! in_array($type, [null, '', 'n'], true)) {
                         continue;
                     }

@@ -7,6 +7,12 @@ keeps the four forms/rules/template. Upload Forms Only creates a closed document
 workspace from a title, without those defaults. The mode is immutable after
 creation. Shared webinar settings own conditional field visibility and disabling.
 Uploaded documents are private attachments, not public response-collection forms.
+Upload Forms Only creation returns to the created webinar's main URL. An upload
+is optional; empty document workspaces are fully accessible immediately. The
+shared document screen owns an Add a document disclosure, opened automatically
+for validation errors, and the same Excel-first picker for add and replacement.
+Private `.xlsx` attachments support multiple sheets and preserve original bytes;
+they do not use the response importer's single-sheet interpretation contract.
 Downloads and mutations inherit ownership, webinar unlock/admin audit, MFA and
 password-step-up middleware. Replaced/removed files remain inventoried privately
 until authorized permanent webinar deletion. The existing policy grants platform
@@ -59,13 +65,34 @@ requires selection and confirmation, and revalidates its evidence before sending
 
 | Capability | Canonical owner | Source of truth | Allowed variants | Verification |
 |---|---|---|---|---|
-| Table Selection | resources/js/certificate-editor.js | Certificate sending workflow | displayed page only, explicit send confirmation | tests/workflow/studio-recipients.spec.js |
+| Table Selection | resources/js/certificate-editor.js; resources/js/participant-certificates.js | Certificate sending workflow | displayed page only, explicit send confirmation | tests/workflow/studio-recipients.spec.js; tests/workflow/calm-workspace.spec.js |
 | Select/Listbox | Native select with shared field class | Existing Blade builder and imports | native | tests/workflow/responses.spec.js |
 | Date | Native datetime-local and LocalDateTime | Existing webinar timezone contract | typed server validation | tests/Feature/FormScheduleAndConsistencyTest.php |
 | Form | FormController, existing field classes | AGENTS.md and existing form model | four form types, shared editor | tests/Feature/FormResponsesWorkflowTest.php |
 | Scrollbar | resources/css/app.css | DESIGN.md | document scrolling; bounded response table | tests/workflow/responses.spec.js |
 | Toast | partials/admin-ui and admin-scripts | Existing shared feedback | success, warning, error | tests/workflow/responses.spec.js |
 | CRUD | FormResponseController and existing controllers | Existing domain services | POST filters preserve private searches; query parameters preserve tab/sort context | tests/Feature/FormResponsesWorkflowTest.php |
+
+The shared `record-table` variant in `page-usability.js` / `app.css` owns mobile
+participants, email and import history and response eligibility. Headings supply
+cell labels; one actual checkbox/action node remains authoritative in either
+layout. JavaScript-free pages keep native scrolling tables. Scope and selection
+counts remain page-only. `participant-certificates.js` owns eligible-row selection,
+the partial/all state and the Studio action count on the participant list; disabled
+rows cannot join the selection. Subject, detail and filename text wraps instead of
+depending on hover. Tests are in `tests/workflow/calm-workspace.spec.js` alongside
+upload/download, public field naming, short-height navigation, tablet Studio and
+3840px layout regressions.
+
+Replacement forms flash a `_document` view-context identifier; only the matching
+rendered record reopens and uses retained title/errors. This value is never used
+for authorization or storage, which continue using the route-bound document.
+
+Studio's persistent panels begin at 1280px. `page-usability.js` uses that same
+boundary for modal isolation; primary/webinar navigation retains its 1024px
+boundary. Resizing to desktop dismisses Studio drawers. Fit zoom follows preview
+viewport changes; explicit numeric zoom does not. Dynamic participant prompts
+use native fieldset/legend groups and explicit input names/help/error references.
 
 Searches containing participant data stay in the session, following ParticipantController's existing privacy convention. Tab and view are URL state. Imports keep their existing preview, mapping, dry-check, confirmation and held-row review. Certificate Studio derives its roster from EligibilityService plus active manual certificate exceptions. Eligible participants need no transfer or approval. Manual additions use only full name and email, never fabricate responses, and do not issue or send. Existing records are never merged or renamed from a name match. Historical approvals and overrides remain available as evidence. Any submitted qualifying attempt can satisfy a score threshold; superseded responses never qualify. Eligibility settings are shared by all forms in the same webinar.
 
@@ -79,6 +106,52 @@ Removing a native question retires it while retaining historical answers. New
 native submissions retain the question definition used at submission time;
 Inspect submission shows that snapshot. Existing historical wording cannot be
 reconstructed if it changed before snapshots existed.
+
+Source previews retain complete headings, values and whitespace and paginate five
+responses at a time through every row, including anonymous evaluations. Preview
+navigation uses only `preview_page`; viewing a row grants no participant identity
+or completion. Held issues have a separate `issues_page` paginator at 200 per
+page, retaining every malformed-row cell with collision-free overflow labels.
+CSV response exports use explicit standard quoting/escaping and retain exact
+original-cell JSON; formula-leading cells receive the existing protective quote.
+Excel dates use the documented ISO local-wall-time representation. Unsupported
+numeric fractional-second formats refuse import rather than discard precision.
+Combined response columns group normalized labels; each import's original label
+and value remain available in Inspect submission and original-cell JSON.
+`RealResponseFileAccuracyTest` is opt-in and emits counts/coordinates only. Its
+private browser runner keeps decrypted HTML/cells in memory, blocks all external
+requests and saves no real screenshots, traces, DOM snapshots or data fixtures.
+
+The guided import separates Confirm columns from Review results. Validated
+choices and non-personal outcome counts remain on the pending import; changing
+choices clears the old review hash. Saving a profile never supplies a source
+claim or final confirmation. Profiles are private to their owner and compare
+ordered headers exactly; native question reuse requires a unique exact kind,
+label, type and choice set. Existing webinar permissions still allow authorized
+administrators and managers to continue another uploader's pending import.
+
+Evaluation imports may explicitly choose Unattributed evaluation. These records
+have no participant/submission association and cannot establish completion or
+certificate eligibility. The separate feedback workspace preserves every source
+row, including identical answers, with literal per-column summaries and original
+exports. Exact headers remain once on the import and encrypted ordered values
+remain on each row. Webinar retention removes these values. Reconciliation
+accounts for saved feedback and held rows without assigning an identity.
+
+Saved response tables start with all question columns shown and Comfortable
+density. Choose questions filters its heading list only, never response values.
+The shown-column count and Reset table remain visible; identity/source/actions
+remain available. Choices live only in page memory and dispose on navigation.
+Exceptionally long/wide headings reduce the server page size below25 to bound
+repeated mobile labels; every column and every response remains reachable through
+pagination. CSV headings remain unique after spreadsheet sanitization, with exact
+original labels and cells retained in original-cell JSON.
+
+Held review groups duplicates, unmatched emails, invalid values and identity
+conflicts, with separate pagination. Its inspector keeps the original cells,
+interpreted result and reason together. The correction download respects the
+selected group/form, retains source row/import references and standard CSV quoting,
+and never silently edits or promotes an imported identity.
 
 Certificate Setup owns the existing webinar email fields. Normal webinar edits preserve those fields when omitted. Certificate names are derived for display from the current webinar title and certificate type; explicit artwork/style saves store that name while retaining the template ID. Reads never create a missing template. Read-only form preview submitters use `data-preview-submit` with the shared admin submit handler, allowing repeated previews and subsequent Save without disabling duplicate protection on mutations. Sample email requests require confirmation, recent password and an idempotency UUID; they create no participant or certificate record.
 

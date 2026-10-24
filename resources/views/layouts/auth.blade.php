@@ -17,7 +17,7 @@
 --}}
 <body class="auth-page relative min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 antialiased">
     <div class="absolute top-4 right-4 sm:top-6 sm:right-6">
-        <button type="button" class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 transition hover:bg-slate-50 dark:hover:bg-slate-800" data-theme-toggle aria-label="Toggle theme">
+        <button type="button" class="theme-button" data-theme-toggle aria-label="Toggle theme">
             <x-icon name="sun" class="size-3.5 hidden dark:block text-amber-400" />
             <x-icon name="moon" class="size-3.5 block dark:hidden text-slate-600" />
             <span class="block dark:hidden">Dark</span>

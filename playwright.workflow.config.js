@@ -7,6 +7,8 @@ export const workflowEnvironment = {
     APP_KEY: 'base64:YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=',
     DB_CONNECTION: 'sqlite', DB_DATABASE: path.resolve('storage/app/private/workflow-browser.sqlite'),
     DB_URL: '',
+    LARAVEL_STORAGE_PATH: path.resolve('storage/framework/testing/workflow-runtime'),
+    FILESYSTEM_DISK: 'local', CERTIFICATE_DISK: 'local', WEBINAR_DOCUMENT_DISK: 'local',
     SESSION_DRIVER: 'file', SESSION_COOKIE: 'webinar_workflow_test', SESSION_SECURE_COOKIE: 'false',
     CACHE_STORE: 'array', QUEUE_CONNECTION: 'database', TRANSACTIONAL_EMAIL_PROVIDER: 'log', MAIL_MAILER: 'log',
     ACCOUNT_EMAIL_PROVIDER: 'log', CERTIFICATE_EMAIL_PROVIDER: 'log', BREVO_API_KEY: '', MAIL_FROM_ADDRESS: 'organizer@example.test', MAIL_FROM_NAME: 'Webinar Organizing Team',

@@ -49,7 +49,7 @@
         <p class="text-[14px] font-semibold text-slate-950">Uploaded files</p>
     </div>
     <div class="overflow-x-auto">
-        <table class="w-full min-w-[760px] text-left text-sm">
+        <table class="record-table w-full min-w-[760px] text-left text-sm">
             <thead class="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-[0.06em] text-slate-500">
                 <tr>
                     <th class="px-5 py-3 font-semibold">File</th>
@@ -71,7 +71,7 @@
                         };
                     @endphp
                     <tr class="transition hover:bg-slate-50/60">
-                        <td class="max-w-[24ch] truncate px-5 py-3.5 font-medium text-slate-900" title="{{ $import->original_filename }}">{{ $import->original_filename }}</td>
+                        <td class="max-w-[32ch] break-words px-5 py-3.5 font-medium text-slate-900">{{ $import->original_filename }}</td>
                         <td class="px-5 py-3.5 text-slate-600">{{ $import->form?->title ?? '—' }}</td>
                         <td class="px-5 py-3.5"><span class="badge {{ $statusBadge }}">{{ ucfirst($import->status) }}</span></td>
                         <td class="px-5 py-3.5 tabular-nums text-slate-600">{{ $import->valid_rows }} of {{ $import->total_rows }}</td>
@@ -80,6 +80,10 @@
                         <td class="px-5 py-3.5 text-right">
                             @if($import->status === \App\Models\Import::STATUS_COMMITTED)
                                 <a class="button-secondary !px-2.5 !py-1.5 text-[12px]" href="{{ route('admin.webinars.imports.reconciliation', [$webinar, $import]) }}">Reconciliation CSV</a>
+                                @if(($import->column_map['options']['response_mode'] ?? '') === 'unattributed')<a class="mt-2 inline-block text-sm text-accent-700 underline" href="{{ route('admin.unattributed.index', [$webinar, 'import' => $import->id]) }}">View feedback</a>@endif
+                                @if($import->unmatched_rows + $import->invalid_rows + $import->duplicate_rows > 0)<a class="mt-2 inline-block text-sm text-accent-700 underline" href="{{ route('admin.webinars.imports.corrections', [$webinar, 'import_id' => $import->id]) }}">Correction sheet</a>@endif
+                            @elseif($import->status === \App\Models\Import::STATUS_PENDING)
+                                <a class="button-secondary" href="{{ route('admin.webinars.imports.map', [$webinar, $import]) }}">Continue import</a>
                             @endif
                         </td>
                     </tr>
@@ -103,6 +107,12 @@
             @endforeach
         </div>
     </div>
+    <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-4">
+        <nav class="flex flex-wrap gap-2" aria-label="Held row filters">
+            @foreach($issueGroups as $group => $label)<a class="{{ $issueGroup === $group ? 'button-primary' : 'button-secondary' }}" href="{{ route('admin.webinars.imports.index', array_merge(['webinar' => $webinar], request()->only(['type', 'page']), ['issue_group' => $group])) }}" @if($issueGroup === $group) aria-current="page" @endif>{{ $label }} ({{ $groupCounts[$group] }})</a>@endforeach
+        </nav>
+        <a class="button-secondary" href="{{ route('admin.webinars.imports.corrections', array_merge(['webinar' => $webinar], request()->only(['type', 'issue_group']))) }}">Download correction sheet</a>
+    </div>
     <ul class="divide-y divide-slate-100">
         @forelse($issues as $issue)
             <li class="flex flex-wrap items-start gap-x-4 gap-y-2 px-5 py-4 transition hover:bg-slate-50/60">
@@ -116,15 +126,23 @@
                         <span class="text-[11px] text-slate-400">{{ $issue->import?->original_filename }}</span>
                     </div>
                     <p class="mt-1 text-[12px] leading-5 text-slate-500">{{ $issue->issue_message }}</p>
-                    <details class="mt-2 text-sm">
+                    <details class="mt-2 text-sm" data-source-values>
                         <summary class="cursor-pointer">Inspect source values</summary>
+                        <p class="mt-3 font-semibold">Original source cells</p>
                         <dl class="mt-2 space-y-1">
                             @foreach($issue->raw_data ?? [] as $header => $value)
                                 @if($header !== '_resolved' && is_scalar($value))
-                                    <div class="break-words"><dt class="font-medium">{{ $header }}</dt><dd>{{ $value }}</dd></div>
+                                    <div class="break-words"><dt class="whitespace-pre-wrap break-words font-medium">{{ $header }}</dt><dd class="whitespace-pre-wrap break-words">{{ $value }}</dd></div>
                                 @endif
                             @endforeach
                         </dl>
+                        <section class="mt-4 rounded-lg border border-slate-200 p-3" aria-label="Interpreted outcome">
+                            <h3 class="font-semibold">Interpreted outcome</h3>
+                            <p class="mt-1 text-slate-600">This row is held. It has not established a participant's completion.</p>
+                            @php $interpreted = $issue->raw_data['_resolved'] ?? []; @endphp
+                            @if($interpreted !== [])<dl class="mt-3 space-y-2">@foreach(['name' => 'Confirmed-name candidate', 'score' => 'Points', 'maximum_score' => 'Maximum points', 'submitted_at' => 'Submitted at (UTC)'] as $key => $label)@if(isset($interpreted[$key]))<div><dt class="font-medium">{{ $label }}</dt><dd class="whitespace-pre-wrap break-words">{{ $interpreted[$key] }}</dd></div>@endif @endforeach</dl>@endif
+                            <p class="mt-3"><strong>Reason:</strong> {{ $issue->issue_message }}</p>
+                        </section>
                     </details>
                 </div>
                 <div class="flex shrink-0 items-center gap-2">
@@ -160,6 +178,9 @@
             <li class="px-5 py-10 text-center text-sm text-slate-500">No unresolved rows in this view. Use the reconciliation report to review imported and dismissed outcomes.</li>
         @endforelse
     </ul>
+    @if($issues->hasPages())
+        <div class="border-t border-slate-100 p-4">{{ $issues->links() }}</div>
+    @endif
 </section>
 
 <div class="mt-6">{{ $imports->links() }}</div>

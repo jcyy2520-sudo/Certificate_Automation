@@ -14,7 +14,7 @@
     </form>
 
         <div class="response-table-scroll" tabindex="0" role="region" aria-label="Participant eligibility">
-            <table class="response-table eligibility-table"><thead><tr><th>Participant</th>@foreach(\App\Services\FormResponseService::TYPES as $label)<th>{{ $label }}</th>@endforeach<th>Eligibility / missing requirements</th><th>Certificate Studio</th></tr></thead>
+            <table class="response-table eligibility-table record-table"><thead><tr><th>Participant</th>@foreach(\App\Services\FormResponseService::TYPES as $label)<th>{{ $label }}</th>@endforeach<th>Eligibility / missing requirements</th><th>Certificate Studio</th></tr></thead>
                 <tbody>@forelse($participants as $participant)
                     @php $result = $participant->eligibility; $approval = $participant->certificateApproval; $changed = $approval && ($approval->eligibility_snapshot['rules'] ?? []) !== $snapshot; @endphp
                     <tr>

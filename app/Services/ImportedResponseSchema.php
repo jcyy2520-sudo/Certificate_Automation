@@ -10,7 +10,7 @@ final class ImportedResponseSchema
 {
     public static function headerKey(string $label): string
     {
-        return mb_strtolower(preg_replace('/\s+/u', ' ', trim($label)) ?? $label);
+        return mb_strtolower(trim(preg_replace('/\s+/u', ' ', $label) ?? $label));
     }
 
     public static function extraKey(string $label): string

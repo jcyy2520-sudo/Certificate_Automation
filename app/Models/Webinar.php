@@ -13,6 +13,11 @@ class Webinar extends Model
         return $this->hasManyThrough(Submission::class, Form::class);
     }
 
+    public function unattributedResponses()
+    {
+        return $this->hasMany(UnattributedResponse::class);
+    }
+
     use HasFactory;
 
     protected $guarded = ['id', 'retention_due_at', 'deletion_started_at', 'admin_locked_at', 'admin_locked_by'];

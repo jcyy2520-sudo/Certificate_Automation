@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test('full logo keeps the same size when switching between light and dark themes', async ({ page }) => {
-    for (const width of [320, 390, 768, 1280]) {
+    for (const width of [320, 390, 768, 1280, 3840]) {
         await page.setViewportSize({ width, height: 900 });
         await page.goto('/admin/login');
         const sizes = [];
@@ -19,10 +19,10 @@ test('full logo keeps the same size when switching between light and dark themes
     }
 });
 
-test('official Certimate artwork, browser icons and sign-in branding fit light and dark mobile layouts', async ({ page }) => {
+test('minimal Certimate identity, browser icons and sign-in branding fit phone through 4K in both themes', async ({ page }) => {
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
-    for (const width of [320, 390, 768, 1280]) {
+    for (const width of [320, 390, 768, 1280, 3840]) {
         await page.setViewportSize({ width, height: 900 });
         for (const theme of ['light', 'dark']) {
             await page.goto('/admin/login');

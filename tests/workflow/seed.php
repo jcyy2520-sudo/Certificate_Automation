@@ -15,6 +15,8 @@ $app = require __DIR__.'/../../bootstrap/app.php';
 $app->make(Kernel::class)->bootstrap();
 $expected = realpath(__DIR__.'/../../storage/app/private').DIRECTORY_SEPARATOR.'workflow-browser.sqlite';
 if (! $app->environment('testing') || str_replace('\\', '/', config('database.connections.sqlite.database')) !== str_replace('\\', '/', $expected)
+    || str_replace('\\', '/', config('filesystems.disks.local.root')) !== str_replace('\\', '/', dirname(__DIR__, 2).'/storage/framework/testing/workflow-runtime/app/private')
+    || config('webinar.certificate_disk') !== 'local' || config('webinar.document_disk') !== 'local'
     || config('webinar.email.provider') !== 'log') {
     throw new RuntimeException('Browser fixtures may only reset the dedicated workflow-browser.sqlite database with log email.');
 }

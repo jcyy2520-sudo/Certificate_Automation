@@ -7,13 +7,18 @@ use App\Models\Form;
 use App\Models\Import;
 use App\Models\ImportIssue;
 use App\Models\Submission;
+use App\Models\UnattributedResponse;
 use App\Models\Webinar;
 use App\Services\AuditService;
 use App\Services\CsvImportService;
 use App\Services\FormResponseService;
+use App\Services\ImportIssueReview;
+use App\Services\ImportMappingProfileService;
+use App\Services\ImportReviewService;
 use App\Support\CsvSanitizer;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use RuntimeException;
@@ -30,6 +35,12 @@ class ImportController extends Controller
 
     public function index(Request $request, Webinar $webinar): View
     {
+        $filters = $request->validate([
+            'type' => ['sometimes', Rule::in(array_keys(FormResponseService::TYPES))],
+            'issue_group' => ['sometimes', Rule::in(array_keys(ImportIssueReview::GROUPS))],
+        ]);
+        $review = app(ImportIssueReview::class);
+        $counts = $review->counts($webinar, $filters['type'] ?? null);
         $webinar->load(['forms' => fn ($query) => $query->select(['id', 'webinar_id', 'type', 'title'])]);
 
         return view('admin.webinars.imports.index', [
@@ -38,20 +49,18 @@ class ImportController extends Controller
                 ->when($request->filled('type'), fn ($q) => $q->whereHas('form', fn ($f) => $f->where('type', $request->input('type'))))
                 ->with(['form:id,webinar_id,type,title', 'importedBy:id,name'])
                 ->latest('id')
-                ->paginate(10),
-            'issues' => $webinar->importIssues()
-                ->when($request->filled('type'), fn ($q) => $q->whereHas('import.form', fn ($f) => $f->where('type', $request->input('type'))))
+                ->paginate(10)
+                ->appends($request->only(['type', 'issues_page', 'issue_group'])),
+            'issues' => $review->query($webinar, $filters['type'] ?? null, $filters['issue_group'] ?? 'all')
                 ->with('import:id,form_id,original_filename')
-                ->whereNull('resolved_at')
                 ->orderBy('issue_type')
                 ->orderBy('id')
-                ->limit(200)
-                ->get(),
-            'counts' => $webinar->importIssues()
-                ->whereNull('resolved_at')
-                ->selectRaw('issue_type, count(*) as total')
-                ->groupBy('issue_type')
-                ->pluck('total', 'issue_type'),
+                ->paginate(200, ['*'], 'issues_page')
+                ->appends($request->only(['type', 'page', 'issue_group'])),
+            'counts' => $counts['types'],
+            'issueGroups' => ImportIssueReview::GROUPS,
+            'groupCounts' => $counts['groups'],
+            'issueGroup' => $filters['issue_group'] ?? 'all',
         ]);
     }
 
@@ -111,7 +120,7 @@ class ImportController extends Controller
     }
 
     /** Second step: confirm which column carries which field. */
-    public function map(Webinar $webinar, Import $import): View|RedirectResponse
+    public function map(Request $request, Webinar $webinar, Import $import): View|RedirectResponse
     {
         abort_unless($import->webinar_id === $webinar->id && $import->status === Import::STATUS_PENDING, 404);
         // Expired imports must not remain previewable: retention erasure
@@ -129,6 +138,19 @@ class ImportController extends Controller
         }
 
         try {
+            $data = $request->validate([
+                'preview_page' => ['sometimes', 'integer', 'min:1', 'max:1000'],
+                'step' => ['sometimes', Rule::in(['columns', 'review'])],
+            ]);
+            $step = $data['step'] ?? 'columns';
+            $reviewResults = $import->column_map['review_results'] ?? null;
+            if ($step === 'review' && (! is_array($reviewResults) || empty($import->column_map['review_hash']))) {
+                return redirect()->route('admin.webinars.imports.map', [$webinar, $import])
+                    ->with('warning', 'Confirm the columns and run the dry check before reviewing results.');
+            }
+            $previewTotal = $this->imports->previewRowCount($import);
+            $previewPage = min((int) ($data['preview_page'] ?? 1), max(1, (int) ceil($previewTotal / CsvImportService::PREVIEW_ROWS)));
+            $previewRows = $this->imports->previewRows($import, $previewPage);
             $headers = $import->column_map['headers'] ?? [];
             // Wrong-form/wrong-version signal: compare against the most recent
             // committed import for the same destination form. A changed
@@ -154,13 +176,23 @@ class ImportController extends Controller
                 }
             }
 
+            $profiles = app(ImportMappingProfileService::class);
+            $mappingProfiles = $profiles->matching($import, $request->user());
+
             return view('admin.webinars.imports.map', [
                 'webinar' => $webinar,
                 'import' => $import,
                 'headers' => $headers,
                 'map' => $import->column_map['map'] ?? [],
                 'fields' => CsvImportService::logicalFields($import->form->type),
-                'previewRows' => $this->imports->previewRows($import),
+                'step' => $step, 'reviewResults' => $reviewResults,
+                'mappingProfiles' => $mappingProfiles,
+                'profileChecks' => $mappingProfiles->mapWithKeys(fn ($profile) => [$profile->id => $profiles->compatibility($import, $profile)]),
+                'previewRows' => $previewRows,
+                'previewPagination' => new LengthAwarePaginator($previewRows, $previewTotal, CsvImportService::PREVIEW_ROWS, $previewPage, [
+                    'path' => route('admin.webinars.imports.map', [$webinar, $import]), 'pageName' => 'preview_page', 'fragment' => 'source-preview',
+                    'query' => $step === 'review' ? ['step' => 'review'] : [],
+                ]),
                 'headerChangeNote' => $headerChangeNote,
             ]);
         } catch (RuntimeException $exception) {
@@ -168,6 +200,23 @@ class ImportController extends Controller
                 ->route('admin.webinars.imports.create', $webinar)
                 ->with('error', 'The pending file could not be read again: '.$exception->getMessage());
         }
+    }
+
+    /** Persist choices before leaving this screen; never store respondent samples. */
+    public function choices(Request $request, Webinar $webinar, Import $import, ImportReviewService $review): RedirectResponse
+    {
+        abort_unless($import->webinar_id === $webinar->id && $import->status === Import::STATUS_PENDING, 404);
+        try {
+            if ($request->boolean('mode_only')) {
+                $review->changeMode($import, $request->input('response_mode'));
+            } else {
+                $review->save($import, $review->choices($import, $request->all()));
+            }
+        } catch (RuntimeException $exception) {
+            return redirect()->route('admin.webinars.imports.map', [$webinar, $import])->withInput()->with('error', $exception->getMessage());
+        }
+
+        return redirect()->route('admin.webinars.imports.map', [$webinar, $import])->with('success', 'Your column choices are saved.');
     }
 
     /** Apply the confirmed mapping and commit the import. */
@@ -185,7 +234,8 @@ class ImportController extends Controller
             ->all();
 
         try {
-            $map = CsvImportService::validateMap($import, $chosen);
+            $mode = CsvImportService::responseMode($import, $request->input('response_mode', 'individual'));
+            $map = CsvImportService::validateMap($import, $chosen, $mode);
             $timestampFormat = CsvImportService::validateTimestampFormat($request->input('timestamp_format'));
             $options = CsvImportService::validateOptions($import, $request->all(), $map);
             $reviewHash = CsvImportService::reviewHash($import, $map, $timestampFormat, $options);
@@ -196,10 +246,7 @@ class ImportController extends Controller
         } catch (RuntimeException $exception) {
             // Persist the failure fingerprint so a failed commit is retryable
             // with evidence instead of an ephemeral flash message only.
-            $import->update(['column_map' => array_merge($import->column_map ?? [], [
-                'last_error' => mb_substr($exception->getMessage(), 0, 500),
-                'last_error_at' => now()->toIso8601String(),
-            ])]);
+            app(ImportReviewService::class)->recordFailure($import, $exception->getMessage());
 
             // Nothing was committed; the pending upload stays available to retry.
             return redirect()
@@ -216,7 +263,10 @@ class ImportController extends Controller
         if ($counts['cleanup_pending'] ?? false) {
             $summary .= ' Responses are saved. Private source-file cleanup will be retried by the scheduled import cleanup; check storage permissions if this persists.';
         }
-        if ($counts['unmatched'] > 0 || $counts['invalid'] > 0) {
+        if (($options['response_mode'] ?? 'individual') === 'unattributed') {
+            return redirect()->route('admin.unattributed.index', [$webinar, 'import' => $import->id])->with('success', $summary);
+        }
+        if ($counts['unmatched'] > 0 || $counts['invalid'] > 0 || $counts['duplicate'] > 0) {
             return redirect()
                 ->route('admin.webinars.imports.index', $webinar)
                 ->with('warning', $summary.' Review the items below.');
@@ -237,15 +287,14 @@ class ImportController extends Controller
             ->all();
 
         try {
-            $map = CsvImportService::validateMap($import, $chosen);
+            $mode = CsvImportService::responseMode($import, $request->input('response_mode', 'individual'));
+            $map = CsvImportService::validateMap($import, $chosen, $mode);
             $timestampFormat = CsvImportService::validateTimestampFormat($request->input('timestamp_format'));
             $options = CsvImportService::validateOptions($import, $request->all(), $map);
             $counts = $this->imports->process($import, $map, $timestampFormat, dryRun: true, options: $options);
+            app(ImportReviewService::class)->save($import, ['map' => $map, 'timestamp_format' => $timestampFormat, 'options' => $options], $counts);
         } catch (RuntimeException $exception) {
-            $import->update(['column_map' => array_merge($import->column_map ?? [], [
-                'last_error' => mb_substr($exception->getMessage(), 0, 500),
-                'last_error_at' => now()->toIso8601String(),
-            ])]);
+            app(ImportReviewService::class)->recordFailure($import, $exception->getMessage());
 
             return redirect()
                 ->route('admin.webinars.imports.map', [$webinar, $import])
@@ -253,16 +302,55 @@ class ImportController extends Controller
                 ->with('error', $exception->getMessage());
         }
 
-        $import->update(['column_map' => array_merge($import->column_map ?? [], [
-            'map' => $map, 'timestamp_format' => $timestampFormat, 'options' => $options,
-            'review_hash' => CsvImportService::reviewHash($import, $map, $timestampFormat, $options),
-            'last_error' => null, 'last_error_at' => null,
-        ])]);
         $audit->record($request, 'import.dry_run', $import, array_intersect_key($counts, array_flip(['total', 'valid', 'invalid', 'duplicate', 'unmatched'])) + ['timestamp_format' => $timestampFormat, 'source_description' => $options['source_description'] ?? null]);
 
         return redirect()
-            ->route('admin.webinars.imports.map', [$webinar, $import])
+            ->route('admin.webinars.imports.map', [$webinar, $import, 'step' => 'review'])
             ->with('dry_run', $counts + ['timestamp_format' => $timestampFormat]);
+    }
+
+    /** A correction worksheet for the currently selected unresolved rows. */
+    public function corrections(Request $request, Webinar $webinar, ImportIssueReview $review, AuditService $audit)
+    {
+        $filters = $request->validate([
+            'type' => ['sometimes', Rule::in(array_keys(FormResponseService::TYPES))],
+            'issue_group' => ['sometimes', Rule::in(array_keys(ImportIssueReview::GROUPS))],
+            'import_id' => ['sometimes', 'integer', Rule::exists('imports', 'id')->where('webinar_id', $webinar->id)],
+        ]);
+        $query = $review->query($webinar, $filters['type'] ?? null, $filters['issue_group'] ?? 'all', $filters['import_id'] ?? null);
+        $labels = [];
+        foreach ((clone $query)->orderBy('id')->lazyById(200) as $issue) {
+            foreach ($issue->raw_data ?? [] as $label => $value) {
+                if ($label !== '_resolved' && is_scalar($value) && ! in_array($label, $labels, true)) {
+                    $labels[] = $label;
+                }
+            }
+            abort_if(count($labels) > 1000, 422, 'These imports have too many different columns for one correction sheet. Download one import at a time.');
+        }
+        $fixed = ['Import ID', 'Source row', 'Issue', 'Reason', 'Original source cells (JSON)'];
+        $outputLabels = $fixed;
+        foreach ($labels as $label) {
+            $candidate = $label;
+            for ($suffix = 1; in_array($candidate, $outputLabels, true); $suffix++) {
+                $candidate = 'Source '.$suffix.': '.$label;
+            }
+            $outputLabels[] = $candidate;
+        }
+        $audit->record($request, 'import.corrections_exported', $webinar, array_intersect_key($filters, array_flip(['type', 'issue_group', 'import_id'])));
+
+        return response()->streamDownload(function () use ($query, $labels, $outputLabels): void {
+            $out = fopen('php://output', 'wb');
+            fwrite($out, "\xEF\xBB\xBF");
+            fputcsv($out, CsvSanitizer::uniqueHeaders($outputLabels), ',', '"', '');
+            foreach ((clone $query)->orderBy('id')->lazyById(200) as $issue) {
+                $original = array_filter($issue->raw_data ?? [], fn ($value, $label) => $label !== '_resolved' && is_scalar($value), ARRAY_FILTER_USE_BOTH);
+                fputcsv($out, array_map(CsvSanitizer::safeCell(...), [$issue->import_id, $issue->row_number, $issue->issue_type, $issue->issue_message,
+                    json_encode($original, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
+                    ...array_map(fn ($label) => $original[$label] ?? '', $labels),
+                ]), ',', '"', '');
+            }
+            fclose($out);
+        }, 'held-response-corrections.csv', ['Content-Type' => 'text/csv; charset=UTF-8']);
     }
 
     public function cancel(Request $request, Webinar $webinar, Import $import, AuditService $audit): RedirectResponse
@@ -295,7 +383,7 @@ class ImportController extends Controller
 
         return response()->streamDownload(function () use ($import): void {
             $out = fopen('php://output', 'wb');
-            fputcsv($out, ['Outcome', 'Source row', 'Email', 'Participant', 'Submitted at', 'Score', 'Maximum score', 'Detail']);
+            fputcsv($out, ['Outcome', 'Source row', 'Email', 'Participant', 'Submitted at', 'Score', 'Maximum score', 'Detail'], ',', '"', '');
 
             $submissions = Submission::query()
                 ->with('participant:id,email,full_name')
@@ -319,7 +407,12 @@ class ImportController extends Controller
                     $submission->status === 'superseded'
                         ? 'Preserved original; replaced by import '.($metadata['superseded_by_import'] ?? '').'.'
                         : 'Timestamp: '.($metadata['timestamp_source'] ?? 'source').'; completion: '.($metadata['completion_check'] ?? 'legacy import').'.',
-                ]));
+                ]), ',', '"', '');
+            }
+
+            foreach (UnattributedResponse::query()->where('webinar_id', $import->webinar_id)->where('form_id', $import->form_id)->where('import_id', $import->id)->orderBy('row_number')->cursor(['id', 'row_number']) as $response) {
+                $recordedRows[] = $response->row_number;
+                fputcsv($out, ['Saved feedback', $response->row_number, '', '', '', '', '', 'Unattributed evaluation; feedback only, without individual completion.'], ',', '"', '');
             }
 
             foreach ($issues as $issue) {
@@ -335,7 +428,7 @@ class ImportController extends Controller
                     '',
                     '',
                     $issue->resolution ?? $issue->issue_message,
-                ]));
+                ]), ',', '"', '');
             }
 
             fclose($out);

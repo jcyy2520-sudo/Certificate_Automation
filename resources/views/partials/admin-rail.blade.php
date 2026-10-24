@@ -5,7 +5,7 @@
         <a href="{{ route('admin.dashboard') }}" aria-label="{{ config('branding.name') }} dashboard"><x-brand navigation label-class="rail-label" /></a>
     </div>
 
-    <nav class="mt-2 flex flex-1 flex-col gap-1 px-3.5">
+    <nav class="mt-2 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-3.5 pb-2" aria-label="Primary navigation">
         @include('partials.admin-primary-links')
 
         <button type="button" class="rail-item mt-auto" data-theme-toggle aria-label="Toggle theme" title="Toggle theme">

@@ -62,7 +62,7 @@
     {{-- ===================== Top bar ===================== --}}
     <header class="studio-topbar">
         <div class="flex min-w-0 flex-1 items-center gap-2">
-            <a href="{{ $backUrl }}" class="inline-flex size-9 shrink-0 items-center justify-center" title="Back to participants" aria-label="Back to participants"><x-brand compact /></a>
+            <a href="{{ $backUrl }}" class="studio-icon-button" title="Back to participants" aria-label="Back to participants"><x-icon name="arrow-left" class="size-5" /></a>
             <nav class="hidden min-w-0 items-center gap-1 md:flex" aria-label="Breadcrumb">
                 <a href="{{ route('admin.webinars.index') }}" class="studio-crumb">Webinars</a>
                 <x-icon name="chevron-right" class="size-3.5 shrink-0 text-slate-300" />
@@ -115,8 +115,8 @@
             <a class="studio-button-secondary hidden sm:inline-flex" href="{{ route('admin.webinars.certificates.export-zip', $webinar) }}" title="Download all issued certificate PDFs as a ZIP archive"><x-icon name="archive" class="size-4" />Export ZIP</a>
             <a class="studio-button-secondary hidden sm:inline-flex" target="_blank" rel="noopener" href="{{ route('admin.certification.preview', [$webinar, 'participant' => $firstParticipant?->public_id]) }}" data-preview-pdf><x-icon name="download" class="size-4" />Preview PDF</a>
             <button type="button" class="studio-button-success" data-open-send-confirm @unless(app(\App\Policies\WebinarPolicy::class)->permission(auth()->user(), $webinar, 'send_emails')) hidden @endunless disabled><x-icon name="send" class="size-4" /><span class="hidden sm:inline" data-send-label>Send certificates</span><span class="sm:hidden">Send</span></button>
-            <button type="button" class="studio-mobile-panel-button lg:hidden" data-toggle-panel="people" aria-label="Open recipients"><x-icon name="users" class="size-4" /></button>
-            <button type="button" class="studio-mobile-panel-button lg:hidden" data-toggle-panel="editor" aria-label="Open editor"><x-icon name="type" class="size-4" /></button>
+            <button type="button" class="studio-mobile-panel-button xl:hidden" data-toggle-panel="people" aria-label="Open recipients"><x-icon name="users" class="size-4" /></button>
+            <button type="button" class="studio-mobile-panel-button xl:hidden" data-toggle-panel="editor" aria-label="Open editor"><x-icon name="type" class="size-4" /></button>
         </div>
     </header>
 
@@ -182,15 +182,15 @@
     @if(! $template || ! $hasBackground)
         <div class="shrink-0 px-4 py-2 text-xs text-slate-600">Upload a certificate design before previewing or sending. <a class="underline" href="{{ route('admin.certification.edit', $webinar) }}">Open Certificate Setup</a>.</div>
     @endif
-        {{-- Below `lg` the side panels sit off-canvas via translate-x-full. A transform
+        {{-- Below `xl` the side panels sit off-canvas via translate-x-full. A transform
              moves them visually but still counts toward the scroll area, so clip it here
              or every narrow viewport scrolls sideways by the panel width. --}}
         <div class="relative flex min-h-0 flex-1 overflow-hidden">
-            <button type="button" class="absolute inset-0 z-40 hidden bg-slate-950/45 lg:hidden" data-panel-scrim aria-label="Close panel"></button>
+            <button type="button" class="absolute inset-0 z-40 hidden bg-slate-950/45 xl:hidden" data-panel-scrim aria-label="Close panel"></button>
 
             {{-- ===================== Left: the people ===================== --}}
             <aside class="studio-side-panel studio-left-panel" data-panel="people">
-                <div class="flex shrink-0 items-center justify-between border-b border-slate-200 px-4 py-2 lg:hidden">
+                <div class="flex shrink-0 items-center justify-between border-b border-slate-200 px-4 py-2 xl:hidden">
                     <span class="text-sm font-semibold">Recipients</span>
                     <button type="button" class="mobile-header-button" data-close-panel aria-label="Close recipients"><x-icon name="x" class="size-5" /></button>
                 </div>
@@ -255,7 +255,7 @@
 
             {{-- ===================== Right: the editor ===================== --}}
             <aside class="studio-side-panel studio-right-panel" data-panel="editor" data-name-adjustment>
-                <div class="flex shrink-0 items-center justify-between border-b border-slate-200 px-4 py-2 lg:hidden">
+                <div class="flex shrink-0 items-center justify-between border-b border-slate-200 px-4 py-2 xl:hidden">
                     <span class="text-sm font-semibold">Editor</span>
                     <button type="button" class="mobile-header-button" data-close-panel aria-label="Close editor"><x-icon name="x" class="size-5" /></button>
                 </div>
@@ -348,7 +348,7 @@
                             An individual tweak is kept for <strong class="font-semibold text-slate-700" data-adjustment-name>{{ $firstName }}</strong> only
                             and is applied automatically when you send their certificate.
                         </p>
-                        <div class="mt-4 space-y-2 lg:hidden">
+                        <div class="mt-4 space-y-2 xl:hidden">
                             <a class="button-secondary w-full" target="_blank" rel="noopener" href="{{ route('admin.certification.preview', [$webinar, 'participant' => $firstParticipant?->public_id]) }}" data-preview-pdf><x-icon name="download" class="size-4" />Preview PDF</a>
                             <a class="button-secondary w-full" href="{{ route('admin.webinars.certificates.export-zip', $webinar) }}" download><x-icon name="archive" class="size-4" />Export ZIP</a>
                         </div>

@@ -9,7 +9,7 @@
     $totalPrompts = $form->fields->count() + $form->questions->count();
 @endphp
 
-@if($adminPreview ?? false)<div class="mb-6 rounded-lg border border-slate-200 p-4 text-sm" role="status">Administrator preview ? Submissions are disabled. <a class="underline" href="{{ route('admin.forms.edit', [$form->webinar, $form]) }}">Return to Forms</a></div>@endif
+@if($adminPreview ?? false)<div class="mb-6 rounded-lg border border-slate-200 p-4 text-sm" role="status">Administrator preview: Submissions are disabled. <a class="underline" href="{{ route('admin.forms.edit', [$form->webinar, $form]) }}">Return to Forms</a></div>@endif
 <header class="text-center">
     <p class="text-[22px] leading-8 text-slate-800">{{ $form->webinar->title }}</p>
     <h1 class="mt-1 text-[22px] font-bold leading-9 text-slate-900">
@@ -71,19 +71,28 @@
         @php $number = 0; @endphp
 
         @foreach($form->fields as $field)
-            @php $number++; $name = 'fields['.$field->id.']'; $key = 'fields.'.$field->id; @endphp
-            <section>
-                <p class="survey-question">
+            @php
+                $number++;
+                $name = 'fields['.$field->id.']';
+                $key = 'fields.'.$field->id;
+                $promptId = 'survey-field-'.$field->id;
+                $describedBy = implode(' ', array_filter([
+                    $field->help_text ? $promptId.'-help' : null,
+                    $errors->has($key) ? $promptId.'-error' : null,
+                ]));
+            @endphp
+            <fieldset>
+                <legend id="{{ $promptId }}" class="survey-question w-full">
                     <span class="survey-number">{{ $number }}.</span>
                     {{ $field->label }}@if($field->is_required)<span class="text-red-600"> *</span>@endif
-                </p>
-                @if($field->help_text)<p class="mt-1 pl-6 text-[13px] text-slate-500">{{ $field->help_text }}</p>@endif
+                </legend>
+                @if($field->help_text)<p id="{{ $promptId }}-help" class="mt-1 pl-6 text-[13px] text-slate-500">{{ $field->help_text }}</p>@endif
 
                 @if($field->field_type === 'radio' || $field->field_type === 'select')
                     <div class="mt-4 space-y-1 pl-6">
                         @foreach($field->options ?? [] as $option)
                             <label class="survey-option">
-                                <input class="survey-radio" type="radio" name="{{ $name }}" value="{{ $option }}" @checked(old($key) === $option) data-answerable>
+                                <input class="survey-radio" type="radio" name="{{ $name }}" value="{{ $option }}" @checked(old($key) === $option) @if($describedBy !== '') aria-describedby="{{ $describedBy }}" @endif @if($errors->has($key)) aria-invalid="true" @endif data-answerable>
                                 <span class="survey-option-label">{{ $option }}</span>
                             </label>
                         @endforeach
@@ -91,49 +100,55 @@
                 @elseif($field->field_type === 'checkbox')
                     <div class="mt-4 pl-6">
                         <label class="survey-option">
-                            <input class="survey-check" type="checkbox" name="{{ $name }}" value="1" @checked(old($key)) data-answerable>
+                            <input class="survey-check" type="checkbox" name="{{ $name }}" value="1" @checked(old($key)) @if($describedBy !== '') aria-describedby="{{ $describedBy }}" @endif @if($errors->has($key)) aria-invalid="true" @endif data-answerable>
                             <span class="survey-option-label">I agree</span>
                         </label>
                     </div>
                 @elseif($field->field_type === 'textarea')
                     <div class="pl-6">
-                        <textarea class="survey-input @error($key) border-red-400 @enderror" name="{{ $name }}" rows="4" data-answerable>{{ old($key) }}</textarea>
+                        <textarea class="survey-input @error($key) border-red-400 @enderror" name="{{ $name }}" rows="4" aria-labelledby="{{ $promptId }}" @if($describedBy !== '') aria-describedby="{{ $describedBy }}" @endif @if($errors->has($key)) aria-invalid="true" @endif data-answerable>{{ old($key) }}</textarea>
                     </div>
                 @else
                     <div class="pl-6">
-                        <input class="survey-input @error($key) border-red-400 @enderror" type="{{ in_array($field->field_type, ['email', 'number', 'date']) ? $field->field_type : 'text' }}" name="{{ $name }}" value="{{ old($key) }}" data-answerable>
+                        <input class="survey-input @error($key) border-red-400 @enderror" type="{{ in_array($field->field_type, ['email', 'number', 'date']) ? $field->field_type : 'text' }}" name="{{ $name }}" value="{{ old($key) }}" aria-labelledby="{{ $promptId }}" @if($describedBy !== '') aria-describedby="{{ $describedBy }}" @endif @if($errors->has($key)) aria-invalid="true" @endif data-answerable>
                     </div>
                 @endif
 
-                @error($key)<p class="mt-2 pl-6 text-[13px] text-red-600">{{ $message }}</p>@enderror
-            </section>
+                @error($key)<p id="{{ $promptId }}-error" class="mt-2 pl-6 text-[13px] text-red-600">{{ $message }}</p>@enderror
+            </fieldset>
         @endforeach
 
         @foreach($form->questions as $question)
-            @php $number++; $name = 'questions['.$question->id.']'; $key = 'questions.'.$question->id; @endphp
-            <section>
-                <p class="survey-question">
+            @php
+                $number++;
+                $name = 'questions['.$question->id.']';
+                $key = 'questions.'.$question->id;
+                $promptId = 'survey-question-'.$question->id;
+                $describedBy = $errors->has($key) ? $promptId.'-error' : '';
+            @endphp
+            <fieldset>
+                <legend id="{{ $promptId }}" class="survey-question w-full">
                     <span class="survey-number">{{ $number }}.</span>
                     {{ $question->prompt }}@if($question->is_required)<span class="text-red-600"> *</span>@endif
-                </p>
+                </legend>
 
                 @if($question->question_type === 'text')
                     <div class="pl-6">
-                        <textarea class="survey-input @error($key) border-red-400 @enderror" name="{{ $name }}" rows="3" data-answerable>{{ old($key) }}</textarea>
+                        <textarea class="survey-input @error($key) border-red-400 @enderror" name="{{ $name }}" rows="3" aria-labelledby="{{ $promptId }}" @if($describedBy !== '') aria-describedby="{{ $describedBy }}" @endif @if($errors->has($key)) aria-invalid="true" @endif data-answerable>{{ old($key) }}</textarea>
                     </div>
                 @else
                     <div class="mt-4 space-y-1 pl-6">
                         @foreach($question->choices as $choice)
                             <label class="survey-option">
-                                <input class="survey-radio" type="radio" name="{{ $name }}" value="{{ $choice->id }}" @checked((int) old($key) === $choice->id) data-answerable>
+                                <input class="survey-radio" type="radio" name="{{ $name }}" value="{{ $choice->id }}" @checked((int) old($key) === $choice->id) @if($describedBy !== '') aria-describedby="{{ $describedBy }}" @endif @if($errors->has($key)) aria-invalid="true" @endif data-answerable>
                                 <span class="survey-option-label">{{ $choice->label }}</span>
                             </label>
                         @endforeach
                     </div>
                 @endif
 
-                @error($key)<p class="mt-2 pl-6 text-[13px] text-red-600">{{ $message }}</p>@enderror
-            </section>
+                @error($key)<p id="{{ $promptId }}-error" class="mt-2 pl-6 text-[13px] text-red-600">{{ $message }}</p>@enderror
+            </fieldset>
         @endforeach
     </div>
 
@@ -148,7 +163,7 @@
     </div>
 
     <div class="mt-14 flex flex-col items-center gap-4">
-        <button class="button-primary w-full sm:w-auto sm:min-w-50" @disabled($adminPreview ?? false)>{{ ($adminPreview ?? false) ? 'Preview ? submissions disabled' : 'Submit' }}</button>
+        <button class="button-primary w-full sm:w-auto sm:min-w-50" @disabled($adminPreview ?? false)>{{ ($adminPreview ?? false) ? 'Preview: submissions disabled' : 'Submit' }}</button>
         <p class="text-[12px] text-slate-400">{{ $form->max_attempts === 1 ? 'One response per email address' : $form->max_attempts.' responses allowed per email address' }}</p>
     </div>
 </form>

@@ -10,6 +10,7 @@ use App\Services\AuditService;
 use App\Services\EligibilityService;
 use App\Services\FormResponseService;
 use App\Support\CsvSanitizer;
+use App\Support\ResponseTable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -34,7 +35,7 @@ class FormResponseController extends Controller
         $rows = $view === 'responses' ? $responses->query($form, $filters)->with([
             'participant' => fn ($q) => $q->withCount(['submissions as form_response_count' => fn ($q) => $q->where('form_id', $form->id)]),
             'answers',
-        ])->paginate(25)->withQueryString() : null;
+        ])->paginate(ResponseTable::rowsPerPage($columns))->withQueryString() : null;
         $participants = null;
         if ($view === 'eligibility') {
             $status = $request->validate(['status' => ['sometimes', Rule::in(['', 'eligible', 'incomplete', 'approved', 'reviewed'])]])['status'] ?? '';
@@ -104,7 +105,7 @@ class FormResponseController extends Controller
         return response()->streamDownload(function () use ($form, $columns, $filters, $responses): void {
             $out = fopen('php://output', 'wb');
             fwrite($out, "\xEF\xBB\xBF");
-            fputcsv($out, array_map(CsvSanitizer::safeCell(...), ['Name', 'Email', 'Submitted at (UTC)', 'Source', 'Status', 'Score', ...array_column($columns, 'label'), 'Original imported cells (JSON)']));
+            fputcsv($out, CsvSanitizer::uniqueHeaders(['Name', 'Email', 'Submitted at (UTC)', 'Source', 'Status', 'Score', ...array_column($columns, 'label'), 'Original imported cells (JSON)']), ',', '"', '');
             foreach ($responses->query($form, $filters)->with(['participant', 'answers'])->lazy(200) as $row) {
                 $values = $responses->displayValues($row, $columns);
                 $identity = $responses->sourceIdentity($row);
@@ -113,7 +114,7 @@ class FormResponseController extends Controller
                     ($row->metadata['source'] ?? '') === 'csv_import' ? 'Imported' : 'Native', $row->status, $row->score,
                     ...array_map(fn ($key) => implode(', ', $values[$key] ?? []), array_keys($columns)),
                     $row->imported_data ? json_encode($row->imported_data['original'] ?? [], JSON_UNESCAPED_UNICODE) : '',
-                ]));
+                ]), ',', '"', '');
             }
             fclose($out);
         }, $form->type.'-responses.csv', ['Content-Type' => 'text/csv; charset=UTF-8']);

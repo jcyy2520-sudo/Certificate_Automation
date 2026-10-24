@@ -25,12 +25,18 @@ for (const width of [320, 375, 768, 1280]) {
     test(`import review exposes interpreted values and controls at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 });
         await page.goto('/_preview/import-map.html');
-        await expect(page.getByText('Interpreted certificate names and results — sample')).toBeVisible();
-        await expect(page.getByRole('cell', { name: 'Renée Santos Mañalac Jr.', exact: true })).toBeVisible();
+        await expect(page.locator('[name="map[middle_name]"]')).toHaveValue('2');
+        await expect(page.getByRole('button', { name: 'Run dry check' })).toBeVisible();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
+        await page.goto('/_preview/import-review.html');
+        await expect(page.getByRole('heading', { name: 'Interpreted certificate names and results', exact: true })).toBeVisible();
+        await expect(page.getByRole('cell').filter({ hasText: 'Renée Santos Mañalac Jr.' }).first()).toBeVisible();
+        await page.getByText('Why rows need review', { exact: true }).click();
         await expect(page.getByText('The response has no email address.', { exact: false })).toBeVisible();
         await expect(page.locator('[name="map[middle_name]"]')).toHaveValue('2');
         await expect(page.locator('[name="review_confirmed"]')).not.toBeChecked();
-        await expect(page.getByRole('button', { name: 'Run dry check' })).toBeVisible();
+        await expect(page.getByRole('button', { name: 'Import reviewed responses', exact: true })).toBeVisible();
+        await expect(page.getByRole('link', { name: 'Back to columns', exact: true })).toBeVisible();
         const overflows = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
         expect(overflows).toBe(false);
     });

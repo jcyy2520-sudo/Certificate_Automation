@@ -391,7 +391,7 @@ class CsvImportTest extends TestCase
                 'source_description' => 'Registration Form v1, exported 2026-08-20',
                 'source_confirmed' => '1',
             ])
-            ->assertRedirect(route('admin.webinars.imports.map', [$this->webinar, $import]))
+            ->assertRedirect(route('admin.webinars.imports.map', [$this->webinar, $import, 'step' => 'review']))
             ->assertSessionHas('dry_run', fn (array $counts): bool => $counts['valid'] === 1 && $counts['invalid'] === 0);
 
         $this->assertSame(Import::STATUS_PENDING, $import->fresh()->status);
@@ -488,7 +488,7 @@ class CsvImportTest extends TestCase
         $this->actingAs($this->administrator)
             ->get(route('admin.webinars.imports.map', [$this->webinar, $import]))
             ->assertOk()
-            ->assertSee('Parser check')
+            ->assertSee('Detected file structure')
             ->assertSee('x@y.z');
     }
 
@@ -607,7 +607,7 @@ class CsvImportTest extends TestCase
     {
         [$import, $map] = $this->preview($this->registration, $this->csv('Email Address,Full Name', 'maria@example.com,Maria Reyes', ',Missing Email'));
         $this->actingAs($this->administrator)->post(route('admin.webinars.imports.dry-run', [$this->webinar, $import]), ['map' => $map, 'allow_import_time' => '1', 'source_description' => 'Registration Form v1, exported 2026-08-20', 'source_confirmed' => '1'])->assertSessionHas('dry_run');
-        $this->actingAs($this->administrator)->get(route('admin.webinars.imports.map', [$this->webinar, $import]))->assertOk()->assertSee('Interpreted certificate names')->assertSee('The response has no email');
+        $this->actingAs($this->administrator)->get(route('admin.webinars.imports.map', [$this->webinar, $import, 'step' => 'review']))->assertOk()->assertSee('Interpreted certificate names')->assertSee('The response has no email');
     }
 
     public function test_explicit_correction_preserves_history_and_changes_eligibility(): void

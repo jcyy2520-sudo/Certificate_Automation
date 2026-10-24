@@ -3,7 +3,7 @@
     'crumbs' => [],   // ['Label' => url, ...] — ancestors only; the page itself is the <h1>
     'subtitle' => null,
 ])
-<header class="mb-7">
+<header class="page-header">
     @if($crumbs)
         {{-- Ancestors only. Repeating the page title here would just print it twice. --}}
         <nav class="mb-2.5 flex min-w-0 flex-wrap items-center gap-1.5 text-[13px] text-slate-500" aria-label="Breadcrumb">
@@ -22,7 +22,7 @@
         </div>
 
         @if(isset($actions))
-            <div class="flex min-w-0 max-w-full flex-wrap items-center gap-2">{{ $actions }}</div>
+            <div class="page-header-actions">{{ $actions }}</div>
         @endif
     </div>
 </header>

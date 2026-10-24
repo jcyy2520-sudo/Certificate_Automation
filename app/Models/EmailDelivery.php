@@ -67,6 +67,10 @@ class EmailDelivery extends Model
 
     public function statusLabel(): string
     {
+        if ($this->status === 'pending' && (int) $this->attempts === 0 && $this->expires_at?->isPast()) {
+            return 'Expired before sending';
+        }
+
         if ($this->status === 'sent' && $this->provider === 'brevo' && $this->delivery_outcome) {
             return match ($this->delivery_outcome) {
                 'delivered' => 'Delivered to mail server',

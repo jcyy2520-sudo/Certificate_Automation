@@ -6,6 +6,7 @@
         <a class="button-secondary" href="{{ route('admin.responses.index', [$webinar, 'type' => $selectedType]) }}"><x-icon name="arrow-left" class="size-4" />Back to responses</a>
     </x-slot:actions>
 </x-page-header>
+<x-import-steps :active="1" />
 
 <form method="POST" action="{{ route('admin.webinars.imports.preview', $webinar) }}" enctype="multipart/form-data" class="max-w-2xl">
     @csrf
@@ -37,7 +38,7 @@
         <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-[12px] leading-5 text-slate-600">
             <span class="flex items-start gap-2">
                 <x-icon name="info" class="mt-px size-4 shrink-0 text-slate-400" />
-                <span>Import registration first, then assessment and evaluation files. Participants match by email only. Confirm the suggested columns and run the dry check before importing. Ambiguous columns require your choice; names and email ownership cannot be inferred from the file.</span>
+                <span>Import registration first, then assessment and evaluation files. Participants match by email only. Evaluations without identities can be saved separately as unattributed feedback. Confirm the columns, review the dry check, then import.</span>
             </span>
         </div>
     </section>

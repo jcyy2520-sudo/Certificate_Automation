@@ -4,6 +4,22 @@ namespace App\Support;
 
 final class CsvSanitizer
 {
+    /** Keep every exported column addressable after spreadsheet-safe quoting. */
+    public static function uniqueHeaders(array $headers): array
+    {
+        $result = [];
+        foreach (array_values($headers) as $index => $header) {
+            $base = self::safeCell($header);
+            $candidate = $base;
+            for ($suffix = 1; in_array($candidate, $result, true); $suffix++) {
+                $candidate = $base.' (column '.($index + 1).($suffix > 1 ? ', '.$suffix : '').')';
+            }
+            $result[] = $candidate;
+        }
+
+        return $result;
+    }
+
     /**
      * Sanitize a cell value for safe inclusion in CSV exports.
      *

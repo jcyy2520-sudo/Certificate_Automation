@@ -77,4 +77,16 @@ class Import extends Model
     {
         return $this->hasMany(ImportIssue::class);
     }
+
+    /** Profiles belong to the actor, and can be reused on any authorized pending upload. */
+    public function resolveChildRouteBinding($childType, $value, $field)
+    {
+        if ($childType === 'profile') {
+            $profile = new ImportMappingProfile;
+
+            return $profile->newQuery()->where('user_id', auth()->id())->where($field ?? $profile->getRouteKeyName(), $value)->first();
+        }
+
+        return parent::resolveChildRouteBinding($childType, $value, $field);
+    }
 }

@@ -105,9 +105,24 @@ class CsvImportService
         return $map;
     }
 
-    /** Validate a proposed mapping against the stored headers of a pending import. */
-    public static function validateMap(Import $import, array $chosen): array
+    /** Individual completion is the default; literal unattributed storage is evaluation-only. */
+    public static function responseMode(Import $import, mixed $value): string
     {
+        $mode = $value ?? 'individual';
+        if (! is_string($mode) || ! in_array($mode, ['individual', 'unattributed'], true)) {
+            throw new RuntimeException('Choose individual responses or unattributed evaluations as the response mode.');
+        }
+        if ($mode === 'unattributed' && $import->form->type !== 'evaluation') {
+            throw new RuntimeException('Only an evaluation can be saved without participant attribution.');
+        }
+
+        return $mode;
+    }
+
+    /** Validate a proposed mapping against the stored headers of a pending import. */
+    public static function validateMap(Import $import, array $chosen, string $responseMode = 'individual'): array
+    {
+        $responseMode = self::responseMode($import, $responseMode);
         $headers = $import->column_map['headers'] ?? [];
         $normalized = [];
 
@@ -125,7 +140,7 @@ class CsvImportService
             $normalized[$field] = (int) $index;
         }
 
-        if (! isset($normalized['email'])) {
+        if ($responseMode === 'individual' && ! isset($normalized['email'])) {
             throw new RuntimeException('Map the email address column before importing.');
         }
 
@@ -137,6 +152,9 @@ class CsvImportService
 
         if (count(array_unique($normalized)) !== count($normalized)) {
             throw new RuntimeException('A source column cannot be used for more than one field.');
+        }
+        if ($responseMode === 'unattributed') {
+            return $normalized;
         }
         $parts = array_intersect_key($normalized, array_flip(['first_name', 'middle_name', 'last_name', 'suffix']));
         if (isset($normalized['full_name']) && $parts !== []) {
@@ -163,6 +181,7 @@ class CsvImportService
     /** Normalize all organizer choices before either a dry check or a commit. */
     public static function validateOptions(Import $import, array $input, array $map = []): array
     {
+        $responseMode = self::responseMode($import, $input['response_mode'] ?? null);
         $headers = $import->column_map['headers'] ?? [];
         $required = $input['required_columns'] ?? [];
         if (! is_array($required)) {
@@ -180,7 +199,7 @@ class CsvImportService
         // changed columns on this request.
         $scoreEvidence = in_array($import->form->type, ['pretest', 'posttest'], true)
             && array_key_exists('score', $map !== [] ? $map : ($import->column_map['map'] ?? []));
-        if ($import->form->type !== 'registration' && $required === [] && ! $scoreEvidence) {
+        if ($responseMode === 'individual' && $import->form->type !== 'registration' && $required === [] && ! $scoreEvidence) {
             throw new RuntimeException('Select at least one required answer column for this assessment or evaluation export. Summary-only imports cannot establish certificate completion.');
         }
         // Completion must be supported by answers from this file, or by a
@@ -230,6 +249,7 @@ class CsvImportService
         ksort($answerMap);
 
         return [
+            'response_mode' => $responseMode,
             'required_columns' => $required,
             'answer_map' => $answerMap,
             'source_description' => $sourceDescription,
@@ -349,9 +369,11 @@ class CsvImportService
      *
      * @return array<int, array{row_number:int,cells:array<int,string>,column_count:int}>
      */
-    public function previewRows(Import $import): array
+    public function previewRows(Import $import, int $page = 1): array
     {
-        $rows = $this->readRows(Storage::disk('local')->path($this->tmpPath($import)), self::PREVIEW_ROWS);
+        $page = max(1, min($page, (int) ceil(self::MAX_ROWS / self::PREVIEW_ROWS)));
+        $rows = array_slice($this->readRows(Storage::disk('local')->path($this->tmpPath($import)), self::PREVIEW_ROWS * $page),
+            ($page - 1) * self::PREVIEW_ROWS, self::PREVIEW_ROWS, true);
 
         return collect($rows)
             ->map(fn (array $cells, int $rowNumber) => [
@@ -361,6 +383,13 @@ class CsvImportService
             ])
             ->values()
             ->all();
+    }
+
+    public function previewRowCount(Import $import): int
+    {
+        // Current imports already retain an aggregate count, never source values.
+        return $import->column_map['analysis']['rows']
+            ?? count($this->readRows(Storage::disk('local')->path($this->tmpPath($import))));
     }
 
     /**
@@ -373,7 +402,8 @@ class CsvImportService
      */
     public function process(Import $import, array $map, string $timestampFormat = 'auto', bool $dryRun = false, array $options = []): array
     {
-        $map = self::validateMap($import, $map);
+        $responseMode = self::responseMode($import, $options['response_mode'] ?? null);
+        $map = self::validateMap($import, $map, $responseMode);
         $timestampFormat = self::validateTimestampFormat($timestampFormat);
         $options = self::validateOptions($import, $options, $map);
         if (array_intersect($options['required_columns'], array_values($map)) !== []) {
@@ -389,7 +419,7 @@ class CsvImportService
         }
 
         try {
-            $counts = DB::transaction(function () use ($dryRun, $import, $map, $rows, $timestampFormat, $options): array {
+            $counts = DB::transaction(function () use ($dryRun, $import, $map, $rows, $timestampFormat, $options, $responseMode): array {
                 $lockedWebinar = Webinar::query()->whereKey($import->webinar_id)->whereNull('deletion_started_at')->sharedLock()->firstOrFail();
                 $lockedForm = Form::query()->whereKey($import->form_id)->where('webinar_id', $lockedWebinar->id)->sharedLock()->firstOrFail();
                 $lockedForm->setRelation('webinar', $lockedWebinar);
@@ -404,7 +434,14 @@ class CsvImportService
                 self::validateOptions($import, $options, $map);
                 $import->column_map = array_merge($import->column_map ?? [], ['map' => $map]);
                 $nativeColumns = app(FormResponseService::class)->nativeColumns($lockedForm);
-                $responseSchema = app(ImportedResponseSchema::class)->columns($import, $map, $options);
+                $responseSchema = $responseMode === 'unattributed'
+                    ? []
+                    : app(ImportedResponseSchema::class)->columns($import, $map, $options);
+                if ($responseMode === 'unattributed') {
+                    $metadata = $import->column_map;
+                    $metadata['analysis']['columns'] = array_map(fn ($column) => array_diff_key($column, ['label' => true]), $metadata['analysis']['columns'] ?? []);
+                    $import->column_map = $metadata;
+                }
                 $import->column_map = array_merge($import->column_map, [
                     'response_schema' => $responseSchema,
                 ]);
@@ -418,6 +455,19 @@ class CsvImportService
                 $parser = new CsvImportRowParser;
                 $candidates = [];
                 foreach ($rows as $rowNumber => $row) {
+                    if ($responseMode === 'unattributed') {
+                        if (count($row) !== count($headers)) {
+                            $raw = $this->rawDataFor($row, $headers, $map, $options['required_columns'] ?? []);
+                            $this->issue($import, $rowNumber, ImportIssue::TYPE_INVALID_ROW_STRUCTURE, 'The number of cells does not match the header. Re-export the original file.', $raw, null);
+                            $counts['invalid']++;
+
+                            continue;
+                        }
+                        app(UnattributedResponseService::class)->store($import, $rowNumber, $headers, $row);
+                        $counts['valid']++;
+
+                        continue;
+                    }
                     $raw = $this->rawDataFor($row, $headers, $map, $options['required_columns'] ?? []);
                     try {
                         $parsed = $parser->parse($row, $headers, $map, $options, $timestampFormat, $registration, $scoreRequired);
@@ -1032,7 +1082,7 @@ class CsvImportService
             if (mb_strlen($header) > 2000 || trim($header) === '_resolved') {
                 throw new RuntimeException('Headers must be at most 2,000 characters and cannot use the reserved label _resolved. Rename the source column.');
             }
-            if (trim($header) === '') {
+            if (ImportedResponseSchema::headerKey($header) === '') {
                 throw new RuntimeException('Column '.($index + 1).' has no header. The file was not imported because its columns cannot be identified reliably.');
             }
 
@@ -1053,9 +1103,8 @@ class CsvImportService
 
     /**
      * @return array<int|string, mixed> the original cells keyed by their header label.
-     *                                  Retains the first 60 columns plus every mapped identity/score/timestamp
-     *                                  column and required answer column, so review evidence never drops the
-     *                                  values that decided the outcome on wide exports.
+     *                                  Retains every source cell, including overflow cells in malformed rows.
+     *                                  Overflow labels cannot replace an actual source header or another cell.
      */
     private function rawDataFor(array $row, array $headers, array $map = [], array $required = []): array
     {
@@ -1073,7 +1122,13 @@ class CsvImportService
         $raw = [];
         foreach (array_keys($keep) as $index) {
             $label = (string) ($headers[$index] ?? 'column '.((int) $index + 1));
-            $raw[$label === '' ? 'column '.((int) $index + 1) : $label] = (string) $row[$index];
+            $base = $label === '' ? 'column '.((int) $index + 1) : $label;
+            $label = $base;
+            $suffix = 1;
+            while (array_key_exists($label, $raw) || (! array_key_exists($index, $headers) && in_array($label, $headers, true))) {
+                $label = $base.' (extra '.$suffix++.')';
+            }
+            $raw[$label] = (string) $row[$index];
         }
 
         return $raw;

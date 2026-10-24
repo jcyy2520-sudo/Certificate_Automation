@@ -143,6 +143,7 @@ class ZzPreviewSnapshotTest extends TestCase
 
         $this->approveCertificateFixtures($webinar);
         $pages = [
+            'import-review' => route('admin.webinars.imports.map', [$webinar, $import, 'step' => 'review']),
             'import-map' => route('admin.webinars.imports.map', [$webinar, $import]),
             'responses' => route('admin.responses.index', $webinar),
             'eligibility' => route('admin.responses.index', [$webinar, 'view' => 'eligibility']),

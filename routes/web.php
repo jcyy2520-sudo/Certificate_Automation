@@ -8,10 +8,12 @@ use App\Http\Controllers\Admin\EmailDeliveryController as AdminEmailDeliveryCont
 use App\Http\Controllers\Admin\FormController as AdminFormController;
 use App\Http\Controllers\Admin\FormResponseController;
 use App\Http\Controllers\Admin\ImportController as AdminImportController;
+use App\Http\Controllers\Admin\ImportMappingProfileController;
 use App\Http\Controllers\Admin\ManualCertificateRecipientController;
 use App\Http\Controllers\Admin\ParticipantController as AdminParticipantController;
 use App\Http\Controllers\Admin\ParticipantEligibilityController;
 use App\Http\Controllers\Admin\ParticipantMessageController;
+use App\Http\Controllers\Admin\UnattributedResponseController;
 use App\Http\Controllers\Admin\UserManagementController;
 use App\Http\Controllers\Admin\WebinarController as AdminWebinarController;
 use App\Http\Controllers\Admin\WebinarDocumentController;
@@ -174,12 +176,20 @@ Route::middleware(['auth', EnsureApprovedAccount::class, 'auth.session', EnsureT
 
         Route::get('/webinars/{webinar}/imports', [AdminImportController::class, 'index'])->name('webinars.imports.index');
         Route::get('/webinars/{webinar}/imports/upload', [AdminImportController::class, 'create'])->name('webinars.imports.create');
+        Route::get('/webinars/{webinar}/imports/corrections', [AdminImportController::class, 'corrections'])->middleware(EnsureRecentPassword::class)->name('webinars.imports.corrections');
         Route::post('/webinars/{webinar}/imports/preview', [AdminImportController::class, 'preview'])->middleware(EnsureRecentPassword::class)->name('webinars.imports.preview');
         Route::get('/webinars/{webinar}/imports/{import}/map', [AdminImportController::class, 'map'])->name('webinars.imports.map');
+        Route::post('/webinars/{webinar}/imports/{import}/choices', [AdminImportController::class, 'choices'])->middleware(EnsureRecentPassword::class)->name('webinars.imports.choices');
+        Route::post('/webinars/{webinar}/imports/{import}/profiles', [ImportMappingProfileController::class, 'store'])->middleware(EnsureRecentPassword::class)->name('webinars.imports.profiles.store');
+        Route::post('/webinars/{webinar}/imports/{import}/profiles/{profile}/apply', [ImportMappingProfileController::class, 'apply'])->middleware(EnsureRecentPassword::class)->name('webinars.imports.profiles.apply');
+        Route::delete('/webinars/{webinar}/imports/{import}/profiles/{profile}', [ImportMappingProfileController::class, 'destroy'])->middleware(EnsureRecentPassword::class)->name('webinars.imports.profiles.destroy');
         Route::get('/webinars/{webinar}/imports/{import}/reconciliation', [AdminImportController::class, 'reconciliation'])->middleware(EnsureRecentPassword::class)->name('webinars.imports.reconciliation');
         Route::post('/webinars/{webinar}/imports/{import}/dry-run', [AdminImportController::class, 'dryRun'])->middleware(EnsureRecentPassword::class)->name('webinars.imports.dry-run');
         Route::match(['post', 'put'], '/webinars/{webinar}/imports/{import}', [AdminImportController::class, 'store'])->middleware(EnsureRecentPassword::class)->name('webinars.imports.store');
         Route::post('/webinars/{webinar}/imports/{import}/cancel', [AdminImportController::class, 'cancel'])->middleware(EnsureRecentPassword::class)->name('webinars.imports.cancel');
+        Route::get('/webinars/{webinar}/evaluation-feedback', [UnattributedResponseController::class, 'index'])->name('unattributed.index');
+        Route::get('/webinars/{webinar}/evaluation-feedback/export', [UnattributedResponseController::class, 'export'])->middleware(EnsureRecentPassword::class)->name('unattributed.export');
+        Route::get('/webinars/{webinar}/evaluation-feedback/{unattributedResponse}', [UnattributedResponseController::class, 'show'])->name('unattributed.show');
         Route::post('/webinars/{webinar}/import-issues/{importIssue}/promote', [AdminImportController::class, 'promote'])->middleware(EnsureRecentPassword::class)->name('webinars.import-issues.promote');
         Route::post('/webinars/{webinar}/import-issues/{importIssue}/replace', [AdminImportController::class, 'replaceResponse'])->middleware(EnsureRecentPassword::class)->name('webinars.import-issues.replace');
         Route::post('/webinars/{webinar}/import-issues/{importIssue}/dismiss', [AdminImportController::class, 'dismiss'])->middleware(EnsureRecentPassword::class)->name('webinars.import-issues.dismiss');

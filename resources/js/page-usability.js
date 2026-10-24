@@ -10,6 +10,33 @@ export function initPageUsability(signal) {
         wrapper.setAttribute('role', 'region');
         if (!wrapper.hasAttribute('aria-label')) wrapper.setAttribute('aria-label', 'Scrollable data table');
         table.querySelectorAll('thead th').forEach((cell) => { if (!cell.hasAttribute('scope')) cell.scope = 'col'; });
+        if (!table.classList.contains('record-table')) return;
+        // Enhance the same table, preserving selection nodes, handlers and the
+        // ordinary horizontally scrolling table when JavaScript is unavailable.
+        const headings = [...table.querySelectorAll('thead tr:first-child th')];
+        for (const row of table.tBodies[0]?.rows || []) {
+            if (row.cells.length === 1 && row.cells[0].colSpan > 1) continue;
+            [...row.cells].forEach((cell, index) => {
+                const heading = headings[index];
+                if (!cell.dataset.label) cell.dataset.label = heading?.textContent.trim() || (cell.querySelector('input[type="checkbox"]') ? 'Select' : 'Actions');
+            });
+        }
+        table.querySelectorAll('input[type="checkbox"]').forEach((checkbox) => {
+            const cell = checkbox.closest('th, td');
+            cell?.classList.add('record-select-cell');
+            if (checkbox.closest('label')) return;
+            const label = document.createElement('label');
+            label.className = 'record-selection-control';
+            checkbox.before(label);
+            label.append(checkbox);
+            if (cell?.tagName === 'TH') {
+                const text = document.createElement('span');
+                text.textContent = 'Select this page';
+                label.append(text);
+            }
+        });
+        table.dataset.recordsReady = 'true';
+        wrapper.classList.add('record-table-region');
     });
     document.querySelectorAll('textarea').forEach((field) => {
         const grow = () => { field.style.height = 'auto'; field.style.height = `${Math.max(96, field.scrollHeight + 2)}px`; };
@@ -69,13 +96,13 @@ export function initPageUsability(signal) {
     const syncLayers = () => {
         candidates().forEach((panel) => {
             if (!panel.hasAttribute('data-panel')) return;
-            const mobile = innerWidth < 1024;
+            const mobile = innerWidth < 1280;
             if (!mobile) { panel.removeAttribute('role'); panel.removeAttribute('aria-modal'); }
             panel.inert = mobile && !panel.classList.contains('is-open');
             panel.setAttribute('aria-hidden', String(panel.inert));
         });
         const active = document.querySelector('[data-confirm-modal]:not([hidden]), [data-send-confirm]:not([hidden]), [data-name-correction-modal]:not([hidden])')
-            || candidates().find((panel) => innerWidth < 1024 && (panel.getAttribute('aria-hidden') === 'false' || panel.classList.contains('is-open')));
+            || candidates().find((panel) => innerWidth < (panel.hasAttribute('data-panel') ? 1280 : 1024) && (panel.getAttribute('aria-hidden') === 'false' || panel.classList.contains('is-open')));
         if (document.documentElement.classList.contains('overlay-open') !== Boolean(active)) document.documentElement.classList.toggle('overlay-open', Boolean(active));
         if (active && previous !== active) {
             restoreBackground();

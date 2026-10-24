@@ -54,7 +54,7 @@
 </div>
 <div class="panel overflow-hidden">
     <div class="overflow-x-auto">
-        <table class="w-full min-w-[960px] text-left text-sm">
+        <table class="record-table w-full min-w-[960px] text-left text-sm">
             <thead class="border-b border-slate-200 bg-slate-50/70 text-[11px] uppercase tracking-[0.06em] text-slate-500">
                 <tr>
                     <th class="w-12 px-5 py-3"><input type="checkbox" class="survey-check size-[18px]" data-select-page-certificates aria-label="Select all eligible participants on this page"></th>

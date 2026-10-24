@@ -194,6 +194,7 @@ export function initCertificateEditor(root = document, signal) {
     certificateRows.forEach((row) => { designs[row.dataset.certificateRow] = { ...defaultDesign, ...savedCorrectionDesign(row) }; });
     let activeId = studio.dataset.initialParticipant || certificateRows[0]?.dataset.certificateRow || null;
     let zoom = 1;
+    let fitZoomSelected = false;
 
     const selectedIds = () => queueChecks.filter((input) => input.checked && !input.disabled).map((input) => input.dataset.queueCheck);
     const designFor = (id) => designs[id] || { ...defaultDesign };
@@ -637,12 +638,13 @@ export function initCertificateEditor(root = document, signal) {
         // Only reflect an exact preset; a dragged zoom leaves the box on "Fit".
         if (select) {
             const match = Array.from(select.options).find((option) => Math.abs(Number(option.value) - zoom) < 0.001);
-            select.value = match ? match.value : 'fit';
+            select.value = fitZoomSelected ? 'fit' : (match ? match.value : 'fit');
         }
     }
     function setZoom(next) { zoom = clamp(next, 0.25, 2); renderZoom(); }
     $('[data-zoom-select]')?.addEventListener('change', (event) => {
-        setZoom(event.target.value === 'fit' ? fitZoom() : Number(event.target.value));
+        fitZoomSelected = event.target.value === 'fit';
+        setZoom(fitZoomSelected ? fitZoom() : Number(event.target.value));
     });
 
     function filterRows() {
@@ -685,6 +687,7 @@ export function initCertificateEditor(root = document, signal) {
         closePanels(); if (opening) { panel?.classList.add('is-open'); scrim?.classList.remove('hidden'); }
     }));
     scrim?.addEventListener('click', closePanels);
+    window.addEventListener('resize', () => { if (innerWidth >= 1280) closePanels(); }, { signal });
 
     document.addEventListener('keydown', (event) => { if (event.key === 'Escape') { closePanels(); closeConfirmation(); closeNameCorrection(); } }, { signal });
 
@@ -788,7 +791,13 @@ export function initCertificateEditor(root = document, signal) {
 
     renderDesign(designFor(activeId)); setActive(activeId); syncSelection(); renderHistoryButtons(); renderZoom();
     if (typeof ResizeObserver !== 'undefined') {
-        const observer = new ResizeObserver(() => renderDesign(designFor(activeId))); observer.observe(canvas);
+        const observer = new ResizeObserver(() => {
+            renderDesign(designFor(activeId));
+            if (fitZoomSelected) setZoom(fitZoom());
+        });
+        observer.observe(canvas);
+        const viewport = $('[data-preview-viewport]');
+        if (viewport) observer.observe(viewport);
         signal?.addEventListener('abort', () => observer.disconnect(), { once: true });
     }
     const refitName = () => renderDesign(designFor(activeId));

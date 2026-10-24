@@ -65,7 +65,7 @@ class EmailDeliveryController extends Controller
 
         $deliveries = $query
             ->with('certificate:id,verification_code')
-            ->select(['id', 'public_id', 'webinar_id', 'certificate_id', 'type', 'provider', 'recipient_email', 'subject', 'status', 'attempts', 'provider_message_id', 'last_error', 'scheduled_at', 'sent_at', 'failed_at', 'created_at', 'delivery_outcome', 'delivery_checked_at'])
+            ->select(['id', 'public_id', 'webinar_id', 'certificate_id', 'type', 'provider', 'recipient_email', 'subject', 'status', 'attempts', 'provider_message_id', 'last_error', 'scheduled_at', 'expires_at', 'sent_at', 'failed_at', 'created_at', 'delivery_outcome', 'delivery_checked_at'])
             ->latest('id')
             ->paginate(30)
             ->withQueryString();

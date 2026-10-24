@@ -57,17 +57,27 @@ final class ResponseFileReader
                     // XLSX omits trailing empty cells; retain their header positions.
                     $values = array_pad($values, $width, '');
                     $values = array_map(function ($value, $index) use ($numericCells, $sheet, $rowNumber): string {
+                        $numeric = $numericCells[$sheet->getName()][$rowNumber][$index] ?? null;
                         if ($value instanceof DateTimeInterface) {
+                            // OpenSpout rounds numeric date serials to whole seconds.
+                            // A format showing fractional seconds cannot use that result.
+                            $dateFormat = preg_replace('/"[^"]*"/', '', $numeric['format'] ?? '');
+                            if (preg_match('/s[.,][0#?]/i', $dateFormat) === 1) {
+                                throw new RuntimeException('Fractional-second numeric Excel date formats are unsupported. Export the displayed values as UTF-8 CSV to preserve their precision.');
+                            }
                             // Excel dates are local wall times, not UTC instants.
-                            return $value->format('Y-m-d H:i:s');
+                            $fraction = rtrim($value->format('u'), '0');
+
+                            return $value->format('Y-m-d H:i:s').($fraction === '' ? '' : '.'.$fraction);
                         }
                         if (! is_scalar($value) && $value !== null) {
                             throw new RuntimeException('The workbook contains an unsupported cell value. Export the response sheet as CSV.');
                         }
-                        $numeric = $numericCells[$sheet->getName()][$rowNumber][$index] ?? null;
-                        $text = $numeric !== null && is_numeric($value)
-                            ? app(XlsxNumberFormats::class)->display($numeric)
-                            : (is_bool($value) ? ($value ? 'TRUE' : 'FALSE') : (string) $value);
+                        $text = isset($numeric['text_padding'])
+                            ? $numeric['text_padding'][0].(string) $value.$numeric['text_padding'][1]
+                            : ($numeric !== null && is_numeric($value)
+                                ? app(XlsxNumberFormats::class)->display($numeric)
+                                : (is_bool($value) ? ($value ? 'TRUE' : 'FALSE') : (string) $value));
                         if (strlen($text) > self::MAX_TEXT || str_contains($text, "\0")) {
                             throw new RuntimeException('A cell exceeds 32 KB or contains invalid text.');
                         }

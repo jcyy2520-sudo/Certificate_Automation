@@ -118,7 +118,7 @@ class WebinarController extends Controller
         $audit->record($request, 'webinar.created', $webinar);
 
         if ($webinar->isUploadOnly()) {
-            return redirect()->route('admin.webinars.documents.index', $webinar)->with('success', 'Webinar created. You can now upload forms and documents.');
+            return redirect()->route('admin.webinars.show', $webinar)->with('success', 'Webinar created.');
         }
 
         return redirect()->route('admin.webinars.show', $webinar)->with('success', 'Webinar created. Open the webinar and registration form when you are ready to accept participants.');

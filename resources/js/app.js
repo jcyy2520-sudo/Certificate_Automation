@@ -2,6 +2,7 @@ import { initCertificateEditor, initCertificateTemplateEditor } from './certific
 import { initCertificatePdfUpload } from './certificate-pdf-upload';
 import { initFormAvailability } from './form-availability';
 import { initFormResponses } from './form-responses';
+import { initResponseTableControls } from './response-table-controls';
 import { initAdminUI } from './admin-ui';
 import { initAccountControls } from './account-controls';
 import { initFormBuilder } from './form-builder';
@@ -11,6 +12,7 @@ import { initTheme } from './theme';
 import { initPageUsability } from './page-usability';
 import { initStudioRecipients } from './studio-recipients';
 import { initParticipantMessages } from './participant-messages';
+import { initParticipantCertificates } from './participant-certificates';
 import { initParticipantEligibility } from './participant-eligibility';
 import { initCertificateSendProgress } from './certificate-send-progress';
 
@@ -25,10 +27,12 @@ function initializePage() {
     initCertificateSendProgress(document, signal);
     initStudioRecipients(document, signal);
     initParticipantMessages(document, signal);
+    initParticipantCertificates(document, signal);
     initParticipantEligibility(document, signal);
     initCertificatePdfUpload();
     initFormAvailability();
     initFormResponses(document, signal);
+    initResponseTableControls(document, signal);
     initFormBuilder();
     initWebinarSettings();
     initPageUsability(signal);

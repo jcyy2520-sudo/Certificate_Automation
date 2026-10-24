@@ -10,6 +10,7 @@ use App\Models\Import;
 use App\Models\ImportIssue;
 use App\Models\Participant;
 use App\Models\SubmissionAnswer;
+use App\Models\UnattributedResponse;
 use App\Models\Webinar;
 use Illuminate\Support\Facades\DB;
 
@@ -174,6 +175,7 @@ class ParticipantPrivacyService
             // Issues are deleted whether or not their import was already
             // stamped, so a partially completed earlier run cannot strand them.
             $issues = ImportIssue::query()->where('webinar_id', $webinar->id)->delete();
+            UnattributedResponse::query()->where('webinar_id', $webinar->id)->delete();
 
             if ($imports->isEmpty()) {
                 return ['imports' => 0, 'issues' => $issues];

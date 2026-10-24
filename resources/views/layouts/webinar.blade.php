@@ -26,7 +26,6 @@
                     <x-icon name="arrow-left" class="size-5" />
                 </a>
                 <div class="flex min-w-0 flex-1 items-center gap-2 px-1">
-                    <x-brand compact />
                     <span class="min-w-0 truncate text-[13px] font-semibold text-slate-900 dark:text-white">{{ $webinar->title }}</span>
                 </div>
                 <div class="flex items-center gap-1">
@@ -40,11 +39,11 @@
                 </div>
             </header>
 
-            <div class="hidden items-center justify-between border-b border-slate-200 px-6 py-2 lg:flex">
-                <x-brand />
-                <button type="button" class="button-secondary" data-theme-toggle aria-label="Toggle theme"><x-icon name="sun" class="hidden size-4 dark:block" /><x-icon name="moon" class="size-4 dark:hidden" />Change theme</button>
+            <div class="workspace-topbar hidden lg:flex">
+                <a href="{{ route('admin.webinars.index') }}" class="workspace-back"><x-icon name="arrow-left" class="size-4" />All webinars</a>
+                <button type="button" class="theme-button" data-theme-toggle aria-label="Toggle theme"><x-icon name="sun" class="hidden size-4 dark:block" /><x-icon name="moon" class="size-4 dark:hidden" /><span class="sr-only">Change theme</span></button>
             </div>
-            <main id="main-content" tabindex="-1" class="mx-auto w-full max-w-[1440px] flex-1 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10 2xl:px-14 2xl:py-12">
+            <main id="main-content" tabindex="-1" class="workspace-main">
                 @include('partials.admin-flash')
 
                 @yield('content')

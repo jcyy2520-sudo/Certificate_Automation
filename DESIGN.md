@@ -18,18 +18,24 @@ Forms → Form Responses → eligibility review → Certificate Studio. A quiet 
 
 ## Visual language
 
-Inter Variable throughout. The owner-approved 24 October refinement retains
-Certimate's blue logo, obsidian actions, webinar workspace navigation and own
-identity. Stash is a reference for restraint and spacing, not a copied design.
-Light mode uses the existing cool slate canvas (`#f8fafc`), white panels and a
+Inter Variable throughout. The owner's later 24 October redesign request replaces
+the blue logo with a minimal charcoal document/check mark and a live Inter
+wordmark. Use it at sign-in and primary application navigation, with a quiet
+verification-page placement. Webinar, Studio, public form and error chrome avoid
+repeating the graphic. Stash is a reference for restraint and spacing, not a
+copied design. Light mode uses an off-white canvas (`#f6f7f8`), white panels and a
 white navigation rail with a charcoal selected item. Dark mode retains charcoal
 surfaces and high-contrast actions. Panels have 12px corners and fine slate
 borders without decorative shadows. Page titles use 600 weight at
 `clamp(1.65rem, 3vw, 1.9rem)`; section headings are 1.125rem, body/data 0.875rem.
-Shared buttons and fields are 40px on desktop and primary touch controls at least
-44px on phones. Accent tokens and certificate/email artwork remain unchanged.
-The full logo reserves the same 180x50 frame in either theme; the dark icon and
-wordmark scale with that frame instead of shrinking to a separate small lockup.
+Shared buttons and fields are 40px on desktop, with 14px control labels; primary
+touch controls and survey choices are at least 44px on phones. Editable phone
+inputs use 16px type. Accent tokens and certificate/email artwork remain unchanged.
+The full logo reserves the same 11.25rem by 3.125rem frame in either theme
+(180x50px at the standard scale). The transparent
+mark uses one PNG/lossless WebP asset, inverted in dark mode; the live name stays
+sharp on 4K displays. The preserved image-generation master and prompt are in
+`resources/branding`; `scripts/build-brand.php` owns deterministic web derivatives.
 
 ## Runtime token ownership
 
@@ -38,6 +44,31 @@ wordmark scale with that frame instead of shrinking to a separate small lockup.
 ## Layout and motion
 
 Existing desktop webinar sidebar and mobile drawer. Four form links are navigation tabs with `aria-current`. Response table owns its horizontal and bounded vertical scrolling; forms use document scrolling. Shared navigation feedback and availability switches retain their current behavior. No new motion.
+
+`workspace-main` owns spacing through `--workspace-gutter` (1rem–3rem), a 96rem
+maximum for ordinary screens and a 140rem maximum for data workspaces below
+1920px. Data workspaces use the available window width from 1920px. The root scale
+is 18px from 1920px, 20px from 2560px, and 22px from 3200px; table text follows
+that scale and headers wrap. Existing form/prose constraints remain. The primary
+rail's navigation scrolls independently
+on short screens. Studio side panels are persistent from 1280px; below that width,
+the existing accessible drawers preserve the canvas area. Explicit Fit zoom
+recalculates when its preview viewport changes; numeric zoom stays user controlled.
+
+Participants, email delivery history, import history and response eligibility use
+the shared `record-table` phone variant below 768px. `page-usability.js` derives
+labels from the actual column headings and enhances the same controls; there is
+no duplicate selection markup. Without JavaScript the original scrolling table
+remains. Full subjects, errors, filenames, status and actions stay readable. Raw
+source comparisons retain horizontal scrolling rather than becoming records.
+
+Upload-only creation opens the webinar's main URL immediately. The workspace
+shows its title and document state; Add a document is an optional disclosure and
+opens automatically after new-upload validation errors. Failed replacements reopen
+only their own fields, retain the attempted title and associate the inline errors.
+Excel `.xlsx` appears first in both
+add/replace pickers. Legacy `.xls` must be saved as `.xlsx`. Attachments remain
+private, retain original bytes, and do not import responses or publish forms.
 
 On screens below 640px, response rows become labeled stacked records with the
 participant, submission state and every answer. Long values retain their native

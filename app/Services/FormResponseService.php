@@ -27,6 +27,9 @@ class FormResponseService
         }
         foreach (Import::query()->where('form_id', $form->id)->where('webinar_id', $form->webinar_id)
             ->where('status', Import::STATUS_COMMITTED)->whereNull('privacy_erased_at')->orderBy('id')->lazy(100) as $import) {
+            if (($import->column_map['options']['response_mode'] ?? 'individual') === 'unattributed') {
+                continue;
+            }
             $schema = $import->column_map['response_schema'] ?? app(ImportedResponseSchema::class)->columns(
                 $import->setRelation('form', $form), $import->column_map['map'] ?? [], $import->column_map['options'] ?? []
             );
