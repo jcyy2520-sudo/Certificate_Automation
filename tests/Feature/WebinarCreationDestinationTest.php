@@ -40,7 +40,7 @@ class WebinarCreationDestinationTest extends TestCase
             ->assertOk()
             ->assertViewHas('webinar', fn (Webinar $shown): bool => $shown->is($webinar))
             ->assertSee('Synthetic document workspace')
-            ->assertSee('Your webinar is ready')
+            ->assertSee('No files yet')
             ->assertSee('Add a document')
             ->assertSee('accept=".xlsx,.pdf,.docx,.png,.jpg,.jpeg"', false);
 

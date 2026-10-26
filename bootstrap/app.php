@@ -15,6 +15,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
+        // The public home redirects to sign-in, so it cannot be the destination
+        // for an authenticated visitor leaving a guest-only page.
+        $middleware->redirectUsersTo(fn () => route('admin.dashboard'));
+
         // Reject forged Host headers in non-local environments. Only the exact
         // APP_URL host and explicitly listed aliases are accepted; subdomains
         // must be opted into individually with APP_TRUSTED_HOSTS.

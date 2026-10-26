@@ -4,6 +4,8 @@ namespace App\Services;
 
 use DateTimeInterface;
 use Illuminate\Http\UploadedFile;
+use OpenSpout\Common\Entity\Cell;
+use OpenSpout\Common\Entity\Cell\ErrorCell;
 use OpenSpout\Reader\XLSX\Options;
 use OpenSpout\Reader\XLSX\Reader;
 use RuntimeException;
@@ -43,7 +45,9 @@ final class ResponseFileReader
                 $rows = 0;
                 $width = 0;
                 foreach ($sheet->getRowIterator() as $rowNumber => $row) {
-                    $values = $row->toArray();
+                    // ErrorCell::getValue() is null. Keep the object until its
+                    // source error text is restored, or reject an invalid value.
+                    $values = array_map(fn (Cell $cell) => $cell instanceof ErrorCell ? $cell : $cell->getValue(), $row->getCells());
                     if (count($values) > self::MAX_COLUMNS || ++$rows > CsvImportService::MAX_ROWS + 1
                         || ($cellsRead += count($values)) > self::MAX_CELLS) {
                         throw new RuntimeException('The workbook exceeds 5,000 rows, 200 columns or 300,000 cells. Split the response sheet into smaller files.');
@@ -58,6 +62,10 @@ final class ResponseFileReader
                     $values = array_pad($values, $width, '');
                     $values = array_map(function ($value, $index) use ($numericCells, $sheet, $rowNumber): string {
                         $numeric = $numericCells[$sheet->getName()][$rowNumber][$index] ?? null;
+                        if (isset($numeric['literal_text'])) {
+                            $value = $numeric['literal_text'];
+                            $numeric = null;
+                        }
                         if ($value instanceof DateTimeInterface) {
                             // OpenSpout rounds numeric date serials to whole seconds.
                             // A format showing fractional seconds cannot use that result.
@@ -85,7 +93,13 @@ final class ResponseFileReader
                         return $text;
                     }, $values, array_keys($values));
                     // Formula cells remain literal formulas. Never calculate or trust cached results.
-                    fputcsv($out, $values, ',', '"', '');
+                    if ($rows === 1 && count($values) === 1) {
+                        // XLSX already establishes the column count. Quote this
+                        // heading so literal separators cannot imply another CSV dialect.
+                        fwrite($out, '"'.str_replace('"', '""', $values[0]).'"'."\n");
+                    } else {
+                        fputcsv($out, $values, ',', '"', '');
+                    }
                     if (ftell($out) > 16 * 1024 * 1024) {
                         throw new RuntimeException('The decoded response sheet exceeds 16 MB. Split the file.');
                     }

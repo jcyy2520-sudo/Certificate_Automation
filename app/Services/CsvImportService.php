@@ -1047,21 +1047,28 @@ class CsvImportService
         rewind($handle);
 
         $headerRow = fgetcsv($handle, 0, ',', '"', '');
+        $alternativeWidths = [];
+        if (is_array($headerRow) && count($headerRow) === 1) {
+            foreach ([';', "\t"] as $delimiter) {
+                rewind($handle);
+                $alternative = fgetcsv($handle, 0, $delimiter, '"', '');
+                $alternativeWidths[$delimiter] = is_array($alternative) ? count($alternative) : 0;
+            }
+        }
         fclose($handle);
 
         if ($headerRow === false || $headerRow === [null]) {
             return [];
         }
 
-        // Real-world exports are often semicolon/tab-delimited (EU locales,
-        // Excel) or XLSX renamed to .csv. A single-column header with embedded
-        // semicolons/tabs is the tell — fail with a fix, not silent mismatch.
+        // Check separators outside source quoting: a valid single-column
+        // heading can itself contain literal semicolons, tabs or line breaks.
         if (count($headerRow) === 1) {
             $only = (string) $headerRow[0];
-            if (str_contains($only, ';') && ! str_contains($only, ',')) {
+            if (($alternativeWidths[';'] ?? 0) > 1 && ! str_contains($only, ',')) {
                 throw new RuntimeException('This file uses semicolons (;) instead of commas. Re-export it as Comma-separated values (.csv) with a comma delimiter, or convert the semicolons to commas before uploading.');
             }
-            if (str_contains($only, "\t")) {
+            if (($alternativeWidths["\t"] ?? 0) > 1) {
                 throw new RuntimeException('This file uses tabs instead of commas. Re-export it as Comma-separated values (.csv) with a comma delimiter before uploading.');
             }
             if (str_starts_with(ltrim($contents), 'PK')) {

@@ -24,46 +24,7 @@
     </x-slot:actions>
 </x-page-header>
 
-@php
-    // A short "where am I / what's next" checklist for running a webinar.
-    $steps = [
-        ['label' => 'Add webinar details', 'done' => filled($webinar->title), 'href' => route('admin.webinars.edit', $webinar), 'cta' => 'Edit details', 'hint' => 'Title, description, and schedule.'],
-        ['label' => 'Open the webinar', 'done' => $webinar->isOpen(), 'href' => route('admin.webinars.edit', $webinar), 'cta' => 'Open it', 'hint' => 'Allows any forms you switch on to accept responses.'],
-        ['label' => 'Upload the certificate design', 'done' => $hasCertificateDesign, 'href' => route('admin.certification.edit', $webinar), 'cta' => 'Upload design', 'hint' => 'The image each certificate is printed on.'],
-        ['label' => 'Collect registrations', 'done' => $webinar->participants_count > 0, 'href' => $registrationForm ? route('admin.forms.edit', [$webinar, $registrationForm]) : route('admin.webinars.show', $webinar), 'cta' => 'Share the link', 'hint' => 'Participants register and confirm their email.'],
-        ['label' => 'Send certificates', 'done' => $webinar->issued_certificates_count > 0, 'href' => route('admin.certificates.studio', $webinar), 'cta' => 'Send certificates', 'hint' => 'Once participants meet the requirements.'],
-    ];
-    $doneCount = collect($steps)->where('done', true)->count();
-    $currentIndex = collect($steps)->search(fn ($s) => ! $s['done']);
-@endphp
-
-@if($doneCount < count($steps))
-    <section class="panel mb-6 p-5">
-        <div class="flex flex-wrap items-center justify-between gap-3">
-            <h2 class="section-title">Getting this webinar ready</h2>
-            <span class="text-[12px] font-medium text-slate-500 tabular-nums">{{ $doneCount }} of {{ count($steps) }} done</span>
-        </div>
-        <ol class="mt-4 space-y-1.5">
-            @foreach($steps as $i => $step)
-                @php $isCurrent = $i === $currentIndex; @endphp
-                <li class="flex items-center gap-3 rounded-lg px-3 py-2.5 {{ $isCurrent ? 'bg-accent-50 ring-1 ring-accent-100' : '' }}">
-                    <span class="grid size-6 shrink-0 place-items-center rounded-full {{ $step['done'] ? 'bg-emerald-600 text-white' : ($isCurrent ? 'border-2 border-accent-600 text-accent-600' : 'border-2 border-slate-200 text-slate-300') }}">
-                        @if($step['done'])<x-icon name="check" class="size-3.5" stroke-width="3" />@else<span class="text-[11px] font-semibold tabular-nums">{{ $i + 1 }}</span>@endif
-                    </span>
-                    <span class="min-w-0 flex-1">
-                        <span class="block text-[13px] font-medium {{ $step['done'] ? 'text-slate-400 line-through' : 'text-slate-900' }}">{{ $step['label'] }}</span>
-                        @if($isCurrent)<span class="mt-0.5 block text-[12px] text-slate-500">{{ $step['hint'] }}</span>@endif
-                    </span>
-                    @if($isCurrent)
-                        <a class="button-primary h-8 shrink-0 px-3 text-[13px]" href="{{ $step['href'] }}">{{ $step['cta'] }}</a>
-                    @elseif(! $step['done'])
-                        <a class="text-[13px] font-medium text-slate-400 hover:text-slate-600" href="{{ $step['href'] }}">{{ $step['cta'] }}</a>
-                    @endif
-                </li>
-            @endforeach
-        </ol>
-    </section>
-@endif
+<x-webinar-workflow :webinar="$webinar" />
 
 @php
     $requirementLabels = [
@@ -105,7 +66,7 @@
             <p class="text-[12px] font-medium text-slate-500">Certificate requirements</p>
             <p class="mt-1 text-[13px] font-semibold text-slate-900">{{ $requiredLabel ?: 'No requirements configured' }}</p>
             <p class="mt-1 text-[12px] leading-5 {{ $readiness['uses_default_requirements'] ? 'text-emerald-700' : 'text-amber-800' }}">{{ $readiness['uses_default_requirements'] ? 'Matches the standard rule; registration is not required.' : 'Custom rule set — review before issuing.' }}</p>
-            <a class="mt-2 inline-block text-[12px] font-medium text-accent-600 hover:underline" href="{{ route('admin.certification.edit', $webinar) }}">Review requirements</a>
+            <a class="mt-2 inline-flex min-h-11 items-center text-[12px] font-medium text-accent-600 hover:underline" href="{{ route('admin.responses.index', [$webinar, 'type' => 'registration', 'view' => 'settings']) }}">Review requirements</a>
         </div>
         <div class="p-4">
             <p class="text-[12px] font-medium text-slate-500">Import review queue</p>

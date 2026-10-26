@@ -81,14 +81,15 @@
     <nav class="flex-1 space-y-1 overflow-y-auto px-3 py-4">
 
         <div class="space-y-1 pb-3">
-            @if($navCanParticipants)<a href="{{ route('admin.webinars.documents.index', $webinar) }}" class="wn-item {{ request()->routeIs('admin.webinars.documents.*') ? 'wn-item-active' : '' }}"><x-icon name="file-text" class="size-[15px]" /><span class="webinar-nav-label">Uploaded documents</span></a>@endif
+            <a href="{{ route('admin.webinars.show', $webinar) }}" class="wn-item {{ $isOverview ? 'wn-item-active' : '' }}" @if($isOverview) aria-current="page" @endif><x-icon name="home" class="size-[15px]" /><span class="webinar-nav-label">Overview</span></a>
             @if(! $webinar->isUploadOnly())
             @if($registrationForm = $navForms['registration'] ?? null)
                 @if($navCanParticipants)<a href="{{ route('admin.forms.edit', [$webinar, $navSelectedForm ?? $registrationForm]) }}" class="wn-item {{ request()->routeIs('admin.forms.*') ? 'wn-item-active' : '' }}" @if(request()->routeIs('admin.forms.*')) aria-current="page" @endif><x-icon name="file-text" class="size-[15px]" /><span class="webinar-nav-label">Forms</span></a>@endif
             @endif
             @if($navCanParticipants)<a href="{{ route('admin.responses.index', [$webinar, 'type' => $navSelectedType]) }}" class="wn-item {{ $isParticipants || $isImports ? 'wn-item-active' : '' }}" @if($isParticipants || $isImports) aria-current="page" @endif><x-icon name="grid" class="size-[15px]" /><span class="webinar-nav-label">Form Responses</span></a>@endif
-            @if($navCanParticipants)<a href="{{ route('admin.webinars.eligibility.index', $webinar) }}" class="wn-item {{ request()->routeIs('admin.webinars.eligibility.*') ? 'wn-item-active' : '' }}"><x-icon name="check" class="size-[15px]" /><span class="webinar-nav-label">Participant Eligibility</span></a>@endif
-            @if($navCanSend)<a href="{{ route('admin.webinars.messages.index', $webinar) }}" class="wn-item {{ request()->routeIs('admin.webinars.messages.*') ? 'wn-item-active' : '' }}"><x-icon name="mail" class="size-[15px]" /><span class="webinar-nav-label">Send a message</span></a>@endif
+            @if($navCanParticipants)<a href="{{ route('admin.webinars.eligibility.index', $webinar) }}" class="wn-item {{ request()->routeIs('admin.webinars.eligibility.*') ? 'wn-item-active' : '' }}" @if(request()->routeIs('admin.webinars.eligibility.*')) aria-current="page" @endif><x-icon name="check" class="size-[15px]" /><span class="webinar-nav-label">Participant Eligibility</span></a>@endif
+            @elseif($navCanParticipants)
+                <a href="{{ route('admin.webinars.documents.index', $webinar) }}" class="wn-item {{ request()->routeIs('admin.webinars.documents.*') ? 'wn-item-active' : '' }}" @if(request()->routeIs('admin.webinars.documents.*')) aria-current="page" @endif><x-icon name="folder" class="size-[15px]" /><span class="webinar-nav-label">Uploaded documents</span></a>
             @endif
         </div>
 
@@ -113,27 +114,44 @@
         {{-- Others --}}
         <details data-nav-group="others" open>
             <summary class="wn-summary">
-                <span class="flex items-center gap-2"><x-icon name="settings" class="size-4 text-slate-400" /><span class="webinar-nav-label">Others</span></span>
+                <span class="flex items-center gap-2"><x-icon name="settings" class="size-4 text-slate-400" /><span class="webinar-nav-label">More</span></span>
                 <x-icon name="chevron-down" class="wn-chevron size-4 text-slate-400" />
             </summary>
             <div class="mt-0.5 space-y-0.5 pb-1 pl-1">
-                <a href="{{ route('admin.webinars.show', $webinar) }}" class="wn-item {{ $isOverview ? 'wn-item-active' : '' }}" @if($isOverview) aria-current="page" @endif>
-                    <x-icon name="home" class="size-[15px]" /><span class="webinar-nav-label">Overview</span>
-                </a>
+                @if(! $webinar->isUploadOnly())
+                @if($navCanParticipants)<a href="{{ route('admin.webinars.documents.index', $webinar) }}" class="wn-item {{ request()->routeIs('admin.webinars.documents.*') ? 'wn-item-active' : '' }}" @if(request()->routeIs('admin.webinars.documents.*')) aria-current="page" @endif><x-icon name="folder" class="size-[15px]" /><span class="webinar-nav-label">Uploaded documents</span></a>@endif
+                @if($navCanSend)<a href="{{ route('admin.webinars.messages.index', $webinar) }}" class="wn-item {{ request()->routeIs('admin.webinars.messages.*') ? 'wn-item-active' : '' }}" @if(request()->routeIs('admin.webinars.messages.*')) aria-current="page" @endif><x-icon name="mail" class="size-[15px]" /><span class="webinar-nav-label">Send a message</span></a>@endif
                 @if($navCanParticipants)<a href="{{ route('admin.webinars.reports', $webinar) }}" class="wn-item {{ $isReports ? 'wn-item-active' : '' }}" @if($isReports) aria-current="page" @endif>
                     <x-icon name="bar-chart" class="size-[15px]" /><span class="webinar-nav-label">Reports &amp; analytics</span>
                 </a>@endif
+                @endif
                 @if($navCanSettings)<a href="{{ route('admin.webinars.edit', $webinar) }}" class="wn-item {{ $isSettings ? 'wn-item-active' : '' }}" @if($isSettings) aria-current="page" @endif>
                     <x-icon name="edit" class="size-[15px]" /><span class="webinar-nav-label">Webinar settings</span>
                 </a>@endif
-                @if($navCanSend)<a href="{{ route('admin.webinars.email-logs.index', $webinar) }}" class="wn-item {{ request()->routeIs('admin.webinars.email-logs.*') ? 'wn-item-active' : '' }}" @if(request()->routeIs('admin.webinars.email-logs.*')) aria-current="page" @endif>
+                @if(! $webinar->isUploadOnly() && $navCanSend)<a href="{{ route('admin.webinars.email-logs.index', $webinar) }}" class="wn-item {{ request()->routeIs('admin.webinars.email-logs.*') ? 'wn-item-active' : '' }}" @if(request()->routeIs('admin.webinars.email-logs.*')) aria-current="page" @endif>
                     <x-icon name="mail" class="size-[15px]" /><span class="webinar-nav-label">Email delivery log</span>
                 </a>@endif
                 @if($navCanAudit)<a href="{{ route('admin.webinars.audit', $webinar) }}" class="wn-item {{ request()->routeIs('admin.webinars.audit') ? 'wn-item-active' : '' }}" @if(request()->routeIs('admin.webinars.audit')) aria-current="page" @endif><x-icon name="shield" class="size-[15px]" /><span class="webinar-nav-label">Audit Trail</span></a>@endif
-                @if($navCanParticipants)<a href="{{ route('admin.participants.export', $webinar) }}" class="wn-item" download>
+                @if(! $webinar->isUploadOnly() && $navCanParticipants)<a href="{{ route('admin.participants.export', $webinar) }}" class="wn-item" download>
                     <x-icon name="download" class="size-[15px]" /><span class="webinar-nav-label">Export pre-send roster</span>
                 </a>@endif
             </div>
         </details>
     </nav>
 </aside>
+
+<nav class="mobile-workspace-tabs lg:hidden" aria-label="Common webinar actions" data-persist-key="webinar-tabs-{{ $webinar->id }}">
+    <a href="{{ route('admin.webinars.show', $webinar) }}" class="mobile-workspace-tab {{ $isOverview ? 'mobile-workspace-tab-active' : '' }}" @if($isOverview) aria-current="page" @endif><x-icon name="home" /><span>Overview</span></a>
+    @if($webinar->isUploadOnly())
+        @if($navCanParticipants)<a href="{{ route('admin.webinars.documents.index', $webinar) }}" class="mobile-workspace-tab {{ request()->routeIs('admin.webinars.documents.*') ? 'mobile-workspace-tab-active' : '' }}" @if(request()->routeIs('admin.webinars.documents.*')) aria-current="page" @endif><x-icon name="folder" /><span>Documents</span></a>@endif
+    @elseif($navCanParticipants)
+        @if($navSelectedForm)<a href="{{ route('admin.forms.edit', [$webinar, $navSelectedForm]) }}" class="mobile-workspace-tab {{ request()->routeIs('admin.forms.*') ? 'mobile-workspace-tab-active' : '' }}" @if(request()->routeIs('admin.forms.*')) aria-current="page" @endif><x-icon name="file-text" /><span>Forms</span></a>@endif
+        <a href="{{ route('admin.responses.index', [$webinar, 'type' => $navSelectedType]) }}" class="mobile-workspace-tab {{ $isParticipants || $isImports ? 'mobile-workspace-tab-active' : '' }}" aria-label="Form Responses" @if($isParticipants || $isImports) aria-current="page" @endif><x-icon name="grid" /><span>Responses</span></a>
+    @elseif($navCanCertificates)
+        <a href="{{ route('admin.certification.edit', $webinar) }}" class="mobile-workspace-tab {{ $isTemplate ? 'mobile-workspace-tab-active' : '' }}" @if($isTemplate) aria-current="page" @endif><x-icon name="image" /><span>Setup</span></a>
+        <a href="{{ route('admin.certificates.studio', $webinar) }}" class="mobile-workspace-tab {{ $isStudio ? 'mobile-workspace-tab-active' : '' }}" @if($isStudio) aria-current="page" @endif><x-icon name="send" /><span>Studio</span></a>
+    @elseif($navCanSend)
+        <a href="{{ route('admin.webinars.messages.index', $webinar) }}" class="mobile-workspace-tab {{ request()->routeIs('admin.webinars.messages.*') ? 'mobile-workspace-tab-active' : '' }}" @if(request()->routeIs('admin.webinars.messages.*')) aria-current="page" @endif><x-icon name="mail" /><span>Messages</span></a>
+    @endif
+    <button type="button" class="mobile-workspace-tab" data-mobile-webinar-nav-toggle aria-controls="mobile-webinar-navigation" aria-expanded="false" aria-label="More webinar navigation"><x-icon name="menu" /><span>More</span></button>
+</nav>

@@ -14,7 +14,7 @@ phones so account state and actions remain visible without horizontal scrolling.
 
 ## North Star
 
-Forms → Form Responses → eligibility review → Certificate Studio. A quiet working interface with the response table as the main surface. No decorative metrics or new visual identity.
+Forms → Form Responses → eligibility review → Certificate Setup → send in Certificate Studio. A quiet working interface with the response table as the main surface. No decorative metrics or new visual identity.
 
 ## Visual language
 
@@ -43,7 +43,7 @@ sharp on 4K displays. The preserved image-generation master and prompt are in
 
 ## Layout and motion
 
-Existing desktop webinar sidebar and mobile drawer. Four form links are navigation tabs with `aria-current`. Response table owns its horizontal and bounded vertical scrolling; forms use document scrolling. Shared navigation feedback and availability switches retain their current behavior. No new motion.
+Existing desktop webinar sidebar and mobile drawer. Overview precedes the workflow in both. Below 1024px, a fixed labeled bar provides Overview, Forms, Responses and More; certificate-only or email-only managers get shortcuts to their permitted tools, and file-storage workspaces get Documents. More opens the same accessible drawer. The bar survives partial navigation, reflects the current route and leaves safe-area-aware space below the last page control and notifications. Four form links are navigation tabs with `aria-current`. Response table owns its horizontal and bounded vertical scrolling; forms use document scrolling. Shared navigation feedback and availability switches retain their current behavior. No new motion.
 
 `workspace-main` owns spacing through `--workspace-gutter` (1rem–3rem), a 96rem
 maximum for ordinary screens and a 140rem maximum for data workspaces below
@@ -69,6 +69,14 @@ only their own fields, retain the attempted title and associate the inline error
 Excel `.xlsx` appears first in both
 add/replace pickers. Legacy `.xls` must be saved as `.xlsx`. Attachments remain
 private, retain original bytes, and do not import responses or publish forms.
+The creation choices describe Responses and certificates versus Private file
+storage only. The storage page explains that attachments do not create response
+tables and gives entitled users the existing new-webinar route for the full
+workflow. Existing storage workspaces are never converted by navigation.
+The standard and assigned overviews share an ordered guide to permitted workflow
+pages; the guide has no inferred completion counter. Live release readiness
+remains separate, with requirements linked to Form Responses / Eligibility
+Settings.
 
 On screens below 640px, response rows become labeled stacked records with the
 participant, submission state and every answer. Long values retain their native

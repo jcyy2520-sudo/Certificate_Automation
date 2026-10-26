@@ -174,7 +174,7 @@ class RequestedImprovementsTest extends TestCase
         $this->assertCount(0, $upload->forms);
         $this->assertCount(0, $upload->certificateTemplates);
         $this->assertCount(0, $upload->eligibilityRules);
-        $this->get(route('admin.webinars.show', $upload))->assertOk()->assertSee('Your webinar is ready');
+        $this->get(route('admin.webinars.show', $upload))->assertOk()->assertSee('No files yet');
         $this->get(route('admin.certification.edit', $upload))->assertNotFound();
         $this->put(route('admin.webinars.update', $upload), ['title' => 'Renamed', 'creation_mode' => 'standard'])->assertSessionHasNoErrors();
         $this->assertTrue($upload->fresh()->isUploadOnly());

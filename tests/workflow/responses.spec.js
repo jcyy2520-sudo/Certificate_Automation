@@ -106,7 +106,9 @@ test('native collection, reviewed imports, eligibility and automatic Studio reci
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(page.getByRole('button', { name: 'Open webinar navigation' })).toBeVisible();
     await page.getByRole('button', { name: 'Open webinar navigation' }).click();
-    await expect(page.getByRole('link', { name: 'Form Responses', exact: true }).filter({ visible: true })).toBeVisible();
+    const webinarNavigation = page.getByRole('dialog', { name: 'Webinar navigation', exact: true });
+    await expect(webinarNavigation).toBeVisible();
+    await expect(webinarNavigation.getByRole('link', { name: 'Form Responses', exact: true })).toBeVisible();
     await page.keyboard.press('Escape');
     await page.screenshot({ path: 'storage/app/private/workflow-mobile-light.png', fullPage: true });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

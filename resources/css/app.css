@@ -326,6 +326,10 @@
     .document-card > a { max-width: 100%; height: auto; min-height: 2.5rem; padding-block: .625rem; overflow-wrap: anywhere; }
     .document-type { @apply inline-flex min-h-10 min-w-12 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-2 text-[10px] font-semibold tracking-wide text-slate-500; }
     .document-empty { @apply px-6 py-12 text-center sm:py-16; }
+    .webinar-workflow-list { list-style: none; }
+    .webinar-workflow-list > li { @apply flex items-start gap-3 border-b border-slate-100 px-5 py-4 last:border-b-0 dark:border-slate-800; }
+    .webinar-workflow-number { @apply grid size-7 shrink-0 place-items-center rounded-full bg-slate-100 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300; }
+    .webinar-workflow-list > li > a { @apply shrink-0 self-center; }
 
     /* Small labels: 0.72rem, uppercase with 0.05em letter spacing */
     .eyebrow {
@@ -604,6 +608,27 @@
     .mobile-workspace-item-active {
         @apply bg-accent-50 text-accent-700 dark:bg-slate-800 dark:text-white;
     }
+
+    .mobile-workspace-tabs {
+        position: fixed;
+        inset: auto 0 0;
+        z-index: 30;
+        display: grid;
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(0, 1fr);
+        gap: .25rem;
+        padding: .375rem max(.5rem, env(safe-area-inset-right)) calc(.375rem + env(safe-area-inset-bottom)) max(.5rem, env(safe-area-inset-left));
+        @apply border-t border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900;
+    }
+
+    .mobile-workspace-tab {
+        @apply flex min-h-13 min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-1 py-1.5 text-slate-600 transition hover:bg-slate-100 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white;
+        font-size: .6875rem;
+        font-weight: 550;
+        line-height: 1.25;
+    }
+    .mobile-workspace-tab svg { @apply size-[18px] shrink-0; }
+    .mobile-workspace-tab-active { @apply bg-slate-900 text-white hover:bg-slate-900 hover:text-white dark:bg-slate-800; }
 
     .rail-item {
         @apply relative flex h-10 shrink-0 items-center gap-3 rounded-lg px-[14px] text-slate-600 transition-colors duration-150;
@@ -1539,6 +1564,8 @@
 /* Shared responsive contracts: document scrolling for forms, local scrolling
    for data, original percentage coordinates for certificate artwork. */
 html { scrollbar-gutter: stable; scroll-padding-top: 5rem; }
+/* Studio scrolls its panels; a reserved root gutter exposes closed drawer edges. */
+html:has(> body[data-app-layout="certificate-studio"]) { scrollbar-gutter: auto; }
 :root { --scrollbar-thumb: #bac2ce; --scrollbar-hover: #939eae; --scrollbar-active: #64748b; --scrollbar-track: transparent; }
 html.dark { --scrollbar-thumb: #52525b; --scrollbar-hover: #71717a; --scrollbar-active: #a1a1aa; }
 * { scrollbar-width: auto; scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track); }
@@ -1604,8 +1631,17 @@ html.dark .navigation-dialog { background: #18181b; color: #fafafa; border-color
 html.overlay-open body { overflow: hidden; }
 .mobile-nav-drawer, .mobile-workspace-drawer { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); height: 100dvh; }
 .mobile-app-header { padding-left: max(.75rem, env(safe-area-inset-left)); padding-right: max(.75rem, env(safe-area-inset-right)); }
+@media (max-width: 1023px) {
+    .webinar-workspace .mobile-app-header { height: calc(3.5rem + env(safe-area-inset-top)); padding-top: env(safe-area-inset-top); }
+    .webinar-workspace .workspace-main { padding-left: max(var(--workspace-gutter), env(safe-area-inset-left)); padding-right: max(var(--workspace-gutter), env(safe-area-inset-right)); padding-bottom: calc(6rem + env(safe-area-inset-bottom)); scroll-padding-bottom: calc(6rem + env(safe-area-inset-bottom)); }
+    .webinar-workspace .toast-viewport { bottom: calc(5rem + env(safe-area-inset-bottom)); }
+}
 .studio-side-panel { max-height: 100%; overscroll-behavior: contain; }
 .studio-topbar { padding-left: max(.75rem, env(safe-area-inset-left)); padding-right: max(.75rem, env(safe-area-inset-right)); }
+@media (max-width: 1279px) {
+    .studio-approval-notice { padding-top: max(.5rem, env(safe-area-inset-top)); padding-left: max(1rem, env(safe-area-inset-left)); padding-right: max(1rem, env(safe-area-inset-right)); }
+    .studio-side-panel { padding-bottom: env(safe-area-inset-bottom); }
+}
 [data-studio] { isolation: isolate; }
 [data-name-correction-modal] > form { max-height: calc(100dvh - 2rem); overflow-y: auto; }
 @media (max-width: 639px) {
@@ -1622,6 +1658,8 @@ html.overlay-open body { overflow: hidden; }
     .page-header-actions > a, .page-header-actions > button { flex: 1 1 auto; height: auto; padding-block: .75rem; text-align: center; }
     .page-header-actions > form { width: 100%; }
     .page-header-actions > form > button { width: 100%; }
+    .webinar-workflow-list > li { display: grid; grid-template-columns: 1.75rem minmax(0, 1fr); padding: 1rem; }
+    .webinar-workflow-list > li > a { grid-column: 2; justify-self: start; max-width: 100%; height: auto; padding-block: .75rem; text-align: left; }
     .document-card { padding: 1rem; }
     .document-upload-form { padding-inline: 1rem; }
     .document-upload-trigger { padding: 1rem; }

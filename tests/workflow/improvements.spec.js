@@ -26,7 +26,7 @@ test('creation mode, uploads and shared dark/light hover surfaces work on a narr
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole('textbox', { name: 'Title', exact: true }).fill('Uploaded forms workflow');
     await page.getByRole('button', { name: 'Create webinar', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Your webinar is ready', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'No files yet', exact: true })).toBeVisible();
     await expect(page).toHaveURL(/\/admin\/webinars\/\d+$/);
     await page.getByText('Add a document', { exact: true }).click();
     await page.getByLabel('Document title', { exact: true }).fill('Private agenda');
@@ -42,7 +42,7 @@ test('creation mode, uploads and shared dark/light hover surfaces work on a narr
     await expect(page.getByText('Version 2', { exact: false })).toBeVisible();
     await page.getByRole('button', { name: 'Remove document', exact: true }).click();
     await page.locator('[data-confirm-accept]').click();
-    await expect(page.getByRole('heading', { name: 'Your webinar is ready', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'No files yet', exact: true })).toBeVisible();
 });
 
 test('message selection counts, confirmation and queue log are separate from certificate generation', async ({ page }) => {

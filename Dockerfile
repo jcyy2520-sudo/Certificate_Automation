@@ -110,6 +110,8 @@ RUN chmod +x /usr/local/bin/entrypoint
 
 # php-fpm and nginx both run as www-data; only these two trees are written to.
 RUN mkdir -p storage/framework/{cache/data,sessions,testing,views} \
+             storage/framework/nginx/client-body \
+             storage/framework/nginx/fastcgi \
              storage/logs \
              storage/app/private \
              bootstrap/cache \

@@ -2,9 +2,13 @@
 @section('title', $webinar->title)
 @section('content')
 <x-page-header :title="$webinar->title" subtitle="Your assigned webinar workspace." />
+@unless($webinar->isUploadOnly())<x-webinar-workflow :webinar="$webinar" />@endunless
 <section class="panel p-6"><p class="text-sm text-slate-500">{{ $webinar->availabilityLabel() }} · {{ $webinar->starts_at?->timezone('Asia/Manila')->format('M j, Y H:i') ?? 'Not scheduled' }}</p>
 @if($webinar->description)<p class="mt-4 whitespace-pre-line text-sm">{{ $webinar->description }}</p>@endif
 <p class="mt-4 text-sm text-slate-500">Your administrator controls assignments and permissions. Contact them if you need additional access.</p></section>
+@if($webinar->isUploadOnly())
+    <section class="panel mt-6 p-5"><h2 class="section-title">Private file storage</h2><p class="mt-2 text-sm leading-6 text-slate-500">This workspace stores attachments. Uploading an Excel workbook does not create response tables, participant forms or certificates. Ask your administrator for a response and certificate webinar if you need those tools.</p></section>
+@endif
 <div class="mt-6 flex flex-wrap gap-3">
 @if($canParticipants)<a class="button-secondary" href="{{ route('admin.webinars.documents.index', $webinar) }}">Uploaded documents</a>
 @unless($webinar->isUploadOnly())<a class="button-secondary" href="{{ route('admin.responses.index', $webinar) }}">Form Responses</a>@endunless @endif

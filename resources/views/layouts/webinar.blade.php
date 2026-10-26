@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="robots" content="noindex, nofollow, noarchive">
     <title>@yield('title', 'Webinar') — {{ config('branding.name') }}</title>
@@ -11,7 +11,7 @@
     @include('partials.theme-init')
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
-<body data-app-layout="webinar" class="bg-slate-50 text-slate-900 dark:text-slate-100">
+<body data-app-layout="webinar" class="webinar-workspace bg-slate-50 text-slate-900 dark:text-slate-100">
 <a href="#main-content" class="skip-link">Skip to content</a>
 <div class="min-h-screen">
     <div class="flex min-h-screen">

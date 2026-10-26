@@ -4,14 +4,29 @@
     $documentContext = old('_document');
     $addErrors = ! $documentContext && $errors->any();
 @endphp
-@section('title', $isWorkspace ? $webinar->title : 'Uploaded forms and documents')
+@section('title', $isWorkspace ? $webinar->title : 'Uploaded documents')
 @section('content')
-<x-page-header :title="$isWorkspace ? $webinar->title : 'Uploaded forms and documents'" subtitle="Keep your webinar's forms and supporting files together in one private workspace.">
-    <x-slot:meta><div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500"><span class="badge badge-slate">Document workspace</span><span>{{ $documents->total() }} {{ Str::plural('document', $documents->total()) }}</span></div></x-slot:meta>
+<x-page-header :title="$isWorkspace ? $webinar->title : 'Uploaded documents'" subtitle="Store original Excel workbooks and supporting files privately.">
+    <x-slot:meta><div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500"><span class="badge badge-slate">{{ $webinar->isUploadOnly() ? 'Private file storage' : 'Document attachments' }}</span><span>{{ $documents->total() }} {{ Str::plural('document', $documents->total()) }}</span></div></x-slot:meta>
     @if(auth()->user()->isAdministrator() || (auth()->user()->canCreateWebinars() && (int) $webinar->created_by === (int) auth()->id()))
         <x-slot:actions><a class="button-secondary" href="{{ route('admin.webinars.edit', $webinar) }}"><x-icon name="settings" class="size-4" />Webinar settings</a></x-slot:actions>
     @endif
 </x-page-header>
+
+<section class="mb-6 text-sm leading-6 text-slate-600" aria-labelledby="document-purpose-heading">
+    <h2 id="document-purpose-heading" class="font-semibold text-slate-900">{{ $webinar->isUploadOnly() ? 'This workspace stores files' : 'Attachments stay separate from responses' }}</h2>
+    <p class="mt-2 max-w-3xl">Uploading a file keeps the original attachment. It does not create response tables, import answers or publish a participant form.</p>
+    @if($webinar->isUploadOnly())
+        <p class="mt-2 max-w-3xl">For response tables, eligibility review and certificates, use a response and certificate webinar.</p>
+        @if(auth()->user()->canCreateWebinars())
+            <a class="mt-3 button-secondary" href="{{ route('admin.webinars.create') }}">Create a response and certificate webinar<x-icon name="chevron-right" class="size-4" /></a>
+        @else
+            <p class="mt-2 max-w-3xl">Ask your administrator to create one or assign you to an existing webinar.</p>
+        @endif
+    @else
+        <a class="mt-2 inline-flex min-h-11 items-center gap-2 font-medium text-accent-700 underline underline-offset-4" href="{{ route('admin.responses.index', $webinar) }}">Open Form Responses to import answers<x-icon name="chevron-right" class="size-4" /></a>
+    @endif
+</section>
 
 <details class="panel document-upload mb-7" @if($addErrors) open @endif>
     <summary class="document-upload-trigger"><span class="flex items-center gap-3"><span class="document-upload-icon"><x-icon name="plus" class="size-5" /></span><span><span class="block font-medium">Add a document</span><span class="mt-1 block text-xs font-normal text-slate-500">Excel workbooks, forms and supporting files</span></span></span><x-icon name="chevron-down" class="size-4 shrink-0 text-slate-400" /></summary>
@@ -60,7 +75,7 @@
             </form>
         </article>
     @empty
-        <div class="panel document-empty xl:col-span-2"><span class="document-upload-icon mx-auto"><x-icon name="folder" class="size-6" /></span><h3 class="mt-4">Your webinar is ready</h3><p class="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">Add forms or supporting files whenever you need them. You can return to this workspace at any time.</p></div>
+        <div class="panel document-empty xl:col-span-2"><span class="document-upload-icon mx-auto"><x-icon name="folder" class="size-6" /></span><h3 class="mt-4">No files yet</h3><p class="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">Use Add a document to store an Excel workbook or supporting file. Each file stays private and can be downloaded later.</p></div>
     @endforelse
     </div>
 </section>

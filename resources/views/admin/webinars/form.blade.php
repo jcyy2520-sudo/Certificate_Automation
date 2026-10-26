@@ -40,7 +40,7 @@
 @endphp
 
 <x-page-header :title="$webinar->exists ? 'Webinar settings' : 'New webinar'" :crumbs="$crumbs"
-               :subtitle="$webinar->exists ? null : 'Choose the standard workflow or a private workspace for uploaded forms and documents.'" />
+               :subtitle="$webinar->exists ? null : 'Choose response management and certificates, or private file storage.'" />
 
 <form novalidate method="POST" action="{{ $webinar->exists ? route('admin.webinars.update', $webinar) : route('admin.webinars.store') }}" class="w-full max-w-5xl">
     @csrf
@@ -49,11 +49,14 @@
     @if(! $webinar->exists)
     <section class="panel mb-5 p-5">
         <label class="field-label" for="creation-mode">Webinar type</label>
-        <select id="creation-mode" name="creation_mode" class="field" data-webinar-creation-mode>
-            <option value="standard" @selected(old('creation_mode', 'standard') === 'standard')>Standard Webinar</option>
-            <option value="uploads" @selected(old('creation_mode') === 'uploads')>Upload Forms Only</option>
+        <select id="creation-mode" name="creation_mode" class="field" data-webinar-creation-mode aria-describedby="creation-mode-help">
+            <option value="standard" @selected(old('creation_mode', 'standard') === 'standard')>Responses and certificates</option>
+            <option value="uploads" @selected(old('creation_mode') === 'uploads')>Private file storage only</option>
         </select>
-        <p class="mt-2 text-sm text-slate-500">Standard creates registration, assessments, evaluation and certificate setup. Upload Forms Only needs a title; add private documents after creation.</p>
+        <div id="creation-mode-help" class="mt-3 space-y-2 text-sm leading-6 text-slate-500">
+            <p><strong class="font-medium text-slate-700">Responses and certificates</strong> includes the four participant forms, CSV/Excel response imports, eligibility review and certificate tools.</p>
+            <p><strong class="font-medium text-slate-700">Private file storage only</strong> needs a title and stores attachments. It has no response tables, participant forms or certificate tools.</p>
+        </div>
     </section>
     @endif
     @if(! $webinar->exists)

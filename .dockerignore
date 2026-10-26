@@ -20,6 +20,7 @@ public/storage
 storage/app/private
 storage/app/public
 storage/framework/cache
+storage/framework/nginx
 storage/framework/sessions
 storage/framework/views
 storage/framework/testing
